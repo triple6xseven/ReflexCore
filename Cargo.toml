@@ -1,0 +1,20 @@
+[package]
+name = "reflexcore"
+version = "0.7.1-alpha.1"
+edition = "2021"
+license = "MIT"
+description = "Experimental native cognitive runtime"
+
+[dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_UI_Accessibility"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+rusqlite = { version = "0.43", features = ["bundled"] }
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

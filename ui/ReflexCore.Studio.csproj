@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ReflexCore.Studio</AssemblyName>
+    <DebugType>none</DebugType>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="WindowsFormsIntegration" />
+    <Resource Include="Art/*.png" />
+  </ItemGroup>
+</Project>

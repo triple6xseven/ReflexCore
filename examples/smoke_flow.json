@@ -1,0 +1,11 @@
+{
+  "schema": "reflexcore.flow.v1",
+  "name": "Local Windows Forms integration test",
+  "window": "ReflexCore Test Window",
+  "steps": [
+    { "action": "set-value", "name": "ReflexCore Input", "value": "ReflexCore verified 010" },
+    { "action": "assert-value", "name": "ReflexCore Input", "value": "ReflexCore verified 010" },
+    { "action": "invoke", "name": "Apply" },
+    { "action": "assert-value", "name": "ReflexCore Output", "value": "ReflexCore verified 010", "retries": 3 }
+  ]
+}

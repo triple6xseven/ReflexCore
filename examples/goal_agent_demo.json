@@ -1,0 +1,15 @@
+{
+  "schema": "reflexcore.goal.v1",
+  "name": "fixture-verify",
+  "initial_state": "idle",
+  "goal_state": "verified",
+  "skills": [
+    {
+      "id": "verified-fixture-flow",
+      "from": "idle",
+      "to": "verified",
+      "flow": "demo",
+      "cost": 1
+    }
+  ]
+}

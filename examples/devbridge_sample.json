@@ -1,0 +1,11 @@
+{
+  "schema": "reflexcore.devpatch.v1",
+  "name": "devbridge-probe-020",
+  "writes": [
+    {
+      "path": "examples/reflex_dev_probe.rs",
+      "content": "fn main() {\n    println!(\"ReflexCore Dev Bridge: local patch compiled\");\n}\n",
+      "expected_sha256": null
+    }
+  ]
+}

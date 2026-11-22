@@ -1,0 +1,70 @@
+# Windows acceptance measurements
+
+Local interactive Windows 11 host in the 8 GiB RAM / 4 GiB GPU class. Measurements use the installed Preview3 FIX4 source as baseline and a separately built candidate. Tests use synthetic data. This is an experimental release.
+
+| Workload | Baseline | Candidate |
+|---|---|---|
+| Real Notepad, fixed ASCII task | 0/1 disk verification, exit after 38.6 s including PowerShell startup. UIA found an editor. VLM reported other / editable. | 20/20 disk verification in Auto, alternating ASCII and Unicode. 0 model requests. Warm skill, p50 752 ms, p95 890 ms. |
+| Native Unicode fallback | Packet-input experiment failed the editor readback before Save on modern Notepad. | 1/1 forced native editor write verified from disk, including a supplementary-plane character. |
+| WinForms Goal Agent, four UIA steps, 1 warmup + 3 measured | 3/3, p50 1,501 ms, p95 1,890 ms | 3/3, p50 1,108 ms, p95 1,277 ms |
+| Plan a 2,048-edge chain, 20 paired process launches after two warmups | p50 42.0 ms, p95 58.2 ms | Identical plans, p50 32.4 ms, p95 55.1 ms |
+| Release executable | 1,045,504 bytes | 2,788,352 bytes including bundled SQLite |
+| Rust tests | 71 passed | 72 passed |
+
+Notepad timings start inside the supervisor and include opening the document, verification and test-tab cleanup. The test runner reuses the PowerShell host across trials. The failed baseline supports a correctness comparison only. The early packet-input experiment narrowed the error to the text-entry stage. Its precise Windows-internal cause is undetermined. There is no successful baseline Notepad latency to use for a speedup claim.
+
+The 2B Visual route also completed one real Notepad run and read back the file (one model request, 20.4 s). The 4B Visual run stopped when the foreground editor could not be revalidated after inference. No subsequent input was authorized for that run. The automated native route supplies the repeatable result.
+
+The final WPF Studio displayed six hosted operator pages and the 45-theme appearance page. The prior WinForms Control Center also displayed all six actual pages and exposed the new Notepad task control. Citadel passed seven JavaScript suites and four syntax checks. The release executable served 30 synthetic JSONL IPC samples at p50 0.409 ms and p95 0.670 ms. IPC timing excludes GUI and model work. Explicit missing consent and headless input were rejected. Skill-memory tests cover corrupt, oversized, cross-family and unknown descriptors. Rust memory tests cover route changes, content invalidation and row bounds.
+
+## Model comparison
+
+Two passes over six fixed tasks per model, with context 2,048, temperature 0, seed 1 and at most 32 generated tokens. The first request starts cold. The other 11 requests include text and image work. Images are two colors and two labeled button layouts. The text prompts ask for a structured action. Response correctness is exact and checks the JSON shape.
+
+| Model | Text | Images | Cold first request | Warm p50 / p95 | Generated tokens/s | Sampled model / VRAM MiB | Minimum sampled available system RAM |
+|---|---|---|---:|---:|---:|---:|---:|
+| Qwen3-VL 2B Instruct | 2/4 | 8/8 | 6.93 s | 0.31 / 12.25 s | 59.0 | 1,683 / 1,683 | 1,583 MiB |
+| Qwen3-VL 4B Instruct | 4/4 | 8/8 | 11.57 s | 1.41 / 19.59 s | 9.1 | 3,496 / 1,748 | 782 MiB |
+
+Model and VRAM figures come from Ollama's resident-model endpoint after requests. Host availability includes other processes. Generation rate excludes image encoding and prompt evaluation. An earlier comparison produced the same accuracy counts but different cold times. Model unload was checked between runs. The small repeated task set does not establish general GUI accuracy.
+
+## Diagnostics overhead
+
+One 8-second hidden and one 8-second visible interval per build in a fresh Windows PowerShell process, sampled at 50 ms. Numbers include the benchmark message pump. The candidate pauses the diagnostics timer while the embedded view is hidden.
+
+| View | Baseline process CPU / peak working set | Candidate process CPU / peak working set |
+|---|---:|---:|
+| Hidden | 672 ms / 95.7 MiB | 547 ms / 91.4 MiB |
+| Visible | 969 ms / 101.8 MiB | 891 ms / 101.4 MiB |
+
+These short measurements include host scheduling noise. GPU overhead of the interface was not isolated. Models were benchmarked on the shared desktop, and some development or fixture activity overlapped. Reported maxima are sampled values.
+
+## Reproduction
+
+Run the following from the repository root in Windows PowerShell after the release build. The Notepad tests take foreground control of their own fixtures. The model comparison starts with an idle Ollama server and requires both tags to be installed.
+
+~~~powershell
+cargo test --locked
+cargo build --release --locked
+.\tasks\Test-SkillMemory.ps1
+.\tasks\Test-NotepadSkill.ps1 -AllowInput -Runs 20
+.\tools\ReflexCore-VisionLoop.ps1 -Action DemoNotepad -AllowInput -TestFixture -UnicodeFixture -TestNativeInput
+.\tools\Run-ReflexBenchmark.ps1 -Runs 3 -Warmups 1 -AllowVisibleUI
+.\tools\Benchmark-ReflexLatency.ps1 -Samples 30
+.\tasks\Test-Citadel.ps1
+.\tasks\Compare-LocalModels.ps1
+.\tasks\Measure-Diagnostics.ps1 -Project . -Seconds 8
+py .\tasks\compare_goal_planner.py <baseline-executable> <candidate-executable>
+~~~
+
+
+A second paired WinForms fixture run matched the five-run acceptance protocol with one excluded warmup. The baseline verified 5/5 at p50 1,087 ms and p95 1,156 ms. The final Rust engine verified 5/5 at p50 1,121 ms and p95 1,170 ms. Across the two series this fixture shows no repeatable latency improvement. See [Studio](STUDIO.md) for full-shell overhead.
+
+## Compared source SHA-256 values
+
+| Source | Installed baseline | Candidate |
+|---|---|---|
+| src/agent.rs | 5ce4fa8bcd4d6c2a3205c16938781a9c9fdcf1755feef5bfaf0682eea34ccea5 | 9b03aba9ec90886e93d27d96249b37b9d9e4dc9a49162d0859fa04a50b9d82af |
+| tools/ReflexCore-VisionHost.cs | 68f8274d483ed98e85a924fedfbfcb01be23c96153ba445d1f9efc9e2dcde465 | c4bbf80d64a232ace719df836dc3ad2e27deee06834dc794c54923dba0c09a14 |
+| tools/ReflexCore-VisionLoop.ps1 | dd618f74f8175ed89fbbf1440ee744530e6ba15615288be63e7aea2cee2fec49 | 8dda8e5bd561ca158f2efb0bb32faa6b2ad76185a85f7d7253bd977f119547b5 |
+| tools/ReflexCore-Diagnostics.cs | 7796fd7a079406795dee809ae96a36c1547dcb82f6bbdd53ec505ce00b2b0ff1 | aaa80d3a8899a43eb207b2330e519849371aa27d84ec14c3fa1e6b179dcd7688 |

@@ -1,0 +1,60 @@
+# Isolated local Windows Forms test fixture. No network, admin or file writes.
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'ReflexCore Test Window'
+$form.Name = 'RcFixture'
+$form.Width = 520
+$form.Height = 240
+$form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedDialog'
+$form.MaximizeBox = $false
+
+$label = New-Object System.Windows.Forms.Label
+$label.Text = 'Input:'
+$label.Left = 20
+$label.Top = 24
+$label.AutoSize = $true
+
+# Store controls in script scope: event callbacks execute in a new scope.
+# Never use $input here: it is a PowerShell automatic variable.
+$script:RcInputBox = New-Object System.Windows.Forms.TextBox
+$script:RcInputBox.Name = 'RcInput'
+$script:RcInputBox.AccessibleName = 'ReflexCore Input'
+$script:RcInputBox.Left = 105
+$script:RcInputBox.Top = 20
+$script:RcInputBox.Width = 350
+
+$apply = New-Object System.Windows.Forms.Button
+$apply.Name = 'RcApply'
+$apply.Text = 'Apply'
+$apply.AccessibleName = 'Apply'
+$apply.Left = 105
+$apply.Top = 68
+$apply.Width = 140
+
+$outputLabel = New-Object System.Windows.Forms.Label
+$outputLabel.Text = 'Output:'
+$outputLabel.Left = 20
+$outputLabel.Top = 125
+$outputLabel.AutoSize = $true
+
+$script:RcOutputBox = New-Object System.Windows.Forms.TextBox
+$script:RcOutputBox.Name = 'RcOutput'
+$script:RcOutputBox.AccessibleName = 'ReflexCore Output'
+$script:RcOutputBox.Left = 105
+$script:RcOutputBox.Top = 122
+$script:RcOutputBox.Width = 350
+$script:RcOutputBox.ReadOnly = $true
+
+# Explicit script-scoped references survive the WinForms Click event scope.
+$apply.Add_Click({
+    $script:RcOutputBox.Text = $script:RcInputBox.Text
+})
+$form.Controls.AddRange(@(
+    $label, $script:RcInputBox, $apply, $outputLabel, $script:RcOutputBox
+))
+[System.Windows.Forms.Application]::Run($form)

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ReflexCore | Akvarium Arena 3D</title>
+<link rel="stylesheet" href="/ocean-arena.css">
+<canvas aria-label="Explorable underwater world"></canvas>
+<header><div><strong>Quiet Depths</strong><span id="location">Turquoise Canyon</span></div><div id="readout"><div id="depth"></div><span id="survey"></span><span id="coins"></span></div></header>
+<footer><span id="keys">WASD · Swim　 Mouse · Look　 Left-click · Capture　 Right-click · Release</span><span id="touch"><button data-move="KeyW">Forward</button><button data-move="KeyS">Back</button><button data-move="Space">Rise</button><button data-move="KeyC">Dive</button></span><span><select id="destination" aria-label="Dive location"><option value="">Dive sites</option><option value="kelp">Kelp Forest</option><option value="tail">Stone Fluke</option><option value="wreck">Shipwreck</option><option value="grotto">Jellyfish Grotto</option><option value="vents">Vent Field</option><option value="forum">Sunken Forum</option></select> <button id="fullscreen" aria-label="Fullscreen">⛶</button> <button id="reset">Restart</button></span><span id="gear"><button id="sonar" title="Q">Sonar</button> <button id="lamp" title="L" aria-pressed="false">Lamp</button> <button id="cinema" title="M" aria-pressed="false">Cinema</button> <button id="film" title="V">Flythrough</button> <details id="help">
+<summary>Controls</summary>
+<dl>
+<dt>WASD / arrows</dt><dd>Swim</dd>
+<dt>Mouse / touch drag</dt><dd>Look around</dd>
+<dt>Left-click</dt><dd>Capture cursor</dd>
+<dt>Right-click / Esc</dt><dd>Release cursor</dd>
+<dt>Space / C</dt><dd>Rise / dive</dd>
+<dt>Shift</dt><dd>Swim faster</dd>
+<dt>F</dt><dd>Toggle fullscreen</dd>
+<dt>H</dt><dd>Toggle HUD</dd>
+<dt>L</dt><dd>Toggle lamp</dd>
+<dt>Q</dt><dd>Sonar pulse</dd>
+<dt>M</dt><dd>Toggle Cinema camera</dd>
+<dt>V</dt><dd>Start or stop Flythrough</dd>
+<dt>Esc</dt><dd>Stop Flythrough</dd>
+</dl></details></span></footer>
+<div id="cinema-shade" aria-hidden="true"></div><div id="coin-note" role="status" hidden></div>
+<div id="cut" aria-hidden="true"></div><button id="stop-film" hidden>Exit flythrough · V</button>
+<p id="status" hidden></p>
+<script src="/ocean-arena.js"></script>
+</html>
