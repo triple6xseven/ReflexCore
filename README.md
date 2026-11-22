@@ -1,4 +1,4 @@
-# ReflexCore Engine
+# ReflexCore Engine EARLY BETA
 
 ReflexCore is a local Windows task engine with a Rust goal planner, Windows UI Automation executors and an optional Ollama vision model. The experimental 0.7.1-alpha.2 release queues verified desktop tasks, retains their outcomes and reuses successful editor methods.
 
