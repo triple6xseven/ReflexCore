@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+* Add a Counter-Strike 1.6 benchmark that measures one actor's rounds using GoldSrc server events. Report plant evidence, spawn and freeze-end timing, failures and optional easy-bot results.
+* Add loopback listen-server discovery, GoldSrc demo pose parsing and bounded waypoint drafting and validation. See [CS 1.6 offline benchmark](docs/CS16-BENCHMARK.md).
+
 ## 0.7.1-alpha.2 · Supervised desktop queue
 
 * Queue Studio's UIA and two Notepad actions in the existing tray. Keep a bounded local history with selected approval and cancellation.

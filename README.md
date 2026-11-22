@@ -18,6 +18,8 @@ In **Агент**, select **БЛОКНОТ · СОЗДАТЬ ФАЙЛ** to queue
 
 ## Running from the terminal
 
+The offline Counter-Strike 1.6 benchmark scores official game logs and reads first-person demos. See [CS 1.6 benchmark](docs/CS16-BENCHMARK.md) for capture, evidence and timing.
+
 ~~~powershell
 # Read-only symbolic plan, then execute the verified WinForms fixture.
 .\target\release\reflexcore.exe agent plan .\examples\goal_agent_demo.json

@@ -16,6 +16,16 @@ mod agent;
 mod unified;
 #[cfg(windows)]
 mod citadel_bridge;
+#[cfg(windows)]
+mod cs16;
+#[cfg(windows)]
+mod cs16_benchmark;
+#[cfg(windows)]
+mod cs16_demo;
+#[cfg(windows)]
+mod cs16_probe;
+#[cfg(windows)]
+mod cs16_route;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -350,6 +360,7 @@ COMMANDS:
   flow <command>   Validate/run local UI automation scenarios
   agent <command>  Plan and run verified goal skills
   unified <command>  Bounded CS16 goal coordinator (no SendInput)
+  cs16 <command>   Inspect Counter-Strike 1.6 telemetry and benchmark offline rounds
   citadel-bridge serve  JSONL Rust Goal Agent for Citadel
   help             Show commands
 
@@ -390,6 +401,11 @@ fn main() -> Result<()> {
     #[cfg(windows)]
     if command == "citadel-bridge" {
         return citadel_bridge::run(&args[1..]);
+    }
+
+    #[cfg(windows)]
+    if command == "cs16" {
+        return cs16::run(&args[1..]);
     }
 
     // Do not read potentially broken demo state for independent tools or help.
