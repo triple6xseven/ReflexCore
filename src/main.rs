@@ -25,6 +25,8 @@ mod cs16_demo;
 #[cfg(windows)]
 mod cs16_probe;
 #[cfg(windows)]
+mod cs16_practice;
+#[cfg(windows)]
 mod cs16_route;
 
 use serde::{Deserialize, Serialize};

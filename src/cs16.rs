@@ -1,7 +1,7 @@
 use crate::{
     cs16_benchmark,
     cs16_demo::DemoReader,
-    cs16_probe,
+    cs16_practice, cs16_probe,
     cs16_route::{Navigator, Pose, Route},
     Result,
 };
@@ -12,6 +12,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
         Some("benchmark") => cs16_benchmark::run(args),
         Some("probe") => cs16_probe::run(args),
+        Some("practice") => cs16_practice::run(args),
         Some("demo") if args.len() == 2 => inspect_demo(Path::new(&args[1])),
         Some("route-check") if args.len() == 3 => check_route(Path::new(&args[1]), Path::new(&args[2])),
         Some("route-draft") if args.len() == 5 => {

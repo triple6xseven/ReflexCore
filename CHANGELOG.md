@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Offline practice experiment
+
+* Add an isolated AMX Mod X adapter, Rust waypoint driver, and original de_reflex_lab map generator. The loopback test verified startup, fake-client spawn and engine-issued C4. The movement test stopped when the GameDLL kept the actor at maxspeed 1.00, including with a stationary CT present. Plant and bot win remain unverified.
+* Resume with neutral player ticks after team/class selection. Read the real joining state and speed before restarting the round. Keep normal movement and plant rules. Re-run the original fixture before Dust II.
+* The tested server uses Valve steam_legacy assets, ReHLDS 3.15.0.896, Metamod 1.21.1-am and AMX Mod X 1.10.0.5488. Set the isolated server's `rc_practice_enabled` and `sv_lan` to 1, use `+ip 127.0.0.1 +servercfgfile rc-practice.cfg +map de_reflex_lab`, and load the compiled Pawn adapter through AMX Mod X. Run `cs16 practice <mailbox> <route.json> --allow-offline --stationary-opponent`. Use the actual server log to score the result.
+
 * Add a Counter-Strike 1.6 benchmark that measures one actor's rounds using GoldSrc server events. Report plant evidence, spawn and freeze-end timing, failures and optional easy-bot results.
 * Add loopback listen-server discovery, GoldSrc demo pose parsing and bounded waypoint drafting and validation. See [CS 1.6 offline benchmark](docs/CS16-BENCHMARK.md).
 * Generate walking routes from an installed GoldSrc BSP and validate the standing hull and target volume. Static checks passed for both Dust II plant volumes.
