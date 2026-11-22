@@ -1,5 +1,21 @@
 # Windows acceptance measurements
 
+## 0.7.1-alpha.2 · Desktop queue and focus
+
+Windows 11, same 8 GiB / 4 GiB GPU host. The native Notepad fixture verified 20/20 files, with 20 memory hits, zero model calls and p50/p95 of 746/766 ms. Timing starts inside the supervisor. It excludes time waiting in the queue. The previous series measured 752/890 ms. These small series establish correct reuse on this host.
+
+Submitting a manifest via the earlier Studio PowerShell child took p50/p95 of 416.13/739.00 ms. In-process submission took 1.75/2.96 ms. Each route produced 20/20 valid manifests in alternating order after one excluded warmup, on a temporary local directory. Run tasks/Measure-Queue.ps1 to reproduce. This measures creating a pending entry. Tray polling, worker launch, UI execution, rendering and cloud-folder synchronization are outside the interval.
+
+In one early mixed queue trial the second Notepad task failed to finish successfully. The test did not capture the failing stage. Four subsequent full mixed runs completed both real Notepad files and the intervening Rust UIA goal, followed by another passing release check. Each successful pair used two separate workers and zero model calls. The targeted cancellation test stopped during real local 2B inference. Its file remained empty. Two runs observed 320 ms and 143 ms from the cancellation request to the terminal receipt, including client and model cleanup.
+
+On the earlier 4B route one run rejected the editor. An instrumented repeat observed the owned editor before inference and a different foreground afterward. Preloading the cold model before launching the editor gave three successful disk readbacks in 37.77, 31.33 and 31.37 s. The final build repeated the test in 32.10 s. All four returned an editor-positive model answer with a conflicting application label. Windows ownership checks and exact file contents supported the successes. The observed focus change has no confirmed external cause. These runs do not measure general desktop vision accuracy.
+
+The queue checks cover fresh approval, old claims, cancellation while another worker runs, process exclusion, nonzero exits, stop-all and bounded history. Studio smoke also clicks all three submit actions, selects a real row and verifies its approval and cancellation markers in an isolated store.
+
+The alpha.1 baseline VisionLoop SHA-256 was `8dda8e5bd561ca158f2efb0bb32faa6b2ad76185a85f7d7253bd977f119547b5`. The alpha.2 VisionLoop SHA-256 is `ac04fb35fcee73945869b7cbd646a7f15bcca4646338c0c35c609c70a31d505e`. The baseline and candidate Control Center hashes are `63fe915fcdab5ea8b693a9b5222613e49fc43790c2a7a1bfde6b8e1764f59432` and `90b20941cca94bb9fe2f9e09c5b116c92684d8ca1c9b46e1ce64250a1e3614ac`. The queue implementation hash is `56d55ef1af2f18462c804589d7f554c505b65cb13275cb3190c1e0a6032f2b29`.
+
+## 0.7.1-alpha.1 · Baseline and native routes
+
 Local interactive Windows 11 host in the 8 GiB RAM / 4 GiB GPU class. Measurements use the installed Preview3 FIX4 source as baseline and a separately built candidate. Tests use synthetic data. This is an experimental release.
 
 | Workload | Baseline | Candidate |

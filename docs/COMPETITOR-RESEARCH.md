@@ -1,5 +1,11 @@
 # Upstream engineering decisions
 
+## Desktop queue
+
+Hatchet documents concurrency limits keyed by a shared resource. ReflexCore's supervised tasks share the interactive desktop. We use one named Windows mutex across queued workers and the existing tray spool. This fits the deployment on a single Windows session and keeps the queue usable offline. The waiting worker rechecks its claim after acquiring even an abandoned mutex. The acceptance test starts two competing worker processes and verifies that they enter in sequence. Sources include [Hatchet concurrency](https://docs.hatchet.run/v1/concurrency) and [Microsoft's mutex ownership contract](https://learn.microsoft.com/en-us/dotnet/api/system.threading.abandonedmutexexception).
+
+## Agent and interaction systems
+
 Sources were read at the linked commits. The table identifies the selected implementation or contract, the corresponding ReflexCore component, integration cost and observed result. Study depth varied by project. Selected code, tests and manifests were inspected; upstream projects and benchmark suites were not run on this machine. Measurements below concern ReflexCore. No third-party agent source was copied into the runtime.
 
 | Source and pinned file | Observed technique | ReflexCore decision and cost | Repository license | Result |

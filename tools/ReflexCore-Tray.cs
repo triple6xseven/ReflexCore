@@ -165,6 +165,8 @@ namespace ReflexCore.Bridge
         private readonly System.Windows.Forms.Timer tick;
         private Process active;
         private string activeJob;
+        private readonly QueueStore queue;
+        private bool notepadActive;
         private bool cancelled;
         private bool hotkeyRegistered;
         private bool exiting;
@@ -177,8 +179,10 @@ namespace ReflexCore.Bridge
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
 
-        public TrayWindow(string rootPath)
+        private readonly bool isolated;
+        public TrayWindow(string rootPath,bool isolated=false)
         {
+            this.isolated=isolated;
             root = Path.GetFullPath(rootPath);
             bridge = Path.Combine(root, "data", "bridge");
             pending = Path.Combine(bridge, "pending");
@@ -187,6 +191,7 @@ namespace ReflexCore.Bridge
             controlPath = Path.Combine(bridge, "control.txt");
             Directory.CreateDirectory(pending);
             Directory.CreateDirectory(running);
+            queue=new QueueStore(root);queue.Recover();
             sessionStartedUtc = DateTime.UtcNow;
             activityPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "ReflexCore", "runtime", "activity.json");
@@ -242,7 +247,7 @@ namespace ReflexCore.Bridge
             icon.ContextMenuStrip = menu;
             icon.Icon = SystemIcons.Information;
             icon.Text = "ReflexCore | ready";
-            icon.Visible = true;
+            icon.Visible = !isolated;
             string dragonIcon = Path.Combine(root,"assets","reflex_dragon.ico");
             if(File.Exists(dragonIcon)) { try { icon.Icon = new Icon(dragonIcon); } catch(Exception) {} }
             icon.MouseDoubleClick += delegate(object s, MouseEventArgs e) {
@@ -271,9 +276,9 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
 
             // Force creation of a Win32 handle to receive WM_HOTKEY while hidden.
             IntPtr hwnd = Handle;
-            hotkeyRegistered = RegisterHotKey(hwnd, HotkeyId, 0x4003u, 0x50u); // ALT+CTRL+NOREPEAT, P
+            hotkeyRegistered = !isolated && RegisterHotKey(hwnd, HotkeyId, 0x4003u, 0x50u); // ALT+CTRL+NOREPEAT, P
             WriteStatus(-1);
-            hud.Show();
+            if(!isolated)hud.Show();
 
             tick = new System.Windows.Forms.Timer();
             tick.Interval = 450;
@@ -281,8 +286,8 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 try { Pump(); PollActivity(); }
                 catch (Exception) { SetState("error", -1, "Bridge error; check local files"); }
             };
-            tick.Start();
-            if (!hotkeyRegistered) toast.Display("Ctrl+Alt+P unavailable; use tray Stop");
+            if(!isolated)tick.Start();
+            if (!isolated && !hotkeyRegistered) toast.Display("Ctrl+Alt+P unavailable; use tray Stop");
         }
 
         protected override void SetVisibleCore(bool value)
@@ -332,7 +337,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             WriteStatus(code);
             string dragon = Path.Combine(root,"assets","reflex_dragon.ico");
             if(File.Exists(dragon)) { try { icon.Icon = new Icon(dragon); } catch(Exception) {} }
-            if (notification != null && notification.Length > 0) toast.Display(notification);
+            if (!isolated && notification != null && notification.Length > 0) toast.Display(notification);
         }
 
         // Never render raw strings from another process into the UI.
@@ -432,10 +437,15 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             {
                 try
                 {
+                    if(queue.Requested(path,"cancel")){queue.Finish(path,"cancelled");continue;}
+                    var info=new FileInfo(path);
+                    if((info.Attributes&FileAttributes.ReparsePoint)!=0 || info.Length>256)
+                        throw new InvalidDataException("Invalid job file");
                     string[] lines = File.ReadAllLines(path);
                     if (lines.Length != 2) throw new Exception("Invalid job manifest");
                     bool auto = lines[0] == "RUN";
-                    if (!approvedByUser && (!auto || File.GetCreationTimeUtc(path) < sessionStartedUtc)) continue;
+                    if(!auto && lines[0]!="REVIEW")throw new InvalidDataException("Invalid queue mode");
+                    if (!approvedByUser && !queue.Requested(path,"approve") && (!auto || File.GetCreationTimeUtc(path) < sessionStartedUtc)) continue;
                     string name = lines[1];
                     if (!Regex.IsMatch(name, @"^[a-zA-Z0-9_-]{1,70}\.ps1$"))
                         throw new Exception("Invalid task name");
@@ -450,10 +460,14 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     File.Move(path, moved);
                     activeJob = moved;
                     cancelled = false;
+                    notepadActive=name=="notepad-save.ps1" || name=="notepad-visual.ps1";
                     ProcessStartInfo psi = new ProcessStartInfo();
                     psi.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
                         @"WindowsPowerShell\v1.0\powershell.exe");
-                    psi.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + script + "\"";
+                    string file=Path.GetFileName(moved);
+                    if(!Regex.IsMatch(file,@"\A[a-zA-Z0-9_-]{1,100}\.job\z"))throw new InvalidDataException("Invalid job filename");
+                    psi.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""
+                        +Path.Combine(root,"tools","ReflexCore-QueuedWorker.ps1")+"\" -Manifest "+file;
                     psi.WorkingDirectory = root;
                     psi.UseShellExecute = false;
                     psi.CreateNoWindow = true;
@@ -472,7 +486,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 }
                 catch (Exception)
                 {
-                    if (activeJob != null && File.Exists(activeJob)) File.Delete(activeJob);
+                    if(activeJob!=null)queue.Finish(activeJob,"failed");
                     activeJob = null;
                     if (active != null)
                     {
@@ -485,7 +499,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                         catch (Exception) { }
                         active.Dispose(); active = null;
                     }
-                    if (File.Exists(path)) File.Delete(path);
+                    if(File.Exists(path))queue.Finish(path,"failed");
                     SetState("failed", -1, "Invalid job; no task executed");
                 }
             }
@@ -498,7 +512,14 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 toast.Display("No supervised job running");
                 return;
             }
+            if(active.HasExited)return;
             cancelled = true;
+            if(notepadActive){
+                // Never tree-kill an editor that can share processes with personal tabs.
+                queue.Request(QueueStore.IdOf(activeJob),"cancel");
+                SetState("stopping",-1,"Waiting for guarded Notepad task to stop");
+                return;
+            }
             try
             {
                 if (!active.HasExited)
@@ -529,13 +550,14 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         {
             // These manifests belong to this tray supervisor only. Do not touch other Windows processes.
             foreach(string file in Jobs()){
-                try{File.Delete(file);}catch{}
+                try{queue.Finish(file,"cancelled");}catch(IOException){}
             }
             if(active!=null)StopJob();
             else SetState("stopped",-1,"All supervised Reflex tasks stopped");
         }
         private void Pump()
         {
+            queue.CancelPending();
             if (File.Exists(controlPath))
             {
                 string action = File.ReadAllText(controlPath).Trim().ToLowerInvariant();
@@ -546,12 +568,16 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             }
             if (active != null)
             {
+                if(!active.HasExited && !cancelled && queue.Requested(activeJob,"cancel"))StopJob();
                 if (active.HasExited)
                 {
                     int code = active.ExitCode;
                     active.Dispose();
                     active = null;
-                    if (activeJob != null && File.Exists(activeJob)) File.Delete(activeJob);
+                    if(activeJob!=null){
+                        cancelled=cancelled || (code!=0 && queue.Requested(activeJob,"cancel"));
+                        queue.Finish(activeJob,cancelled ? "cancelled" : code==0 ? "completed" : "failed");
+                    }
                     activeJob = null;
                     if (cancelled) SetState("stopped", -1, "Agent stopped");
                     else if (code == 0) SetState("completed", 0, "Agent finished successfully");
@@ -562,7 +588,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             int count = PendingCount();
             if (count != lastPending)
             {
-                if (count > lastPending && count > 0 && lastPending >= 0)
+                if (!isolated && count > lastPending && count > 0 && lastPending >= 0)
                     toast.Display("New local task queued");
                 lastPending = count;
                 WriteStatus(currentState == "completed" ? 0 : -1);

@@ -1,4 +1,4 @@
-## Active runtime in 0.7.1-alpha.1
+## Active runtime in 0.7.1-alpha.2
 
 DemoNotepad defaults to the guarded native editor route. Use -Route Visual to request the VLM evidence gate in addition to Windows identity checks. Both routes require -AllowInput, an owned foreground editor and exact disk readback. See BENCHMARKS.md for acceptance results. The notes below are historical.
 

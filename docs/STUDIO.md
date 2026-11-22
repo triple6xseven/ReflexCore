@@ -16,6 +16,8 @@ Selecting a theme updates both WPF resources and the hosted page colors. Only an
 
 ### Verification
 
+The Agent page submits its three built-in tasks to the tray. Select an entry to approve or cancel it. The WPF smoke submits all three using an isolated queue and checks that the selected entry receives the requested commands. See [queue and recovery](QUEUE.md).
+
 Build with `dotnet build ui/ReflexCore.Studio.csproj -c Release`. The launcher builds the assembly when it is missing. After editing UI sources run the build again. The Windows UI smoke shows the real window, navigates six hosted pages, opens Appearance, switches all 45 themes in memory, filters the gallery, checks compact navigation and both caption modes, and checks history. It does not write the operator's theme preference.
 
 ~~~powershell

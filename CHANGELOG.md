@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1-alpha.2 · Supervised desktop queue
+
+* Queue Studio's UIA and two Notepad actions in the existing tray. Keep a bounded local history with selected approval and cancellation.
+* Serialize workers across tray generations. Require fresh approval for old pending jobs and record lost claims as interrupted.
+* Preload a cold visual model before opening the owned editor. Poll for cancellation during local inference and revalidate the foreground before input.
+* Exercise the real Studio buttons, separate worker processes, stop and recovery on Windows. See [acceptance measurements](docs/BENCHMARKS.md).
+
 ## 0.7.1-alpha.1 · Experimental
 
 * Route a new-file Notepad task through Windows UI Automation, with an optional Ollama visual check and native Unicode editing fallback. Verify both the editor and the saved file.

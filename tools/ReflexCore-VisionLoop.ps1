@@ -46,6 +46,7 @@ $script:lastTps=0.0
 $script:lastOutputTokens=0
 $script:modelLoadedAtStart=$null
 $script:apiRequests=0
+$script:loadRequested=$false
 $hudCapturePath=Join-Path $runtime 'hud-capture.signal'
 
 function Write-Stage([string]$stage,[string]$result='pending') {
@@ -65,6 +66,7 @@ function Write-Stage([string]$stage,[string]$result='pending') {
     }
 }
 function Require-NotStopped {
+    if(Test-QueueCancelled){throw 'Stopped by operator; queue claim cancelled or interrupted.'}
     foreach($path in @($stopPath,$globalStop)) {
         if(Test-Path -LiteralPath $path -PathType Leaf) {
             $modified=(Get-Item -LiteralPath $path).LastWriteTimeUtc
@@ -73,10 +75,19 @@ function Require-NotStopped {
     }
 }
 function Test-StopRequested {
+    if(Test-QueueCancelled){return $true}
     foreach($signal in @($stopPath,$globalStop)) {
         if([IO.File]::Exists($signal) -and [IO.File]::GetLastWriteTimeUtc($signal) -ge $startedUtc){return $true}
     }
     return $false
+}
+function Test-QueueCancelled {
+    $claim=$env:REFLEXCORE_QUEUE_MANIFEST
+    if(!$claim){return $false}
+    if($claim -cnotmatch '^[0-9]{17}-[0-9a-f]{32}\.job$'){return $true}
+    $bridge=Join-Path $root 'data/bridge'
+    return (![IO.File]::Exists((Join-Path (Join-Path $bridge 'running') $claim)) -or
+        [IO.File]::Exists((Join-Path (Join-Path $bridge 'queue-requests') ($claim.Replace('.job','.cancel')))))
 }
 function Test-ModelName([string]$name) {
     if ($name -notmatch '\A[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}\z') {return $false}
@@ -182,7 +193,7 @@ function Test-ModelAlreadyLoaded {
     finally {if($null -ne $client){$client.Dispose()};if($null -ne $handler){$handler.Dispose()}}
 }
 function Try-UnloadOwnedModel {
-    if($script:apiRequests -lt 1){return}
+    if($script:apiRequests -lt 1 -and !$script:loadRequested){return}
     if(-not $UnloadModelAfter -and $script:modelLoadedAtStart -cne $false){
         Write-Host '[ReflexCore] Ollama model preserved: preloaded or ownership unknown.'
         return
@@ -207,6 +218,40 @@ function Try-UnloadOwnedModel {
         if($null -ne $http){$http.Dispose()};if($null -ne $content){$content.Dispose()}
         if($null -ne $client){$client.Dispose()};if($null -ne $handler){$handler.Dispose()}
     }
+}
+function Send-GuardedModelRequest($client,$content) {
+    $cancel=[Threading.CancellationTokenSource]::new()
+    try{
+        Require-NotStopped
+        $pending=$client.PostAsync('http://127.0.0.1:11434/api/generate',$content,$cancel.Token)
+        while(!$pending.IsCompleted){
+            if(!$pending.Wait(150) -and (Test-StopRequested)){
+                $cancel.Cancel()
+                throw 'Stopped by operator during local inference.'
+            }
+        }
+        $reply=$pending.GetAwaiter().GetResult()
+        try{Require-NotStopped}catch{$reply.Dispose();throw}
+        return $reply
+    }finally{$cancel.Dispose()}
+}
+function Initialize-VisualModel {
+    if($script:modelLoadedAtStart -cne $false){return}
+    Require-NotStopped
+    Add-Type -AssemblyName System.Net.Http
+    $handler=[Net.Http.HttpClientHandler]::new()
+    $handler.UseProxy=$false
+    $handler.AllowAutoRedirect=$false
+    $client=[Net.Http.HttpClient]::new($handler)
+    $client.Timeout=[TimeSpan]::FromSeconds($TimeoutSec)
+    $body=@{model=$Model;stream=$false;options=$modelOptions;keep_alive='2m'}
+    $content=[Net.Http.StringContent]::new(($body|ConvertTo-Json -Compress -Depth 5),[Text.Encoding]::UTF8,'application/json')
+    try{
+        $script:loadRequested=$true
+        $res=Send-GuardedModelRequest $client $content
+        try{if(!$res.IsSuccessStatusCode){throw 'Local model preload failed'}}finally{$res.Dispose()}
+        Require-NotStopped
+    }finally{$content.Dispose();$client.Dispose()}
 }
 function Capture-WithoutHud([string]$token) {
     # Tray owns a small overlay; suppress it while screenshot pixels are captured.
@@ -253,7 +298,7 @@ function Invoke-LocalVision([byte[]]$jpeg,[string]$prompt,[bool]$structured=$fal
     try {
         $content=[System.Net.Http.StringContent]::new($data,[Text.Encoding]::UTF8,'application/json')
         $script:apiRequests++
-        $response=$client.PostAsync('http://127.0.0.1:11434/api/generate',$content).GetAwaiter().GetResult()
+        $response=Send-GuardedModelRequest $client $content
         if(-not $response.IsSuccessStatusCode) {throw ('Local Ollama HTTP '+[int]$response.StatusCode)}
         $raw=$response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
         if($raw.Length -gt 262144) {throw 'Ollama output too large'}
@@ -451,6 +496,11 @@ try {
         Write-Stage 'completed' 'pass'
     }
     elseif($Action -eq 'DemoNotepad') {
+        if($Route -eq 'Visual'){
+            Write-Stage 'thinking'
+            Initialize-VisualModel
+            Require-NotStopped
+        }
         $token='ReflexCore-VisionLoop-'+[guid]::NewGuid().ToString('N').Substring(0,12)+'.txt'
         if(-not [ReflexCore.VisionLoop.Host]::IsValidWindowToken($token)){throw 'Demo token generation rejected'}
         $desktop=if($TestFixture){[IO.Directory]::CreateDirectory((Join-Path $runtime 'fixtures')).FullName}else{[Environment]::GetFolderPath('Desktop')}
@@ -462,15 +512,19 @@ try {
         $notepad=Join-Path $env:WINDIR 'System32\notepad.exe'
         if(-not [IO.File]::Exists($notepad)) {throw 'Windows Notepad executable not found'}
         Write-Stage 'observing'
-        [void](Start-Process -FilePath $notepad -ArgumentList @('"'+$ownedPath+'"') -PassThru)
+        [void](Start-Process -FilePath $notepad -ArgumentList @('"'+$ownedPath+'"') -WorkingDirectory ([Environment]::SystemDirectory) -PassThru)
         if(-not [ReflexCore.VisionLoop.Host]::ActivateNewDemoWindow($token,15000)) {throw 'Cannot securely identify and focus the unique Notepad demo window; no keys were sent'}
         Require-NotStopped
         if($Route -eq 'Visual'){
             Write-Stage 'capturing'
             $frame=Capture-WithoutHud $token
             Write-Stage 'thinking'
+            Write-Host ('[ReflexCore] Before local inference: '+[ReflexCore.VisionLoop.Host]::TargetEvidence($token))
             $vision=Invoke-VisualClassification $frame $token
             $frame=$null
+            $afterInference=[ReflexCore.VisionLoop.Host]::TargetEvidence($token)
+            Write-Host ('[ReflexCore] After local inference: '+$afterInference)
+            if($afterInference -eq 'foreground_changed'){throw 'Foreground changed during inference; input blocked'}
         }
         # Reuse a proven method only after checking the current focused editor's ownership.
         # A missing cache entry or unfocused editor triggers full UIA discovery.

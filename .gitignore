@@ -34,3 +34,8 @@
 !/ui/Art/*.png
 /ui/bin/
 /ui/obj/
+
+!/tasks/notepad-save.ps1
+!/tasks/notepad-visual.ps1
+!/tasks/Test-Queue.ps1
+!/tasks/Measure-Queue.ps1

@@ -23,8 +23,14 @@ namespace ReflexCore.Control
         public static void Smoke(string root)
         {
             Application.EnableVisualStyles();
-            using(var form=new Dashboard(root,"Agent"))form.ShowStudio(true);
-            Console.WriteLine("[ReflexCore] WPF Studio smoke passed: six live operator pages, 45 themes, search, chrome and compact navigation.");
+            string fixture=Path.Combine(Path.GetTempPath(),"ReflexCore-StudioQueue-"+Guid.NewGuid().ToString("N"));
+            var tasks=Directory.CreateDirectory(Path.Combine(fixture,"tasks"));
+            try{
+                foreach(string task in new[]{"agent-demo","notepad-save","notepad-visual"})
+                    File.WriteAllText(Path.Combine(tasks.FullName,task+".ps1"),"");
+                using(var form=new Dashboard(root,"Agent",new ReflexCore.Bridge.QueueStore(fixture)))form.ShowStudio(true);
+            }finally{Directory.Delete(fixture,true);}
+            Console.WriteLine("[ReflexCore] Studio passed: queue submission, approval and cancellation, six live pages, 45 themes and compact navigation.");
         }
         [STAThread]
         public static void Run(string root,string initialTab)
@@ -50,6 +56,8 @@ namespace ReflexCore.Control
         readonly string root;
         readonly Label bridgeText, serverText, modelText, apiTestText;
         readonly ReflexTabHost pages;
+        readonly ReflexCore.Bridge.QueueStore queue;
+        readonly Action refreshQueue;
         ReflexCore.Studio.StudioWindow studio;
         internal void ShowStudio(bool test)
         {
@@ -59,7 +67,7 @@ namespace ReflexCore.Control
                 delegate{WriteControl("stop");},ShellModernizer.CurrentStage);
             Exception failure=null;
             if(test)studio.ContentRendered+=delegate{
-                try{studio.VerifyView();}
+                try{VerifyQueueControls();studio.VerifyView();}
                 catch(Exception ex){failure=ex;}
                 finally{studio.Close();}
             };
@@ -71,8 +79,10 @@ namespace ReflexCore.Control
         readonly System.Windows.Forms.Timer timer;
         readonly Color bg=Color.FromArgb(10,18,22),surface=Color.FromArgb(16,32,33),text=Color.FromArgb(223,246,227),muted=Color.FromArgb(122,164,148),accent=Color.FromArgb(171,255,101);
         string serverStatus="unknown";
-        public Dashboard(string project,string initialTab)
+        public Dashboard(string project,string initialTab):this(project,initialTab,null){}
+        public Dashboard(string project,string initialTab,ReflexCore.Bridge.QueueStore testQueue)
         {
+            queue=testQueue ?? new ReflexCore.Bridge.QueueStore(project);
             root=project;Text="REFLEXCORE // CONTROL CENTER";Width=1210;Height=825;MinimumSize=new Size(900,680);StartPosition=FormStartPosition.CenterScreen;
             BackColor=bg;ForeColor=text;Font=new Font("Segoe UI",10);ShowInTaskbar=true;
             string ico=Path.Combine(root,"assets","reflex_dragon.ico");if(File.Exists(ico)){try{Icon=new Icon(ico);}catch{}}
@@ -105,21 +115,50 @@ namespace ReflexCore.Control
             AddButton(agent,"ОТКРЫТЬ ПАПКУ ПРОЕКТА",401,150,365,44,()=>Process.Start("explorer.exe",root),false);
             AddButton(agent,"ЗАПУСТИТЬ AGENT DEMO",18,219,365,44,()=>RunTask("agent-demo"),false);
             AddButton(agent,"ПРОВЕРИТЬ STATUS",401,219,365,44,()=>UpdateStatus(),false);
-            agent.Controls.Add(Info("Bridge выполняет только локально разрешённые задания. Приостановка горячей клавишей останавливает дерево процессов задания, а не все процессы Windows.",18,290,748));
-            AddButton(agent,"БЛОКНОТ · СОЗДАТЬ И ПРОВЕРИТЬ ФАЙЛ",18,365,415,44,StartNotepadSkill,true);
-            var taskStatus=Info("Блокнот сохранит новый тестовый файл на рабочем столе.",18,423,748);
-            agent.Controls.Add(taskStatus);
-            var taskTimer=new System.Windows.Forms.Timer{Interval=1000};
-            taskTimer.Tick+=delegate {
-                if(notepadJob==null)return;
-                if(notepadJob.HasExited){
-                    taskStatus.Text=notepadJob.ExitCode==0?"Блокнот · содержимое файла проверено":"Блокнот · задание остановлено или проверка не пройдена";
-                    notepadJob.Dispose();notepadJob=null;
-                }else{taskStatus.Text="Блокнот · выполняется проверка файла";}
+            AddButton(agent,"БЛОКНОТ · СОЗДАТЬ ФАЙЛ",18,279,365,43,()=>RunTask("notepad-save"),false);
+            AddButton(agent,"БЛОКНОТ · С ПРОВЕРКОЙ МОДЕЛЬЮ",401,279,365,43,()=>RunTask("notepad-visual"),false);
+            var jobs=new ListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
+                Location=new Point(18,337),Size=new Size(748,164),AccessibleName="Очередь заданий"};
+            jobs.Columns.Add("Время (местное)",180);jobs.Columns.Add("Задание",235);jobs.Columns.Add("Состояние",290);
+            agent.Controls.Add(jobs);
+            var notice=Info("После перезапуска подтвердите ожидающее задание. Прерванные задания видны в истории.",18,560,748);
+            agent.Controls.Add(notice);
+            Action<string> command=delegate(string action){
+                if(jobs.SelectedItems.Count==0){notice.Text="Выберите задание в очереди.";return;}
+                string id=(string)jobs.SelectedItems[0].Tag;
+                notice.Text=queue.Request(id,action)?"Запрос передан диспетчеру.":"Состояние задания уже изменилось.";
             };
-            taskTimer.Start();
-            Disposed+=delegate{taskTimer.Dispose();if(notepadJob!=null)notepadJob.Dispose();};
-
+            AddButton(agent,"ОТМЕНИТЬ ВЫБРАННОЕ",18,511,365,40,()=>command("cancel"),false);
+            AddButton(agent,"РАЗРЕШИТЬ ЗАПУСК",401,511,365,40,()=>command("approve"),false);
+            string lastSnapshot=null;
+            var taskTimer=new System.Windows.Forms.Timer{Interval=900};
+            refreshQueue=delegate {
+                if(!jobs.Visible)return;
+                try{
+                    var rows=queue.Snapshot();
+                    string signature=String.Join("|",rows.Select(row=>row.Id+"/"+row.State).ToArray());
+                    if(signature==lastSnapshot)return;
+                    string selected=jobs.SelectedItems.Count>0?(string)jobs.SelectedItems[0].Tag:"";
+                    jobs.BeginUpdate();
+                    try{
+                        jobs.Items.Clear();
+                        foreach(var row in rows){
+                            DateTime created;
+                            string hour=DateTime.TryParseExact(row.Id.Substring(0,17),"yyyyMMddHHmmssfff",
+                                System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AssumeUniversal|System.Globalization.DateTimeStyles.AdjustToUniversal,out created)
+                                ?created.ToLocalTime().ToString("dd.MM HH:mm:ss"):"—";
+                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Блокнот":row.Task=="visual"?"Блокнот + модель":"Локальное задание";
+                            string state=row.State=="pending"?"Ожидает":row.State=="running"?"Выполняется":
+                                row.State=="completed"?"Завершено":row.State=="cancelled"?"Отменено":row.State=="interrupted"?"Прервано":"Ошибка";
+                            var entry=new ListViewItem(new[]{hour,task,state});entry.Tag=row.Id;jobs.Items.Add(entry);
+                            if(row.Id==selected)entry.Selected=true;
+                        }
+                        lastSnapshot=signature;
+                    }finally{jobs.EndUpdate();}
+                }catch(IOException){notice.Text="Очередь обновляется.";}
+            };
+            taskTimer.Tick+=delegate{refreshQueue();};
+            taskTimer.Start();Disposed+=delegate{taskTimer.Dispose();};
 
             game.Controls.Add(Header("REFLEX CITADEL // AKVARIUM 3D ARENA",18,22));
             serverText=Info("SERVER: checking",18,63,725);game.Controls.Add(serverText);
@@ -252,15 +291,6 @@ namespace ReflexCore.Control
             }catch{}
         }
         string PowerShellExe(){return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");}
-        Process notepadJob;
-        void StartNotepadSkill()
-        {
-            if(notepadJob!=null)return;
-            string script=Path.Combine(root,"tools","ReflexCore-VisionLoop.ps1");
-            var psi=new ProcessStartInfo{FileName=PowerShellExe(),WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true,
-                Arguments="-NoProfile -File \""+script+"\" -Action DemoNotepad -AllowInput"};
-            notepadJob=Process.Start(psi);
-        }
         void StartServer()
         {
             if(IsServerUp())return;
@@ -307,10 +337,26 @@ namespace ReflexCore.Control
         }
         void RunTask(string task)
         {
-            string path=Path.Combine(root,"tools","Submit-ReflexJob.ps1");
-            var psi=new ProcessStartInfo{FileName=PowerShellExe(),Arguments="-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""+path+"\" -Task "+task+" -Run",WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true};
-            using(var p=Process.Start(psi)){p.WaitForExit(12000);if(p.ExitCode!=0)throw new Exception("Task could not be queued: "+p.ExitCode);}
+            queue.Submit(task,true);
             UpdateStatus();
+        }
+        void VerifyQueueControls()
+        {
+            var page=pages.TabPages[0];
+            var buttons=page.Controls.OfType<Button>().ToDictionary(button=>button.Text);
+            buttons["ЗАПУСТИТЬ AGENT DEMO"].PerformClick();
+            buttons["БЛОКНОТ · СОЗДАТЬ ФАЙЛ"].PerformClick();
+            buttons["БЛОКНОТ · С ПРОВЕРКОЙ МОДЕЛЬЮ"].PerformClick();
+            refreshQueue();
+            var jobs=page.Controls.OfType<ListView>().Single();
+            if(jobs.Items.Count!=3 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=3)
+                throw new InvalidOperationException("Queued tasks missing from Studio");
+            jobs.Items[0].Selected=true;
+            string id=(string)jobs.Items[0].Tag;
+            buttons["РАЗРЕШИТЬ ЗАПУСК"].PerformClick();
+            buttons["ОТМЕНИТЬ ВЫБРАННОЕ"].PerformClick();
+            if(!File.Exists(queue.Marker(id,"approve")) || !File.Exists(queue.Marker(id,"cancel")))
+                throw new InvalidOperationException("Selected queue item commands failed");
         }
         string LoadModel()
         {

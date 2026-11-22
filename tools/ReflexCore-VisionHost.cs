@@ -68,6 +68,21 @@ namespace ReflexCore.VisionLoop
             catch { return false; }
         }
         public static bool IsForeground(string token) { return Allowed(GetForegroundWindow(),token); }
+        public static string TargetEvidence(string token)
+        {
+            if(!IsValidWindowToken(token))return "invalid_target";
+            var hwnd=GetForegroundWindow();
+            if(!Allowed(hwnd,token))return "foreground_changed";
+            try{
+                uint pid; GetWindowThreadProcessId(hwnd,out pid);
+                var focus=AutomationElement.FocusedElement;
+                if(!EditableCandidate(focus,(int)pid))return "editor_unfocused";
+                var child=new IntPtr(focus.Current.NativeWindowHandle);
+                return child!=IntPtr.Zero && IsChild(hwnd,child) && GetForegroundWindow()==hwnd
+                    ? "owned_editor" : "editor_unbound";
+            }catch(InvalidOperationException){return "uia_unavailable";}
+            catch(System.Runtime.InteropServices.COMException){return "uia_unavailable";}
+        }
         public static bool ActivateNewDemoWindow(string token, int timeoutMs)
         {
             if (!IsValidWindowToken(token) || timeoutMs < 100 || timeoutMs > 30000) return false;
