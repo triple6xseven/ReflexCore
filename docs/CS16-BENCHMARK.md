@@ -28,3 +28,13 @@ The reader was tested with a real local `de_dust2` capture. It identified the on
 ~~~
 
 The probe sends one bounded IPv4 loopback query to a CS listen server and can check the local listener owner. The demo reader supports GoldSrc demo protocol 5. A closed demo can generate a waypoint draft from a selected interval. Review the endpoints and corner spacing before using it. Route-check evaluates the first living pose and emits a bounded steering decision. Neither path is evidence of execution. Source formats and event timing are documented by [Valve's ref_params header](https://github.com/ValveSoftware/halflife/blob/master/common/ref_params.h), [Talent's parser documentation](https://github.com/cgdangelo/talent/blob/main/libraries/parser-goldsrc/docs/demo-structure.md), [ReGameDLL's round start](https://github.com/rehlds/ReGameDLL_CS/blob/master/regamedll/dlls/multiplay_gamerules.cpp) and [its C4 event](https://github.com/rehlds/ReGameDLL_CS/blob/master/regamedll/dlls/wpn_shared/wpn_c4.cpp).
+
+## Static route planning on the local map
+
+The BSP planner reads a locally installed GoldSrc v30 map and a measured Terrorist spawn. It checks the standing player hull, ordinary stairs, static obstructions, the selected bomb target volume and every emitted segment. Pass a map, a local spawn and an explicit brush model number. Inspect `--help` for all options.
+
+~~~powershell
+py examples/plan_cs16_bsp_route.py <de_dust2.bsp> --start -736 -704 164.03125 --site A --target-model 42
+~~~
+
+The official Dust II BSP yielded a 28-waypoint route to its eastern plant volume and a 24-waypoint route to its western volume from the measured spawn. A second Terrorist spawn also produced a collision-checked east route. These are planning measurements. Verify movement, plant and match outcome separately in the engine.
