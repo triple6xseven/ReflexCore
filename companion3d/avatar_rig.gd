@@ -68,6 +68,10 @@ var alternate := false
 var surface := ""
 var alternate_seat := false
 var reaction_time := 0.0
+var cloud_clock := 0.0
+var cloud_visit := -1
+var knee_hug := 0.0
+var side_sit := 0.0
 
 func _take_turn(key: String) -> bool:
 	var second := bool(turns.get(key,false))
@@ -83,6 +87,9 @@ func _select_variant(next: String, seated: bool, cloudy: bool, dt: float, enable
 	reaction_time += dt
 	var seat := ("cloud" if cloudy else "window") if seated and enabled else ""
 	if seat != surface:
+		if seat=="cloud":
+			cloud_visit=(cloud_visit+1)%3
+		cloud_clock=0.0
 		surface = seat
 		alternate_seat = seat != "" and _take_turn(seat)
 
@@ -468,6 +475,13 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_select_variant(next,seated,cloudy,dt,enabled,touch)
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
+	var cycles := enabled and cloudy and seated and sit_style!="still"
+	if cycles:
+		cloud_clock += dt
+	var pose := (cloud_visit+int(cloud_clock/4.8))%3 if cycles else 0
+	var shift := 1-exp(-4.0*dt)
+	knee_hug=lerpf(knee_hug,1.0 if pose==1 else 0.0,shift)
+	side_sit=lerpf(side_sit,1.0 if pose==2 else 0.0,shift)
 	var swing_active := enabled and seated and (window_swing or refined and cloudy) and sit_style!="still"
 	attentive=lerpf(attentive,1.0 if refined and seated and state=="attentive" else 0.0,blend)
 	sit_elapsed=sit_elapsed+dt if swing_active else 0.0
@@ -499,7 +513,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_pose("leftEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("rightEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("spine", Vector3(posture * sign + breathe, 0.02 * sin(step_phase) * gait, 0.012 * sin(now * 1.7)), blend)
-	_pose("chest", Vector3(breathe, 0.04 * sin(step_phase) * gait, look.x * 0.025), blend)
+	_pose("chest", Vector3(breathe+.12*knee_hug*sign, 0.04 * sin(step_phase) * gait+.16*side_sit, look.x * 0.025+.06*side_sit), blend)
 	var arm_lift := 0.0
 	if enabled and not seated:
 		arm_lift = float({"happy": 0.18, "working": 0.32, "thinking": 0.48}.get(state, 0.0))
@@ -645,6 +659,10 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	if alternate_seat and sit_style!="still":
 		rhythm += (.22 if cloudy else .29)*pow(.5+.5*sin(sit_elapsed*1.5+side_sign*1.9),3)
 	var shin := Vector3.DOWN+seat_forward*(reach+leg_motion*rhythm)
+	thigh=thigh.lerp(seat_forward*.62+Vector3.UP*.84+seat_right*.12*side_sign,knee_hug)
+	shin=shin.lerp(Vector3.DOWN-seat_forward*.42,knee_hug)
+	thigh=thigh.lerp(seat_forward+seat_right*(.44+side_sign*.14)-Vector3.UP*.19,side_sit)
+	shin=shin.lerp(Vector3.DOWN+seat_right*.19+seat_forward*(.48 if side_sign>0 else -.18),side_sit)
 	_orient_segment(upper,lower,thigh,standing_thigh,blend)
 	_orient_segment(lower,foot,shin,standing_shin,blend)
 	var ankle := int(roles[foot])
@@ -711,6 +729,13 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					if refined:
 						var palm_side := .215 if nocturne and state!="cloud_sit" else .195 if state!="cloud_sit" else .143
 						gesture=hips-torso+frame*(seat_right*local_side*lerpf(palm_side,.17,attentive) 							+seat_forward*lerpf(.035,.095,attentive))+Vector3.UP*lerpf(.012,.068,attentive)
+				if atelier and roles.has(side+"LowerLeg"):
+					var knee := world_bone(side+"LowerLeg")
+					var lap := hips.lerp(knee,.56)-torso+Vector3.UP*.072
+					gesture=gesture.lerp(lap,.88)
+					gesture=gesture.lerp(knee-torso+outward*.035+Vector3.UP*.043,knee_hug)
+					if side=="right":
+						gesture=gesture.lerp(hips-torso+outward*.21-forward*.06,side_sit)
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
 			"dragged","thrown","falling":
@@ -773,6 +798,7 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				var direction := skeleton.get_bone_global_pose(finger).origin-wrist
 				if gesture_state=="seated":
 					var palm := seat_forward + Vector3.DOWN*(0.22 if nocturne else 0.38)
+					palm+=seat_right*(.36 if side=="left" else -.36)
 					_rotate_chain(hand,direction,palm,gesture_weight*0.77)
 				elif gesture_state in ["walk","run","cloud_summon","stand_up","hover"]:
 					var forearm := wrist-skeleton.get_bone_global_pose(int(roles[side+"LowerArm"])).origin

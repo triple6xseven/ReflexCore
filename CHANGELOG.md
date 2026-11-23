@@ -1,3 +1,7 @@
+## Cloud sitting poses and Studio caption
+
+- Cycle through dangling legs, tucked knees and side sitting on the cloud. Rest the hands on the lap and raise the transition frame budget. Inset the custom caption when Studio is maximized.
+
 ## Alternating companion animations
 
 - Alternate classic interactions with new head-pat, smile, drag, flight, impact, landing, climb, thinking and work gestures. Window and cloud seats independently alternate leg-swing accents.

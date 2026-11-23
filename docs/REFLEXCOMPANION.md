@@ -214,3 +214,5 @@ Free Roam can make short cloud trips when the cursor is well clear and no reacha
 ### Alternating interactions
 
 Each interaction starts with its classic animation and alternates on repeated occurrences during the same avatar session. The second climb leads with one hand. Thinking raises one hand and working alternates both hands. Each seat type remembers its own turn. The second visit adds an independent ankle extension when seated motion is enabled.
+
+While sitting on a cloud with sitting motion enabled, the companion shifts between dangling legs, knees drawn up and a side sit about every five seconds. Still mode keeps a single pose.
