@@ -184,10 +184,16 @@ namespace ReflexCore.Control
             shared.Controls.Add(Header("SHARED CONTROL // CS 1.6 OFFLINE",18,23));
             shared.Controls.Add(Info("Shared Control sends mouse and keyboard input to the local game. Physical input pauses the agent for three seconds. Use a private local server.",18,73,750));
             AddButton(shared,"▶ OPEN CS 1.6 SHARED CONTROL LAB",18,160,746,54,()=>OpenSharedControl(),true);
-            AddButton(shared,"START REFLEXVISION",18,385,365,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1",""),true);
-            AddButton(shared,"START OFFLINE PLANT DRILL",401,385,363,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart"),false);
+            AddButton(shared,"SHOW REFLEXVISION",18,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1",""),true);
+            AddButton(shared,"CLOSE REFLEXVISION",268,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1","-Action Stop"),false);
+            AddButton(shared,"START OFFLINE PLANT DRILL",518,385,246,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart"),false);
             AddButton(shared,"PLAY OFFLINE MATCH",18,450,746,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart -Match"),true);
             shared.Controls.Add(Info("Play Offline Match tracks the kill, plant and round result. ReflexVision shows purple tracks beside the windowed game.",18,517,748));
+            AddButton(shared,"OPEN MATCH RECORDINGS",18,580,365,42,()=>{
+                string folder=Path.Combine(root,"data","replays","cs16");
+                Directory.CreateDirectory(folder);
+                Process.Start("explorer.exe","\""+folder+"\"");
+            },false);
             shared.Controls.Add(Info("Start a local CS 1.6 game, join the Terrorists and obtain C4. Use the Plant C4 drill at a bombsite or record a demonstration.",18,244,750));
             shared.Controls.Add(Info("Press F12 or Ctrl+Alt+P to stop. The controller uses public game signals and a limited set of inputs. Recordings capture local game controls.",18,336,750));
             var apiFlow=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,
