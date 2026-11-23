@@ -20,6 +20,16 @@ func _verify() -> void:
 	avatar.click_at=-5.0
 	avatar.options.mode="stationary"
 	avatar._process(1.0/60)
+	_expect(avatar._click_pose_at(avatar.head)=="face_smile","Face touch missed.")
+	_expect(avatar._click_pose_at(avatar.projected_bones.leftFoot)=="tickled","Foot touch missed.")
+	avatar.motion.impact="floor"
+	avatar.motion.impact_speed=420
+	avatar.motion.impact_at=avatar.now
+	avatar._update_contact_effect()
+	_expect(avatar.contact_ring.visible and avatar.contact_ring.points.size()==25,"Landing ring missing.")
+	avatar.motion.impact_at=avatar.now-1
+	avatar._update_contact_effect()
+	_expect(not avatar.contact_ring.visible,"Landing ring outlived its impact.")
 	var expected_position := root.position
 	root.position+=Vector2i(36,0)
 	avatar._process(1.0/60)

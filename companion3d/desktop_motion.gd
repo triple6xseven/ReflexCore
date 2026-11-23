@@ -225,7 +225,11 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		cloud_seated=false
 		cloud_was_seat=false
 		roam_until=now+6.0
-		roam_target=clampf(position.x + (185.0 if position.x<(max_x+min_x)*0.5 else -185.0),min_x,max_x)
+		var visitor := clampf(float(pointer.x)-size.x*0.5,min_x,max_x)
+		var distance := visitor-position.x
+		# Take a short walk toward a distant visitor, leaving the pointer clear.
+		var step := signf(distance)*minf(240,absf(distance)-105) if absf(distance)>145 else (145.0 if position.x<(min_x+max_x)*0.5 else -145.0)
+		roam_target=clampf(position.x+step,min_x,max_x)
 		release(Vector2.ZERO,real_physics,now,0.65)
 		cloud_deadline=roam_until+4.0
 		return "falling" if falling else "recovering"
@@ -292,6 +296,7 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 	if now<cloud_collision_until and absf(position.x+size.x*0.5-cloud_x)<size.x*0.22 \
 		and old.y+seat<=cloud_edge and position.y+seat>=cloud_edge:
 		position.y=cloud_edge-seat
+		impact_speed=velocity.length()
 		falling=false
 		velocity=Vector2.ZERO
 		landing_at=now

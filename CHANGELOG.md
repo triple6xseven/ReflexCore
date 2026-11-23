@@ -1,3 +1,7 @@
+## Companion touch and impact reactions
+
+- Add face smiles, foot tickles, directional drag lean and speed-sensitive contact rings. Free Roam approaches a distant cursor during its existing walks. The approved seated baseline is tagged companion-seated-classic-1.
+
 ## Companion seat visibility and reactions
 
 - Keep seated click and hover gestures in the avatar frame, separate the knees, and recover the intended overlay position after Windows moves it. Exclude the desktop shell and maximized captioned windows from fullscreen suspension.

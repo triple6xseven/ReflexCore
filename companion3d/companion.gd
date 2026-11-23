@@ -46,6 +46,7 @@ var cloud: Node3D
 var seat_contact_y := -1
 var sole_contact_y := -1
 var projected_ears := PackedVector2Array()
+var contact_ring := Line2D.new()
 var seat_offset := 0.0
 var body_size := BASE_SIZE
 var view_margin := VIEW_MARGIN
@@ -76,6 +77,8 @@ var paused := false
 var passthrough := false
 var avatar_state := "idle"
 var last_reported_pose := ""
+var pressed_zone := "happy"
+var click_pose := "happy"
 var click_at := -5.0
 var pet_at := -5.0
 var pressed := false
@@ -172,6 +175,10 @@ func _build_scene() -> void:
 
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	layer.add_child(contact_ring)
+	contact_ring.visible=false
+	contact_ring.width=2.0
+	contact_ring.antialiased=true
 	cloud = Cloud.new()
 	world.add_child(cloud)
 	bubble = Panel.new()
@@ -572,6 +579,10 @@ func _process(delta: float) -> void:
 		var seated: bool=physical in ["sit","settle","cloud_sit"] or cloud_pose
 		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.77 if cloud_pose else -0.64 if seated else 0.0
 		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,minf(10*dt,1))
+		if physical=="dragged" and bool(options.animate):
+			pivot.rotation.x=lerpf(pivot.rotation.x,clampf(motion.velocity.y/4500.0,-0.19,0.19),1-exp(-9*dt))
+		else:
+			pivot.rotation.x=lerpf(pivot.rotation.x,0,1-exp(-12*dt))
 		pivot.rotation.z=lerpf(pivot.rotation.z,motion.angle,1-exp(-11*dt))
 		# Lean around the body, not around the feet at the scene origin.
 		var torso_center := Vector3(0,0.86,0)
@@ -600,6 +611,7 @@ func _process(delta: float) -> void:
 		projected_ears.clear()
 		for ear in rig.ear_anchors():
 			projected_ears.append(camera.unproject_position(ear))
+	_update_contact_effect()
 	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now,window.size.y)
 	if actual!=window.position:
 		window.position=actual
@@ -620,6 +632,29 @@ func _process(delta: float) -> void:
 		print(JSON.stringify(_runtime_status()))
 		_shutdown()
 
+func _update_contact_effect() -> void:
+	var age: float=now-motion.impact_at
+	var show_ring: bool=bool(options.animate) and age>=0 and age<0.34 and motion.impact_speed>155 and not motion.held
+	contact_ring.visible=show_ring and projected_bones.has("leftFoot")
+	if not contact_ring.visible:
+		return
+	var at: Vector2=(projected_bones.leftFoot+projected_bones.rightFoot)*0.5
+	var axis := Vector2.RIGHT
+	if "top" in motion.impact:
+		at=head-Vector2(0,28)*float(options.zoom)
+	elif motion.impact in ["left","right"]:
+		var direction := -1 if motion.impact=="left" else 1
+		at=projected_bones.chest+Vector2(direction*24,0)*float(options.zoom)
+		axis=Vector2.DOWN
+	var t := age/0.34
+	var radius := (6+20*t)*clampf(motion.impact_speed/600.0,0.55,1.35)*float(options.zoom)
+	var points := PackedVector2Array()
+	for i in 25:
+		var phase := i*TAU/24
+		points.append(at+radius*(axis*cos(phase)+axis.orthogonal()*sin(phase)*0.36))
+	contact_ring.points=points
+	contact_ring.default_color=Color(0.73,0.85,1.0,0.8*(1-t))
+
 func _choose_pose(physical: String, local: Vector2) -> String:
 	if physical in ["dragged","thrown","falling","hard_collision"]:
 		return physical
@@ -627,7 +662,9 @@ func _choose_pose(physical: String, local: Vector2) -> String:
 		return physical
 	if now-pet_at<1.6:
 		return "petted"
-	if now-click_at<1.65 or stage=="success" and now-stage_at<4.2:
+	if now-click_at<1.65:
+		return click_pose
+	if stage=="success" and now-stage_at<4.2:
 		return "happy"
 	if rig!=null and rig.refined and physical in ["sit","cloud_sit"] and _near_model(local,36):
 		return "attentive"
@@ -838,6 +875,7 @@ func _input(event: InputEvent) -> void:
 		# A fresh press supersedes a stale capture even if the prior mouse-up was lost.
 		if pressed:_release(false)
 		pressed=true
+		pressed_zone=_click_pose_at(mouse.position)
 		motion.interrupt(now,bool(options.physics))
 		press_origin=position
 		last_drag_motion=now
@@ -866,6 +904,14 @@ func _check_drag_release() -> void:
 	elif not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_release()
 
+func _click_pose_at(point: Vector2) -> String:
+	for foot in ["leftFoot","rightFoot"]:
+		if projected_bones.has(foot) and point.distance_to(projected_bones[foot])<26*float(options.zoom):
+			return "tickled"
+	if point.distance_to(head)<40*float(options.zoom):
+		return "face_smile"
+	return "happy"
+
 func _release(react := true) -> void:
 	pressed=false
 	var active := bridge.path_join("drag-active.txt")
@@ -881,6 +927,7 @@ func _release(react := true) -> void:
 		_write_position()
 	elif react:
 		pet_at=-5.0
+		click_pose=pressed_zone
 		click_at=now
 		motion.interrupt(now,bool(options.physics))
 

@@ -463,6 +463,8 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		breathe += sin(now * 1.06) * 0.012
 	var nod := sin(now * 11) * 0.09 if enabled and state in ["happy", "petted"] else 0.0
 	var sign := -1.0 if legacy else 1.0
+	if enabled and state=="tickled":
+		nod+=0.048*sin(now*15)
 	_pose("head", Vector3(look.y * 0.15 + posture * 0.6 + nod, look.x * -0.25 * sign, look.x * 0.09), blend)
 	_pose("leftEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("rightEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
@@ -505,6 +507,9 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	if state in ["petted", "sleepy"]:
 		blink = maxf(blink, 0.9 if state == "petted" else 0.73)
 	var target_face := Vector2(0.65 if state in ["happy","petted"] else 0, 0.45 if state in ["warning","dragged","hard_collision"] else 0)
+	if enabled and state in ["tickled","face_smile"]:
+		target_face.x=0.79 if state=="tickled" else 0.68
+		blink=maxf(blink,0.72 if state=="tickled" else 0.30)
 	if refined and enabled:
 		match state:
 			"petted":
