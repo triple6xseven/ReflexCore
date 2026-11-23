@@ -95,6 +95,26 @@ func _initialize() -> void:
 	var destination := initial+Vector2(80,0)
 	body.drag_to(destination,Vector2(200,0),DT)
 	_expect(body.position.x>initial.x and body.position.x<destination.x,"Drag should follow a damped spring.")
+	# Interrupt a climb, then a cloud pose, without waiting for the prior state.
+	var interrupt = Motion.new()
+	interrupt.place(Vector2(-990,440))
+	var climb_edges: Array[Rect2i]=[close]
+	for frame in 25:
+		interrupt.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,options,climb_edges)
+	_expect(interrupt.climb_progress>0,"The fixture did not enter a climb.")
+	interrupt.grab()
+	_expect(interrupt.held and interrupt.climb_progress==0,"Grabbing must cancel a climb immediately.")
+	interrupt.place(Vector2(-990,440))
+	_expect(not interrupt.held,"Restoring a position must cancel the previous drag.")
+	var magic_options:=options.duplicate()
+	magic_options.magic=true
+	climb_edges.clear()
+	for frame in 130:
+		interrupt.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,magic_options,climb_edges)
+	_expect(interrupt.cloud_seated,"The fixture did not sit on a cloud.")
+	magic_options.magic=false
+	interrupt.update(DT,2.2,DESK,SIZE,Vector2i.ZERO,magic_options,climb_edges)
+	_expect(not interrupt.cloud_seated and interrupt.cloud_collision_until==0,"Magic off must clear cloud support immediately.")
 	if not failed:
 		print("Companion motion: reachable ledges, all climb phases, moving/removed supports, fast release, clouds, bounded throws and spring drag passed.")
 	quit(1 if failed else 0)

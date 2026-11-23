@@ -36,7 +36,7 @@ var model_attempt_at := 0.0
 var cached_path := ""
 var cached_mtime := 0
 var cached_rig: RefCounted
-var cloud: Node2D
+var cloud: Node3D
 var seat_contact_y := -1
 var surface_clock := 0.0
 var last_geometry := ""
@@ -66,6 +66,10 @@ var last_reported_pose := ""
 var click_at := -5.0
 var pet_at := -5.0
 var pressed := false
+var gesture_token := 0
+var release_check_at := 0.0
+var last_drag_motion := 0.0
+var release_count := 0
 var contact := Vector2.ZERO
 var previous_pointer := Vector2.ZERO
 var gesture_direction := 0.0
@@ -153,7 +157,7 @@ func _build_scene() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	cloud = Cloud.new()
-	layer.add_child(cloud)
+	world.add_child(cloud)
 	bubble = Panel.new()
 	bubble.size = Vector2(250, 40)
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -459,6 +463,7 @@ func _process(delta: float) -> void:
 		return
 	var window := get_window()
 	if paused:
+		if pressed:_release(false)
 		window.visible=false
 		shown=false
 		Engine.max_fps=10
@@ -472,6 +477,7 @@ func _process(delta: float) -> void:
 	sample_ms=lerpf(sample_ms,1000.0*delta,0.09)
 	var pointer := DisplayServer.mouse_get_position()
 	var local := Vector2(pointer-window.position)
+	_check_drag_release()
 	var area := _screen_rect()
 	if motion.held:
 		var wanted := Vector2(pointer)-contact
@@ -510,7 +516,7 @@ func _process(delta: float) -> void:
 			projected_bones[role]=camera.unproject_position(rig.world_bone(role))
 		head=projected_bones["head"]
 	var actual:=Vector2i(motion.position)
-	cloud.show_at(Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+window.size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now)
+	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+window.size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now,window.size.y)
 	if actual!=last_window_position:
 		window.position=actual
 		last_window_position=actual
@@ -530,12 +536,14 @@ func _process(delta: float) -> void:
 		_shutdown()
 
 func _choose_pose(physical: String, local: Vector2) -> String:
-	if physical in ["dragged","thrown","falling","landing","recovering","run","walk","soft_collision","hard_collision","approach","reach","grip","pull_up","settle","look_around","cloud_summon"]:
+	if physical in ["dragged","thrown","falling","landing","recovering","soft_collision","hard_collision"]:
 		return physical
 	if now-pet_at<1.6:
 		return "petted"
 	if now-click_at<1.65 or stage=="success" and now-stage_at<4.2:
 		return "happy"
+	if physical in ["run","walk","approach","reach","grip","pull_up","settle","look_around","cloud_summon"]:
+		return physical
 	if stage=="warning" and now-stage_at<9.0:
 		return "warning"
 	if stage in ["thinking","working"]:
@@ -609,12 +617,11 @@ func _track_input(local: Vector2, dt: float) -> void:
 	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or menu.visible))
 	if pressed:
 		var global := Vector2(DisplayServer.mouse_get_position())
+		if global.distance_squared_to(previous_pointer)>=1:last_drag_motion=now
 		var observed := (global-previous_pointer)/dt
 		throw_velocity=throw_velocity.lerp(observed.limit_length(1300),minf(24*dt,1))
 		previous_pointer=global
 		_maybe_grab(global)
-		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Time.get_ticks_msec()-pressed_at>100:
-			_release()
 		return
 	if bool(options.clickthrough) or not _head_circle(local,0):
 		gesture_turns=0
@@ -638,6 +645,7 @@ func _track_input(local: Vector2, dt: float) -> void:
 		gesture_direction=direction
 		if gesture_turns>=3:
 			pet_at=now
+			click_at=-5.0
 			gesture_turns=0
 
 func _set_cursor_passthrough(value: bool) -> void:
@@ -650,11 +658,18 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and pressed:
 		var movement := event as InputEventMouseMotion
 		_maybe_grab(Vector2(get_window().position)+movement.position)
-	if not event is InputEventMouseButton or bool(options.clickthrough):
+	if not event is InputEventMouseButton:
 		return
 	var mouse := event as InputEventMouseButton
 	var position := Vector2(get_window().position)+mouse.position
+	if mouse.button_index==MOUSE_BUTTON_LEFT and not mouse.pressed and pressed:
+		_maybe_grab(position)
+		_release()
+		return
+	if bool(options.clickthrough):
+		return
 	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and _near_model(mouse.position,6):
+		if pressed:_release(false)
 		for i in MODE_VALUES.size():
 			menu.set_item_checked(i,MODE_VALUES[i]==options.mode)
 		menu.set_item_checked(menu.get_item_index(10),bool(options.bubble))
@@ -665,34 +680,56 @@ func _input(event: InputEvent) -> void:
 		return
 	if mouse.button_index!=MOUSE_BUTTON_LEFT:
 		return
-	if mouse.pressed and _near_model(mouse.position,6):
-		if mouse.double_click:
-			click_at=now
+	if mouse.pressed and not pressed and _near_model(mouse.position,6):
 		pressed=true
-		pressed_at=Time.get_ticks_msec()
+		last_drag_motion=now
+		release_check_at=now+0.12
+		gesture_token=randi_range(1,2147483600)
+		var marker := FileAccess.open(bridge.path_join("drag-active.txt"),FileAccess.WRITE)
+		if marker!=null:
+			marker.store_string(str(gesture_token))
+			marker.close()
 		interaction_count+=1
 		contact=position-motion.position
 		previous_pointer=position
 		throw_velocity=Vector2.ZERO
-	elif not mouse.pressed and pressed:
-		_maybe_grab(position)
+
+func _check_drag_release() -> void:
+	if not pressed:
+		return
+	if bool(options.clickthrough) or now-last_drag_motion>12.0:
+		_release(false)
+		return
+	if now<release_check_at:
+		return
+	release_check_at=now+0.055
+	var marker := FileAccess.open(bridge.path_join("drag-release.txt"),FileAccess.READ)
+	if marker!=null and marker.get_length()<=24 and marker.get_as_text().to_int()==gesture_token:
+		_release()
+	elif not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_release()
 
-func _release() -> void:
+func _release(react := true) -> void:
 	pressed=false
+	var active := bridge.path_join("drag-active.txt")
+	if FileAccess.file_exists(active):
+		DirAccess.remove_absolute(active)
+	gesture_token=0
+	release_count+=1
 	if motion.held:
-		var speed:=throw_velocity
+		var speed:=throw_velocity if react else Vector2.ZERO
 		if speed.length()<90:
 			speed=Vector2.ZERO
 		motion.release(speed,bool(options.physics),now)
 		_write_position()
-	else:
+	elif react:
+		pet_at=-5.0
 		click_at=now
-
-var pressed_at := 0
 
 func _maybe_grab(global: Vector2) -> void:
 	if pressed and not motion.held and (global-motion.position-contact).length()>7*float(options.zoom):
+		pet_at=-5.0
+		click_at=-5.0
 		motion.grab(now,motion.position.y+get_window().size.y*DesktopMotion.SEAT_RATIO)
 		drag_count+=1
 
@@ -728,7 +765,7 @@ func _runtime_status() -> Dictionary:
 		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,
 		"msaa":get_window().msaa_3d,"edition":options.edition,
-		"interactions":interaction_count,"drags":drag_count
+		"interactions":interaction_count,"drags":drag_count,"held":motion.held,"releases":release_count
 	}
 
 func _publish() -> void:
@@ -761,6 +798,7 @@ func _shutdown() -> void:
 	if stopping:
 		return
 	stopping=true
+	if pressed:_release(false)
 	if cached_rig!=null:cached_rig.free_scene()
 	_write_position()
 	_publish()

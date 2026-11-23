@@ -20,7 +20,10 @@ namespace ReflexCore.Bridge
         private DateTime settingsTime;
         private long settingsLength=-1;
         private long nextUpdate,stopDeadline;
-        private bool restart,started;
+        private bool restart,started,classicPreferred=true,companionPreferred,appStart;
+        private int watchedGesture;
+        private long gestureCheck;
+        internal bool ClassicPreferred {get{return classicPreferred;}}
         private string statusSnapshot;
         private string message="Stopped";
         private string mode="taskbar";
@@ -33,6 +36,7 @@ namespace ReflexCore.Bridge
             {
                 hud.ShowClassicOnly();
                 applyClassic(showClassic);
+                RememberCompanion(true);
                 Start();
             }
             catch(IOException){message="Could not start Godot.";}
@@ -42,7 +46,7 @@ namespace ReflexCore.Bridge
 
         internal void Hide3D()
         {
-            try{restart=false;Stop();}
+            try{RememberCompanion(false);restart=false;Stop();}
             catch(IOException){message="Could not control the 3D renderer.";}
             catch(UnauthorizedAccessException){message="Could not control the 3D renderer.";}
         }
@@ -50,6 +54,15 @@ namespace ReflexCore.Bridge
         internal CompanionHost(string project,string bridge,ActivityHud widget)
         {
             root=project;hud=widget;commandPath=Path.Combine(bridge,"widget-command.txt");
+            var settings=ReadSettings("settings.json");
+            appStart=Boolean(settings,"app_start",false);
+            var saved=ReadSettings("widget-visibility.json");
+            var previous=ReadSettings("host-status.json");
+            object messageValue;
+            bool previousSession=previous.TryGetValue("message",out messageValue) && !Object.Equals(messageValue,"Tray stopped");
+            classicPreferred=Boolean(saved,"classic",!previousSession||Boolean(previous,"classic_visible",true));
+            companionPreferred=Boolean(saved,"companion",appStart || previousSession && Boolean(previous,"running",false));
+            if(Boolean(saved,"app_start",appStart)!=appStart)companionPreferred=appStart;
         }
 
         private string InBridge(string name){return Path.Combine(DirectoryPath,name);}
@@ -57,6 +70,32 @@ namespace ReflexCore.Bridge
         {
             object value;
             return settings.TryGetValue(key,out value) && value is bool?(bool)value:fallback;
+        }
+        private Dictionary<string,object> ReadSettings(string name)
+        {
+            var file=new FileInfo(InBridge(name));
+            try
+            {
+                if(file.Exists && file.Length<=16384)
+                    return json.Deserialize<Dictionary<string,object>>(File.ReadAllText(file.FullName)) ?? new Dictionary<string,object>();
+            }
+            catch(IOException){} catch(UnauthorizedAccessException){} catch(ArgumentException){} catch(InvalidOperationException){}
+            return new Dictionary<string,object>();
+        }
+        internal void RememberClassic(bool visible)
+        {
+            classicPreferred=visible;
+            SaveVisibility();
+        }
+        private void RememberCompanion(bool visible)
+        {
+            companionPreferred=visible;
+            SaveVisibility();
+        }
+        private void SaveVisibility()
+        {
+            try{WriteText("widget-visibility.json",json.Serialize(new{classic=classicPreferred,companion=companionPreferred,app_start=appStart}));}
+            catch(IOException){} catch(UnauthorizedAccessException){}
         }
         private void RefreshSettings()
         {
@@ -75,7 +114,8 @@ namespace ReflexCore.Bridge
             physics=Boolean(settings,"physics",true);
             hud.ConfigureClassic(opacity,Boolean(settings,"classic_host",true),
                 Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true));
-            if(!started && Boolean(settings,"app_start",false))Start();
+            bool revised=Boolean(settings,"app_start",false);
+            if(revised!=appStart){appStart=revised;RememberCompanion(appStart);}
         }
 
         internal void Update(int pending,string queueState,bool capture,Action<bool> classicVisibility)
@@ -83,11 +123,20 @@ namespace ReflexCore.Bridge
             try
             {
                 RefreshSettings();
-                started=true;
+                if(!started)
+                {
+                    started=true;
+                    SaveVisibility();
+                    if(companionPreferred)Start();
+                }
                 ReadCommand(classicVisibility);
                 if(child!=null && child.HasExited)
                 {
-                    if(stopDeadline==0)message=child.ExitCode==0?"Stopped":"3D renderer exited. See runtime status.";
+                    if(stopDeadline==0)
+                    {
+                        if(child.ExitCode==0)RememberCompanion(false);
+                        message=child.ExitCode==0?"Stopped":"3D renderer exited. See runtime status.";
+                    }
                     else message="Stopped";
                     child.Dispose();child=null;stopDeadline=0;
                     if(surfaces!=null){surfaces.Dispose();surfaces=null;}
@@ -139,11 +188,11 @@ namespace ReflexCore.Bridge
             switch(action)
             {
                 case "start-3d":
-                    NormalizeLegacy(classicVisibility);Start();break;
+                    NormalizeLegacy(classicVisibility);RememberCompanion(true);Start();break;
                 case "restart-3d":
                     NormalizeLegacy(classicVisibility);
                     Restart3D();break;
-                case "stop-3d":restart=false;Stop();break;
+                case "stop-3d":Hide3D();break;
                 case "show-classic":hud.ShowClassicOnly();classicVisibility(true);break;
                 case "hide-classic":classicVisibility(false);break;
                 case "reset-classic-position":hud.ResetWidgetPosition();break;
@@ -152,6 +201,7 @@ namespace ReflexCore.Bridge
 
         internal void Restart3D()
         {
+            RememberCompanion(true);
             if(Running){restart=true;Stop();}
             else Start();
         }
@@ -185,11 +235,33 @@ namespace ReflexCore.Bridge
             if(child!=null)
             {
                 WriteText("surfaces.json","{\"edges\":[]}");
+                watchedGesture=0;
                 surfaces=new WindowSurfaces(child.Id,snapshot=>WriteText("surfaces.json",json.Serialize(snapshot)),
-                    ()=>physics||mode=="windows"||mode=="roam");
+                    ()=>physics||mode=="windows"||mode=="roam",CheckGesture);
             }
         }
 
+        [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+        [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+
+        private void CheckGesture()
+        {
+            long now=Stopwatch.GetTimestamp();
+            if(now<gestureCheck)return;
+            gestureCheck=now+Stopwatch.Frequency/12;
+            try
+            {
+                string active=InBridge("drag-active.txt");
+                if(!File.Exists(active)||new FileInfo(active).Length>24)return;
+                int token;
+                if(!Int32.TryParse(File.ReadAllText(active),out token)||token<=0||token==watchedGesture)return;
+                int primary=GetSystemMetrics(23)!=0?2:1;
+                if((GetAsyncKeyState(primary)&0x8000)!=0)return;
+                WriteText("drag-release.txt",token.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                watchedGesture=token;
+            }
+            catch(IOException){} catch(UnauthorizedAccessException){}
+        }
         private void Stop()
         {
             if(!Running)return;
@@ -276,7 +348,7 @@ namespace ReflexCore.Bridge
         private string lastGeometry;
         private IntPtr styled;
 
-        internal WindowSurfaces(int renderer,Action<object> publish,Func<bool> enabled)
+        internal WindowSurfaces(int renderer,Action<object> publish,Func<bool> enabled,Action gesture=null)
         {
             this.renderer=renderer;this.publish=publish;this.enabled=enabled;
             using(var own=Process.GetCurrentProcess())host=(uint)own.Id;
@@ -284,7 +356,7 @@ namespace ReflexCore.Bridge
             hooks.Add(SetWinEventHook(3,3,IntPtr.Zero,callback,0,0,2)); // foreground
             hooks.Add(SetWinEventHook(Show,Reorder,IntPtr.Zero,callback,0,0,2));
             hooks.Add(SetWinEventHook(LocationChange,LocationChange,IntPtr.Zero,callback,0,0,2));
-            timer.Tick+=(sender,args)=>Refresh();
+            timer.Tick+=(sender,args)=>{if(gesture!=null)gesture();Refresh();};
             timer.Start();
         }
 

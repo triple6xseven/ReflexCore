@@ -226,6 +226,16 @@ namespace ReflexCore.Control
             };
             timer=new System.Windows.Forms.Timer();timer.Interval=950;
             timer.Tick+=(sender,args)=>{
+                string lifecycle=Path.Combine(root,"data","bridge","ui-lifecycle.txt");
+                if(studio!=null && testQueue==null && File.Exists(lifecycle))
+                {
+                    try{
+                        bool close=DateTime.UtcNow-File.GetLastWriteTimeUtc(lifecycle)<TimeSpan.FromSeconds(6) &&
+                            File.ReadAllText(lifecycle).Trim()=="exit";
+                        File.Delete(lifecycle);
+                        if(close){studio.Close();return;}
+                    }catch(IOException){} catch(UnauthorizedAccessException){}
+                }
                 UpdateStatus();
                 // Strict enum request, no command execution. Brings existing UI forward on repeated launch.
                 string request=Path.Combine(root,"data","bridge","ui-request.txt");

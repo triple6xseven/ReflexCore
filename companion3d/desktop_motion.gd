@@ -39,6 +39,11 @@ var physics_time := 0.0
 
 func place(p: Vector2) -> void:
 	position = p
+	held = false
+	cloud_seated=false
+	cloud_was_seat=false
+	lock_until=0
+	cloud_deadline=0
 	velocity = Vector2.ZERO
 	falling = false
 	_clear_support()
@@ -109,8 +114,14 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 	var bottom := maxf(top,floor-foot)
 	var walk_windows := mode in ["windows","roam"]
 	var real_physics: bool = options.get("physics",true)
+	if not walk_windows or not options.get("magic",true):
+		cloud_collision_until=0
+		cloud_since=-1
+		cloud_seated=false
 	cloud_alpha=move_toward(cloud_alpha,1.0 if (cloud_since>=0 and now-cloud_since>0.57 or now<cloud_collision_until) else 0.0,dt*3.8)
 	if held:
+		if absf(position.x+size.x*0.5-cloud_x)>size.x*0.55:
+			cloud_collision_until=0
 		return "dragged"
 	if supported and support.has_area():
 		var updated := _follow(windows,identities)
@@ -156,6 +167,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 	if cloud_seated and cloud_was_seat and now-landing_at<0.82:
 		return "cloud_sit"
 	if mode=="stationary":
+		position=position.clamp(Vector2(min_x,top),Vector2(max_x,bottom))
 		velocity=Vector2.ZERO
 		return "idle"
 

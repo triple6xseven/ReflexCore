@@ -26,6 +26,14 @@ The existing tray starts one Godot process on demand and stops that exact child.
 
 Godot loads glTF meshes and skinning, reads VRM humanoid roles and expressions, and uses conservative local bone poses and secondary motion. Custom MToon shading, role mapping and the Windows transparent-overlay implementation were informed by the [Godot application guide](https://docs.godotengine.org/en/stable/tutorials/ui/creating_applications.html), [Godot VRM](https://github.com/V-Sekai/godot-vrm) and [Godot Clickthrough](https://github.com/KitzuGG/Godot-Clickthrough). Window surfaces use [DWM frame bounds](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmgetwindowattribute).
 
+## Restart and input recovery
+
+The ReflexCore tray menu ends with **Restart** and **Exit**. Restart closes Studio and the tray, stops the supervised companion child and opens a new Studio and tray. Exit closes the same ReflexCore components. Running supervised tasks stop on shutdown. The latest Classic and 3D visibility live in a private preference file, independent of model and rendering settings. Studio saves pending widget edits on a normal close.
+
+A drag ends on button release, even when a non-activating overlay misses the release event. The tray checks only the primary mouse-button state for a gesture the overlay already owns and returns the release token. Mode and animation reactions can change during a gesture. Click-through or fullscreen capture cancels the current grab. New visual reactions can interrupt an older emote while job execution retains the existing supervisor queue.
+
+Cloud lobes render in the avatar's 3D scene, so the skirt and legs can cover the platform from the front. Turning off magic clears its support immediately.
+
 ## Companion 2.0
 
 The renderer follows the actual support window while seated. A fast move, closed edge or new overlap breaks the attachment and releases the avatar. Only nearby ledges start the approach, reach, grip, pull-up and settle sequence. The sequence uses procedural joint targets. Lumen contains no authored animation clips. Arm IK positions wrists in front of the torso during grabs and over the lap when seated. A critically damped cursor spring, bounded throw impulses and 120 Hz collision substeps cover sustained dragging, edge rebounds and swept landings.

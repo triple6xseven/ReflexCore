@@ -53,13 +53,26 @@ namespace ReflexCore.Bridge
         [STAThread]
         public static void Run(string root)
         {
+            bool restart=false;
             bool created;
             using (Mutex mutex = new Mutex(true, @"Local\ReflexCoreAgentTray", out created))
             {
                 if (!created) return;
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new TrayWindow(root));
+                using(var tray=new TrayWindow(root))
+                {
+                    Application.Run(tray);
+                    restart=tray.RestartRequested;
+                }
+            }
+            if(restart)
+            {
+                string ps=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");
+                string entry=Path.Combine(root,"tools","Start-ReflexCore.ps1");
+                using(var launch=Process.Start(new ProcessStartInfo{
+                    FileName=ps,Arguments="-NoProfile -ExecutionPolicy Bypass -File \""+entry+"\"",
+                    WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true})){}
             }
         }
     }
@@ -630,6 +643,9 @@ namespace ReflexCore.Bridge
         private bool cancelled;
         private bool hotkeyRegistered;
         private bool exiting;
+        private DateTime shutdownUntil;
+        private bool shutdownRestart;
+        internal bool RestartRequested {get;private set;}
         private string currentState;
         private int lastPending = -1;
         private readonly DateTime sessionStartedUtc;
@@ -718,8 +734,10 @@ namespace ReflexCore.Bridge
             toolsMenu.DropDownItems.Add("Open ReflexCore folder", null, delegate(object s, EventArgs e) {
                 Process.Start("explorer.exe", root);
             });
-            toolsMenu.DropDownItems.Add("Exit tray", null, delegate(object s, EventArgs e) { ExitTray(); });
             menu.Items.Add(toolsMenu);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Restart",null,(s,e)=>RequestShutdown(true));
+            menu.Items.Add("Exit",null,(s,e)=>RequestShutdown(false));
 
             icon = new NotifyIcon();
             icon.ContextMenuStrip = menu;
@@ -757,12 +775,12 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             hotkeyRegistered = !isolated && RegisterHotKey(hwnd, HotkeyId, 0x4003u, 0x50u); // ALT+CTRL+NOREPEAT, P
             if(!isolated)RegisterHotKey(hwnd,7814,0x4003u,0x48u); // Ctrl+Alt+H
             WriteStatus(-1);
-            if(!isolated)hud.Show();
+            if(!isolated)SetHudVisible(companionHost.ClassicPreferred);
 
             tick = new System.Windows.Forms.Timer();
             tick.Interval = 450;
             tick.Tick += delegate(object sender, EventArgs args) {
-                try { Pump(); PollActivity(); }
+                try { if(!CheckShutdown()){Pump(); if(!exiting)PollActivity();} }
                 catch (Exception) { SetState("error", -1, "Bridge error; check local files"); }
             };
             if(!isolated)tick.Start();
@@ -792,6 +810,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
 
         private void SetHudVisible(bool visible)
         {
+            if(companionHost!=null && companionHost.ClassicPreferred!=visible)companionHost.RememberClassic(visible);
             hudEnabled=visible;
             hudMenu.Text=hudEnabled?"Hide corner status widget":"Show corner status widget";
             if(hudEnabled)hud.Show();else hud.Hide();
@@ -1104,7 +1123,8 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 File.Delete(controlPath);
                 if (action == "stop") StopJob();
                 if (action == "stop-all") StopAllJobs();
-                if (action == "exit") { ExitTray(); return; }
+                if (action == "exit") { RequestShutdown(false); return; }
+                if (action == "restart") { RequestShutdown(true); return; }
             }
             if (active != null)
             {
@@ -1136,6 +1156,44 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             StartPending(false);
         }
 
+        private static bool StudioRunning()
+        {
+            try
+            {
+                using(var mutex=Mutex.OpenExisting(@"Local\ReflexCoreControlCenter"))return true;
+            }
+            catch(WaitHandleCannotBeOpenedException){return false;}
+        }
+        private void RequestShutdown(bool restartApplication)
+        {
+            if(exiting || shutdownUntil!=default(DateTime))return;
+            shutdownRestart=restartApplication;
+            if(!StudioRunning())
+            {
+                RestartRequested=shutdownRestart;
+                ExitTray();
+                return;
+            }
+            File.WriteAllText(Path.Combine(bridge,"ui-lifecycle.txt"),"exit");
+            shutdownUntil=DateTime.UtcNow.AddSeconds(6);
+        }
+        private bool CheckShutdown()
+        {
+            if(shutdownUntil==default(DateTime))return false;
+            if(!StudioRunning())
+            {
+                RestartRequested=shutdownRestart;
+                ExitTray();
+            }
+            else if(DateTime.UtcNow>=shutdownUntil)
+            {
+                string request=Path.Combine(bridge,"ui-lifecycle.txt");
+                if(File.Exists(request))File.Delete(request);
+                shutdownUntil=default(DateTime);
+                toast.Display("Studio did not close. Try again after closing its dialog.");
+            }
+            return true;
+        }
         private void ExitTray()
         {
             if (exiting) return;

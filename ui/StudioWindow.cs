@@ -71,6 +71,7 @@ public sealed partial class StudioWindow : Window
                 VisitHistory(e.ChangedButton==MouseButton.XButton1?-1:1);e.Handled=true;
             }
         };
+        Closing+=(_,e)=>{if(changedWidgetKeys.Count>0 && !ApplyWidgetChanges())e.Cancel=true;};
         Closed+=(_,_)=>{hostedWheel.Dispose();pulse.Stop();rain.SetRunning(false);native.Child=null;native.Dispose();};
     }
     static Color Col(string hex)=>(Color)ColorConverter.ConvertFromString(hex);
