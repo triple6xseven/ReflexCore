@@ -1,3 +1,7 @@
+## Lunar Temptation
+
+- Add a separate private Lunar VRM pair with layered ponytail locks, side strands, flared sleeves and a split overskirt. Simplify the Studio edition list and articulate walking and cloud gestures in rig space.
+
 ## Diagonal throws
 
 - Fix a typed-array error that interrupted flight in Taskbar, Stationary and Follow Cursor modes. Preserve short mouse flicks at release, combine successive side and ceiling contacts into a corner rebound, and recognize side-to-floor corner landings.

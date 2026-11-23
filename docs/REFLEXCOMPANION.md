@@ -196,3 +196,7 @@ cloud during active work or visible cursor attention. The taskbar
 pose aligns to the lowest referenced mesh vertex once the feet settle.
 The Godot process starts offscreen and the overlay is excluded from
 the taskbar. Pin the ReflexCore application shortcut for Studio.
+
+### Lunar Temptation
+
+Select Lunar Temptation under Character. Generate each private avatar-lunar VRM from its matching Nocturne export with examples/build_companion_lunar.py. The new locks follow the head. Window and cloud seating use the preserved Nocturne rig.

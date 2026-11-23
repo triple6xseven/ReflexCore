@@ -131,7 +131,7 @@ func load_file(path: String) -> bool:
 			return false
 	license_data = vrm0.get("meta", {}) if legacy else vrm1.get("meta", {})
 	var title := str(license_data.get("title",""))
-	nocturne=legacy and title=="Lumen - ReflexCompanion Midnight Nocturne"
+	nocturne=legacy and title in ["Lumen - ReflexCompanion Midnight Nocturne","Lumen - ReflexCompanion Lunar Temptation"]
 	refined=nocturne or legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
 	sole_y=_measure_sole()
 	atelier=refined or legacy and title=="Lumen - ReflexCompanion Midnight Atelier"
@@ -291,7 +291,7 @@ func _apply_atelier_materials() -> void:
 			var profile := -1.0
 			if "hairback" in name:
 				continue
-			elif "_hair_" in name or "nocturne ear" in name:
+			elif "_hair_" in name or "nocturne ear" in name or name in ["lunar pearl","lunar lilac"]:
 				profile = 1.0
 			elif "_skin" in name or "midnight barefoot" in name:
 				profile = 0.0
@@ -299,7 +299,7 @@ func _apply_atelier_materials() -> void:
 				profile = 3.0
 			elif name in ["fitted top","tailored shorts","violet piping","graphite belt","corset panel",
 					"woven harness","harness piping","high collar","shorts side panel","stocking cuff",
-					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap"]:
+					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar trim"]:
 				profile = 2.0
 			if profile < 0.0:
 				continue
@@ -644,7 +644,7 @@ func _blend_joint(bone: int, idle: Vector3, target: Quaternion, blend: float) ->
 	skeleton.set_bone_pose_rotation(bone,skeleton.get_bone_pose_rotation(bone).slerp(pose,blend))
 
 func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String, motion: Vector2) -> void:
-	var active := seated or enabled and state in ["dragged","thrown","falling","soft_collision","hard_collision",
+	var active := seated or enabled and state in ["walk","run","dragged","thrown","falling","soft_collision","hard_collision",
 		"approach","reach","grip","pull_up","cloud_summon","landing","recovering"]
 	var target_weight := 0.94 if active else 0.0
 	gesture_weight=lerpf(gesture_weight,target_weight,1-exp(-9*dt))
@@ -680,8 +680,13 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			"reach","grip","pull_up":
 				var vertical := -0.04 if gesture_state=="reach" else -0.15 if gesture_state=="grip" else -0.21
 				gesture=Vector3(side_sign*0.135,vertical,0.29)
-			"cloud_summon":
-				gesture=Vector3(side_sign*(0.14+sin(now*8)*0.035),-0.07+sin(now*8)*0.065,0.27)
+			"walk","run","cloud_summon":
+				var frame := skeleton.global_basis.orthonormalized()
+				var lateral := -1.0 if side=="left" else 1.0
+				var swing := lateral*sin(step_phase)
+				gesture=frame*(seat_right*lateral*.17+seat_forward*(.035+swing*.09))+Vector3.DOWN*.27
+				if gesture_state=="cloud_summon":
+					gesture=frame*(seat_right*lateral*.16+seat_forward*.18)+Vector3.DOWN*(.12+.034*sin(now*6+lateral))
 			"soft_collision","hard_collision":
 				var toward := -1.0 if "left" in impact else 1.0 if "right" in impact else 0.0
 				gesture=Vector3(side_sign*0.08+toward*0.07,0.16 if "top" in impact else 0.05,0.16)

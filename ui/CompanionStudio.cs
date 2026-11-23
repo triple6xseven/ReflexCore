@@ -123,7 +123,7 @@ public sealed partial class StudioWindow
         var movement = Section(panels[1], "Behavior and animation");
         var desktop = Section(panels[3], "Window and performance");
         desktop.Children.Add(modelRow);
-        var edition = WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Midnight Nocturne", "Midnight Atelier Refined", "Midnight Atelier", "Midnight Edition", "Original" }, new object[] { "nocturne", "atelier_refined", "atelier", "midnight", "original" });
+        var edition = WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Midnight Nocturne", "Lunar Temptation", "Midnight Edition", "Original" }, new object[] { "nocturne", "lunar", "midnight", "original" });
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
         var originalLegs = new StackPanel();
         var midnightLegs = new StackPanel();

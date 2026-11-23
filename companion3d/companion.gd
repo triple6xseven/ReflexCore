@@ -287,7 +287,7 @@ func _read_options() -> Dictionary:
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
 	next.fps = clampi(int(next.fps),15,60)
 	next.msaa=clampi(int(next.msaa),0,2)
-	if next.edition not in ["original","midnight","atelier","atelier_refined","nocturne"]:next.edition="nocturne"
+	if next.edition not in ["original","midnight","atelier","atelier_refined","nocturne","lunar"]:next.edition="nocturne"
 	if next.sit_style not in ["still","swing","relaxed"]:next.sit_style="swing"
 	next.intensity=clampf(float(next.intensity),0.0,1.0)
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
@@ -296,13 +296,13 @@ func _read_options() -> Dictionary:
 	return next
 
 func _stocking_key() -> String:
-	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined","nocturne"] and str(options.model).is_empty() else "stockings"
+	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined","nocturne","lunar"] and str(options.model).is_empty() else "stockings"
 
 func _pick_model() -> String:
 	var desired: String = options.model
 	dress_model=false
 	if desired.is_empty():
-		if options.edition in ["midnight","atelier","atelier_refined","nocturne"]:
+		if options.edition in ["midnight","atelier","atelier_refined","nocturne","lunar"]:
 			var suffix := "-stockings.vrm" if options.midnight_stockings else ".vrm"
 			var prefixes := [str(options.edition).replace("_","-")]
 			if options.edition=="nocturne":
@@ -976,6 +976,8 @@ func _loaded_edition() -> String:
 	if not str(options.model).is_empty():
 		return "original"
 	match model_file.get_file():
+		"avatar-lunar.vrm","avatar-lunar-stockings.vrm":
+			return "lunar"
 		"avatar-nocturne.vrm","avatar-nocturne-stockings.vrm":
 			return "nocturne"
 		"avatar-atelier-refined.vrm","avatar-atelier-refined-stockings.vrm":
@@ -998,7 +1000,7 @@ func _runtime_status() -> Dictionary:
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"mouse_interaction":not bool(options.clickthrough),
-		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm","avatar-nocturne.vrm"],"bubble_visible":bubble.visible,
+		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm","avatar-nocturne.vrm","avatar-lunar.vrm"],"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"sole_contact_y":sole_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,
