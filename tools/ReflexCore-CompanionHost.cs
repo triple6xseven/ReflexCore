@@ -34,7 +34,6 @@ namespace ReflexCore.Bridge
         {
             try
             {
-                hud.ShowClassicOnly();
                 applyClassic(showClassic);
                 RememberCompanion(true);
                 Start();
@@ -188,12 +187,11 @@ namespace ReflexCore.Bridge
             switch(action)
             {
                 case "start-3d":
-                    NormalizeLegacy(classicVisibility);RememberCompanion(true);Start();break;
+                    RememberCompanion(true);Start();break;
                 case "restart-3d":
-                    NormalizeLegacy(classicVisibility);
                     Restart3D();break;
                 case "stop-3d":Hide3D();break;
-                case "show-classic":hud.ShowClassicOnly();classicVisibility(true);break;
+                case "show-classic":classicVisibility(true);break;
                 case "hide-classic":classicVisibility(false);break;
                 case "reset-classic-position":hud.ResetWidgetPosition();break;
             }
@@ -206,10 +204,26 @@ namespace ReflexCore.Bridge
             else Start();
         }
 
-        private void NormalizeLegacy(Action<bool> classicVisibility)
+        internal bool MouseInteractionEnabled()
         {
-            if(hud.LegacyOnly)classicVisibility(false);
-            hud.ShowClassicOnly();
+            return !Boolean(ReadSettings("settings.json"),"clickthrough",false);
+        }
+        internal bool ToggleMouseInteraction()
+        {
+            var settings=new Dictionary<string,object>();
+            var file=new FileInfo(InBridge("settings.json"));
+            if(file.Exists)
+            {
+                if(file.Length>16384)throw new IOException("Companion settings are too large.");
+                try {settings=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(file.FullName));}
+                catch(ArgumentException error){throw new IOException("Companion settings are invalid.",error);}
+                catch(InvalidOperationException error){throw new IOException("Companion settings are invalid.",error);}
+                if(settings==null)throw new IOException("Companion settings are invalid.");
+            }
+            bool enabled=Boolean(settings,"clickthrough",false);
+            settings["clickthrough"]=!enabled;
+            WriteText("settings.json",json.Serialize(settings));
+            return enabled;
         }
 
         private void Start()

@@ -2,7 +2,7 @@
 
 Open **Companion & Widgets** in Studio. **Preview 3D** starts the renderer and applies pending settings. **Stop** closes the renderer owned by ReflexCore. Classic can stay visible independently. Drag Classic from its labels or background when position is unlocked and click-through is off. **Reset position** returns it to its default corner.
 
-With the 3D avatar visible, drag the body to move it. Release after a quick movement to throw it when physics is enabled. Stroke across the head for a pet reaction. Double-click the avatar to greet it. When click-through is enabled, use Studio to turn it off. Taskbar mode stands on the work area. Window edges and Free roam use exposed window edges within reach, or a stable magic platform when enabled.
+With the 3D avatar visible, drag the body to move it. Release after a quick movement to throw it when physics is enabled. Stroke across the head for a pet reaction. Double-click the avatar to greet it. When click-through is enabled, restore the avatar’s mouse controls with **Widget → 3D mouse interaction** in the tray or turn off **Click-through** in Studio. The Classic telemetry widget remains available independently. Taskbar mode stands on the work area. Window edges and Free roam use exposed window edges within reach, or a stable magic platform when enabled.
 
 ## Windows setup
 

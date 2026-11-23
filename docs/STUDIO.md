@@ -18,7 +18,7 @@ Selecting a theme updates both WPF resources and the hosted page colors. Only an
 
 The **Companion & Widgets** page manages Classic and ReflexCompanion 3D. Drag Classic from its background or text when it is unlocked. See [runtime setup and model requirements](REFLEXCOMPANION.md).
 
-Open the ReflexCore tray icon and choose **Widget → Show Classic**, **Show ReflexCompanion 3D**, or **Show Both**. Classic shows the hardware and Ollama metrics. With both visible, the 3D bubble reports work and the queue. **Ctrl+Alt+H** shows or hides Classic. The earlier animated 2D companion is available under **Widget → Legacy widget options**.
+Open the ReflexCore tray icon and choose **Widget → Show Classic**, **Show ReflexCompanion 3D**, or **Show Both**. Classic shows the hardware and Ollama metrics. With both visible, the 3D bubble reports work and the queue. **Ctrl+Alt+H** shows or hides Classic. Use **Widget → 3D mouse interaction** to restore the avatar’s drag and context menu after enabling click-through.
 
 **Appearance → Smooth scrolling** controls both the theme gallery and the scrollable hosted pages. The hosted pages reuse the same damped spring as the zxcLagLab gallery. Lists, model pickers and numeric editors keep their native wheel behavior.
 

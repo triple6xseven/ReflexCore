@@ -16,7 +16,10 @@ namespace ReflexCore.Bridge
     {
         public static void SelfTest(string root)
         {
-            CompanionCanvas.SelfTest();
+            if(CompanionStateMachine.Resolve("Vision thinking")!=CompanionMood.Thinking ||
+               CompanionStateMachine.Resolve("Step verified")!=CompanionMood.Success ||
+               CompanionStateMachine.Resolve("Error")!=CompanionMood.Warning)
+                throw new InvalidOperationException("Companion state mapping failed.");
             WindowSurfaces.SelfTest();
             if (!File.Exists(Path.Combine(root, "Cargo.toml")))
                 throw new Exception("Cargo.toml missing");
@@ -539,10 +542,7 @@ namespace ReflexCore.Bridge
             if(rows.Count==0) rows.Add("GPU —    VRAM —");
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
-            speedLabel.Top=gpuLabel.Bottom+2;
-            if(companion!=null)SetWidgetMode();
-            else if(!companionMode){ClientSize=new Size(420,speedLabel.Bottom+7);Reposition();}
-            foreach(System.Windows.Forms.Control label in Controls)if(!ReferenceEquals(label,companion))label.Width=396;
+            LayoutClassic();
         }
 
         private static string GpuText(ResourceCounters.GpuReading gpu)
@@ -689,20 +689,20 @@ namespace ReflexCore.Bridge
             hudMenu=new ToolStripMenuItem("Hide corner status widget");
             hudMenu.Click += delegate { ToggleHud(); };
             menu.Items.Add(hudMenu);
-            var studioAction=menu.Items.Add("Open Studio", null, delegate(object s, EventArgs e) {
+            menu.Items.Add("Open Studio", null, delegate(object s, EventArgs e) {
                 string center = Path.Combine(root, "tools", "ReflexCore-ControlCenter.ps1");
                 string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
                 Process.Start(new ProcessStartInfo { FileName=ps, Arguments="-NoProfile -ExecutionPolicy Bypass -File \"" + center + "\"",WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true });
             });
             if(!isolated)
             {
-                hud.ConfigureCompanion(()=>studioAction.PerformClick(),()=>{if(hudEnabled)ToggleHud();});
+                hud.ConfigureClassicWidget();
                 companionHost=new CompanionHost(root,bridge,hud);
                 var widgetOptions=new ToolStripMenuItem("Widget");
                 widgetOptions.DropDownOpening+=delegate {
                     while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
                     var entries=widgetOptions.DropDownItems;
-                    entries.Add("Show Classic",null,(s,e)=>{hud.ShowClassicOnly();SetHudVisible(true);});
+                    entries.Add("Show Classic",null,(s,e)=>SetHudVisible(true));
                     entries.Add("Show ReflexCompanion 3D",null,(s,e)=>companionHost.Show3D(false,SetHudVisible));
                     entries.Add("Show Both",null,(s,e)=>companionHost.Show3D(true,SetHudVisible));
                     if(companionHost.Running)
@@ -710,9 +710,20 @@ namespace ReflexCore.Bridge
                         entries.Add("Restart 3D",null,(s,e)=>companionHost.Restart3D());
                         entries.Add("Stop 3D",null,(s,e)=>companionHost.Hide3D());
                     }
-                    var legacy=new ToolStripMenuItem("Legacy widget options");
-                    hud.AddWidgetActions(legacy.DropDownItems);
-                    entries.Add(legacy);
+                    var input=new ToolStripMenuItem("3D mouse interaction"){Checked=companionHost.MouseInteractionEnabled()};
+                    input.Click+=(s,e)=>{
+                        try
+                        {
+                            bool enabled=companionHost.ToggleMouseInteraction();
+                            toast.Display(enabled?"3D mouse interaction enabled":"3D mouse interaction disabled");
+                        }
+                        catch(IOException){toast.Display("Could not save the 3D mouse setting");}
+                        catch(UnauthorizedAccessException){toast.Display("Could not save the 3D mouse setting");}
+                    };
+                    entries.Add(input);
+                    var classic=new ToolStripMenuItem("Classic options");
+                    hud.AddClassicActions(classic.DropDownItems);
+                    entries.Add(classic);
                 };
                 widgetOptions.DropDownItems.Add("Settings");
                 menu.Items.Add(widgetOptions);
@@ -939,7 +950,6 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 catch(UnauthorizedAccessException) {}
             }
             if(hud.Visible||hud.feedWhenHidden) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
-            if(hud.Visible) hud.RefreshCompanion(lastPending<0?0:lastPending,currentState);
             if(companionHost!=null)companionHost.Update(lastPending<0?0:lastPending,currentState,capturing,SetHudVisible);
         }
 

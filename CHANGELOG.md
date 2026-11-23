@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Retire the legacy 2D avatar while keeping the Classic telemetry widget and its position.
+* Add a tray switch to restore 3D mouse interaction after click-through is enabled. Extend the avatar's grab area to the outfit and occupied cloud.
+
 * Replace the companion's native context popup with an overlay menu that releases clicks outside its controls.
 * Limit native hit-testing to the visible companion area on Windows. Align the seated legs and ankles to the avatar's forward axis.
 

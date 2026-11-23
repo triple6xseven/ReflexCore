@@ -679,6 +679,20 @@ func _near_model(local: Vector2,padding: float) -> bool:
 			return true
 	return false
 
+func _pointer_on_character(local: Vector2) -> bool:
+	if _near_model(local,12):
+		return true
+	var zoom := float(options.zoom)
+	if projected_bones.has("hips"):
+		var hips: Vector2=projected_bones["hips"]
+		var outfit := (local-hips-Vector2(0,14*zoom))/Vector2(62,47)/zoom
+		if outfit.length_squared()<1.0:
+			return true
+	if motion.cloud_seated and cloud.visible:
+		var seat := Vector2(motion.cloud_x,motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(get_window().position)
+		return ((local-seat-Vector2(0,19*zoom))/Vector2(77,23)/zoom).length_squared()<1.0
+	return false
+
 func _track_input(local: Vector2, dt: float) -> void:
 	# Leave the rendered pixels intact while letting clicks outside projected hit
 	# zones reach the desktop. No polling of other applications' input.
@@ -692,7 +706,7 @@ func _track_input(local: Vector2, dt: float) -> void:
 			_hide_menu()
 		_set_cursor_passthrough(not over_menu or bool(options.clickthrough))
 		return
-	var can_click := _near_model(local,9)
+	var can_click := _pointer_on_character(local)
 	if can_click:can_click_until=now+0.14
 	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or now<can_click_until))
 	if pressed:
@@ -776,20 +790,20 @@ func _input(event: InputEvent) -> void:
 	if menu.visible:
 		if mouse.pressed and (mouse.button_index==MOUSE_BUTTON_RIGHT or not menu.get_rect().has_point(mouse.position)):
 			_hide_menu()
-			_set_cursor_passthrough(not _near_model(mouse.position,9))
+			_set_cursor_passthrough(not _pointer_on_character(mouse.position))
 		return
 	if mouse.button_index==MOUSE_BUTTON_LEFT and not mouse.pressed and pressed:
 		_release()
 		return
 	if bool(options.clickthrough):
 		return
-	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_near_model(mouse.position,15) or now<can_click_until):
+	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_pointer_on_character(mouse.position) or now<can_click_until):
 		if pressed:_release(false)
 		_show_menu(mouse.position)
 		return
 	if mouse.button_index!=MOUSE_BUTTON_LEFT:
 		return
-	if mouse.pressed and (_near_model(mouse.position,15) or pressed or now<can_click_until):
+	if mouse.pressed and (_pointer_on_character(mouse.position) or pressed or now<can_click_until):
 		# A fresh press supersedes a stale capture even if the prior mouse-up was lost.
 		if pressed:_release(false)
 		pressed=true
@@ -873,6 +887,7 @@ func _runtime_status() -> Dictionary:
 		"outfit_variant":dress_model,"fps":Engine.get_frames_per_second(),"frame_ms":snappedf(sample_ms,0.1),
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
+		"mouse_interaction":not bool(options.clickthrough),
 		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs"),"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
