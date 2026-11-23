@@ -13,6 +13,23 @@ func _verify() -> void:
 	if avatar.rig==null:
 		quit(2)
 		return
+	var rig = avatar.rig
+	for pose in ["petted","dragged","thrown","hard_collision","landing","thinking","working","reach","sit","cloud_sit"]:
+		var classic := Vector3.ZERO
+		var seat: bool = pose in ["sit","cloud_sit"]
+		var joint := "leftFoot" if seat else "rightHand"
+		for visit in 3:
+			for frame in 90:
+				rig.animate(1.0/60,frame/60.0,"idle",Vector2.ZERO,Vector2.ZERO,true,true)
+			for frame in 90:
+				rig.animate(1.0/60,frame/60.0,pose,Vector2.ZERO,Vector2.ZERO,true,true,seat,"",pose=="cloud_sit",seat,"relaxed")
+			var point: Vector3 = rig.world_bone(joint)
+			if visit==0:
+				classic=point
+			var variant: bool = rig.alternate_seat if seat else rig.alternate
+			_expect(variant==(visit==1),"Wrong rotation for "+pose)
+			if visit==1:
+				_expect(point.distance_to(classic)>.001,"No joint variation in "+pose)
 	avatar.click_at=avatar.now
 	for phase in ["approach","reach","grip","pull_up","settle","landing"]:
 		_expect(avatar._choose_pose(phase,Vector2.ZERO)==phase,"Click interrupted "+phase)

@@ -210,3 +210,7 @@ above borderless fullscreen apps. ReflexCore capture still pauses the overlay.
 
 **Hover** glides toward a distant cursor and holds position during interaction.
 Free Roam can make short cloud trips when the cursor is well clear and no reachable window is available.
+
+### Alternating interactions
+
+Each interaction starts with its classic animation and alternates on repeated occurrences during the same avatar session. The second climb leads with one hand. Thinking raises one hand and working alternates both hands. Each seat type remembers its own turn. The second visit adds an independent ankle extension when seated motion is enabled.

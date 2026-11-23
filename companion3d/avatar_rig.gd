@@ -58,6 +58,34 @@ var gesture_weight := 0.0
 var gesture_state := ""
 var sit_elapsed := 0.0
 var leg_motion := 0.0
+const FAMILIES := {"petted":"pat","face_smile":"smile","happy":"happy","dragged":"drag",
+	"thrown":"flight","falling":"flight","hard_collision":"impact","soft_collision":"impact",
+	"landing":"land","recovering":"land","thinking":"think","working":"work",
+	"reach":"climb","grip":"climb","pull_up":"climb"}
+var turns := {}
+var family := ""
+var alternate := false
+var surface := ""
+var alternate_seat := false
+var reaction_time := 0.0
+
+func _take_turn(key: String) -> bool:
+	var second := bool(turns.get(key,false))
+	turns[key] = not second
+	return second
+
+func _select_variant(next: String, seated: bool, cloudy: bool, dt: float, enabled: bool, touch: bool) -> void:
+	var key := str(FAMILIES.get(next,"")) if enabled else ""
+	if key != family or (touch and key in ["pat","smile","happy"]):
+		family = key
+		alternate = key != "" and _take_turn(key)
+		reaction_time = 0
+	reaction_time += dt
+	var seat := ("cloud" if cloudy else "window") if seated and enabled else ""
+	if seat != surface:
+		surface = seat
+		alternate_seat = seat != "" and _take_turn(seat)
+
 
 func load_file(path: String) -> bool:
 	var input := FileAccess.open(path, FileAccess.READ)
@@ -436,7 +464,8 @@ func _morph(key: String, value: float) -> void:
 		var mesh: MeshInstance3D = binding[0]
 		mesh.set_blend_shape_value(binding[1], value * binding[2])
 
-func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false, window_swing := false, sit_style := "still", intensity := 1.0) -> void:
+func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false, window_swing := false, sit_style := "still", intensity := 1.0, touch := false) -> void:
+	_select_variant(next,seated,cloudy,dt,enabled,touch)
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
 	var swing_active := enabled and seated and (window_swing or refined and cloudy) and sit_style!="still"
@@ -465,7 +494,8 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	var sign := -1.0 if legacy else 1.0
 	if enabled and state=="tickled":
 		nod+=0.048*sin(now*15)
-	_pose("head", Vector3(look.y * 0.15 + posture * 0.6 + nod, look.x * -0.25 * sign, look.x * 0.09), blend)
+	var tilt := .14*cos(reaction_time*2.1) if alternate and family in ["pat","smile","think","happy"] else 0.0
+	_pose("head", Vector3(look.y * 0.15 + posture * 0.6 + nod, look.x * -0.25 * sign, look.x * 0.09 + tilt), blend)
 	_pose("leftEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("rightEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("spine", Vector3(posture * sign + breathe, 0.02 * sin(step_phase) * gait, 0.012 * sin(now * 1.7)), blend)
@@ -525,6 +555,9 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 				target_face.x=0.50
 			"sit","cloud_sit":
 				target_face.x=0.10
+	if alternate and family in ["pat","smile","happy"]:
+		target_face.x=.68+.12*cos(reaction_time*3)
+		blink=maxf(blink,.55)
 	if atelier:
 		var startled := enabled and state in ["dragged", "thrown", "hard_collision"]
 		surprise = lerpf(surprise, 0.45 if startled else 0.0, blend)
@@ -609,6 +642,8 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	if nocturne:
 		reach += (0.15 if side_sign>0 else 0.04)*leg_motion*(1.0-attentive) if not cloudy else -0.055
 		rhythm += sin(phase*.28+side_sign)*0.036
+	if alternate_seat and sit_style!="still":
+		rhythm += (.22 if cloudy else .29)*pow(.5+.5*sin(sit_elapsed*1.5+side_sign*1.9),3)
 	var shin := Vector3.DOWN+seat_forward*(reach+leg_motion*rhythm)
 	_orient_segment(upper,lower,thigh,standing_thigh,blend)
 	_orient_segment(lower,foot,shin,standing_shin,blend)
@@ -648,6 +683,7 @@ func _blend_joint(bone: int, idle: Vector3, target: Quaternion, blend: float) ->
 func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String, motion: Vector2) -> void:
 	var active := seated or enabled and state in ["walk","run","dragged","thrown","falling","soft_collision","hard_collision",
 		"approach","reach","grip","pull_up","stand_up","cloud_summon","hover","landing","recovering"]
+	active = active or (alternate and family in ["think","work","pat","happy","smile"])
 	var target_weight := 0.94 if active else 0.0
 	gesture_weight=lerpf(gesture_weight,target_weight,1-exp(-9*dt))
 	if active:
@@ -704,6 +740,23 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				gesture=Vector3(side_sign*0.08+toward*0.07,0.16 if "top" in impact else 0.05,0.16)
 			"landing","recovering":
 				gesture=Vector3(side_sign*0.27,-0.22,0.19)
+		if alternate:
+			var beat := sin(reaction_time*4.0)
+			match family:
+				"think","pat","happy","smile","work":
+					if not seated:
+						gesture=hips-torso+outward*.16+forward*.075
+					if family=="work":
+						gesture=outward*.12+forward*(.21+.035*beat*side_sign)+Vector3.DOWN*(.08+.024*beat*side_sign)
+					elif side=="right":
+						var lift := .11 if family=="think" else -.025
+						gesture=outward*.075+forward*.15+Vector3.UP*(lift+.022*beat)
+				"drag","flight":
+					gesture+=outward*.055+Vector3.UP*(.065*side_sign)+forward*.025
+				"impact","land":
+					gesture+=outward*.035+Vector3.UP*(.085 if side=="left" else -.018)
+				"climb":
+					gesture+=Vector3.UP*(.055*side_sign)+forward*(.03*side_sign)
 		var pole := Vector3(side_sign*0.65,-1.0,0.05)
 		if gesture_state in ["walk","run"]:
 			pole=outward*.36-forward

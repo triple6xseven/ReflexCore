@@ -1,3 +1,7 @@
+## Alternating companion animations
+
+- Alternate classic interactions with new head-pat, smile, drag, flight, impact, landing, climb, thinking and work gestures. Window and cloud seats independently alternate leg-swing accents.
+
 ## Companion window visibility
 
 - Place companion window controls on the Character page. Fullscreen visibility follows the companion topmost switch.

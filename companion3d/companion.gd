@@ -78,6 +78,7 @@ var passthrough := false
 var avatar_state := "idle"
 var last_reported_pose := ""
 var pressed_zone := "happy"
+var last_animated_touch := -99.0
 var click_pose := "happy"
 var click_at := -5.0
 var pet_at := -5.0
@@ -601,7 +602,10 @@ func _process(delta: float) -> void:
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
 		if stage=="warning" and now>=motion.operator_until:
 			gaze.y=-0.55
-		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose,_is_midnight_loaded() and physical=="sit",str(options.sit_style),float(options.intensity))
+		var touch_time := maxf(click_at,pet_at)
+		var new_touch := touch_time != last_animated_touch
+		last_animated_touch = touch_time
+		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose,_is_midnight_loaded() and physical=="sit",str(options.sit_style),float(options.intensity),new_touch)
 		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
 		var hip_pad := 11*float(options.zoom)
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
