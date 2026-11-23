@@ -73,6 +73,7 @@ var window_clock := 0.0
 var crossed := 0.0
 var cloud_clock := 0.0
 var cloud_visit := -1
+var hug_progress := 0.0
 var knee_hug := 0.0
 var side_sit := 0.0
 
@@ -486,9 +487,13 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	if cycles:
 		cloud_clock += dt
 	var pose := (cloud_visit+int(cloud_clock/4.8))%3 if cycles else 0
-	var shift := 1-exp(-4.0*dt)
-	knee_hug=lerpf(knee_hug,1.0 if pose==1 else 0.0,shift)
-	side_sit=lerpf(side_sit,1.0 if pose==2 else 0.0,shift)
+	# A complete phrase starts and ends at the ordinary seat before the next pose.
+	var beat := fmod(cloud_clock,4.8)
+	var phrase := smoothstep(.08,1.38,beat)*(1-smoothstep(3.08,4.58,beat))
+	var shift := 1-exp(-6.0*dt)
+	hug_progress=lerpf(hug_progress,phrase if pose==1 else 0.0,shift)
+	knee_hug=smoothstep(.04,.93,hug_progress)
+	side_sit=lerpf(side_sit,phrase if pose==2 else 0.0,shift)
 	var swing_active := enabled and seated and (window_swing or refined and cloudy) and sit_style!="still"
 	attentive=lerpf(attentive,1.0 if refined and seated and state=="attentive" else 0.0,blend)
 	sit_elapsed=sit_elapsed+dt if swing_active else 0.0
@@ -611,6 +616,10 @@ func _drape_skirt(bone: int, blend: float) -> void:
 		flow=seat_forward*0.98+Vector3.DOWN*0.12
 	elif segment>0:
 		flow=flow.lerp(Vector3.DOWN,0.42 if segment==1 else 0.82)
+	if front and knee_hug>0:
+		var draped := seat_forward*(.74 if segment==0 else .94)+Vector3.UP*(.86 if segment==0 else -.16)
+		flow=flow.lerp(draped,knee_hug)
+
 	if not front:
 		flow+=outward*0.46
 	var from := (_parent_basis(bone,true).inverse()*direction).normalized()
@@ -668,8 +677,9 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	if alternate_seat and sit_style!="still":
 		rhythm += (.22 if cloudy else .29)*pow(.5+.5*sin(sit_elapsed*1.5+side_sign*1.9),3)
 	var shin := Vector3.DOWN+seat_forward*(reach+leg_motion*rhythm)
-	thigh=thigh.lerp(seat_forward*.62+Vector3.UP*.84+seat_right*.12*side_sign,knee_hug)
-	shin=shin.lerp(Vector3.DOWN-seat_forward*.42,knee_hug)
+	var leg_hug := smoothstep(.12 if side=="right" else .02,.98 if side=="right" else .86,hug_progress)
+	thigh=thigh.lerp(seat_forward*.62+Vector3.UP*.84+seat_right*.12*side_sign,leg_hug)
+	shin=shin.lerp(Vector3.DOWN-seat_forward*.42,smoothstep(0,.75,leg_hug))
 	thigh=thigh.lerp(seat_forward+seat_right*(.44+side_sign*.14)-Vector3.UP*.19,side_sit)
 	shin=shin.lerp(Vector3.DOWN+seat_right*.19+seat_forward*(.48 if side_sign>0 else -.18),side_sit)
 	if crossed>0:
@@ -749,9 +759,14 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					var knee := world_bone(side+"LowerLeg")
 					var lap := hips.lerp(knee,.56)-torso+Vector3.UP*.072
 					gesture=gesture.lerp(lap,.88)
-					gesture=gesture.lerp(knee-torso+outward*.035+Vector3.UP*.043,knee_hug)
 					if side=="right":
 						gesture=gesture.lerp(hips-torso+outward*.21-forward*.06,side_sit)
+				if hug_progress>0 and roles.has(side+"LowerLeg"):
+					var knee_target := world_bone(side+"LowerLeg")-torso+forward*.047+outward*.035
+					if roles.has(side+"Foot"):
+						knee_target+=(world_bone(side+"Foot")-world_bone(side+"LowerLeg"))*.22
+					gesture=gesture.lerp(knee_target,smoothstep(.27,.95,hug_progress))
+					gesture+=outward*.064*sin(PI*hug_progress)
 				if crossed>0 and side=="right":
 					gesture=gesture.lerp(hips-torso+outward*.265-forward*.045+Vector3.DOWN*.055,crossed)
 				if enabled and state=="happy":

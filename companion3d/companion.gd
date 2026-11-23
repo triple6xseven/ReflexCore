@@ -663,7 +663,7 @@ func _process(delta: float) -> void:
 	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_fly","cloud_summon"] or _near_model(local,25)
 	var frame_limit := clampi(int(options.fps),15,60)
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
-	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and fmod(rig.cloud_clock,4.8)<1.1
+	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and (fmod(rig.cloud_clock,4.8)<1.6 or fmod(rig.cloud_clock,4.8)>3.08)
 	var changing_window_pose: bool = rig!=null and rig.crossed>0 and rig.crossed<1
 	if physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose:
 		interactive=true

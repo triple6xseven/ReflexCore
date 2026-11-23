@@ -1,3 +1,7 @@
+## Cloud knee-hug transitions
+
+- Lift and lower each leg along a phased arc, guide wrists around the shins on Original as well as the other editions, and settle back to the standard seat before the next variation.
+
 ## ZXC leg silhouette and hands
 
 - Restore the first ZXC thigh and calf widths, shape knee and ankle depth, refine the heel and arch, and model separate fingers on both legwear variants.
