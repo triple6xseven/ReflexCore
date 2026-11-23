@@ -92,6 +92,7 @@ var gesture_direction := 0.0
 var gesture_extent := 0.0
 var gesture_turns := 0
 var gesture_at := 0.0
+var sample_us := 0
 var throw_velocity := Vector2.ZERO
 var head := Vector2.ZERO
 var sample_ms := 0.0
@@ -771,10 +772,7 @@ func _track_input(local: Vector2, dt: float) -> void:
 	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or now<can_click_until))
 	if pressed:
 		var global := Vector2(DisplayServer.mouse_get_position())
-		if global.distance_squared_to(previous_pointer)>=1:last_drag_motion=now
-		var observed := (global-previous_pointer)/dt
-		throw_velocity=throw_velocity.lerp(observed.limit_length(1300),minf(24*dt,1))
-		previous_pointer=global
+		_sample_throw(global)
 		_maybe_grab(global)
 		return
 	if bool(options.clickthrough) or not _head_circle(local,0):
@@ -887,6 +885,7 @@ func _input(event: InputEvent) -> void:
 			marker.close()
 		interaction_count+=1
 		previous_pointer=position
+		sample_us=Time.get_ticks_usec()
 		throw_velocity=Vector2.ZERO
 
 func _check_drag_release() -> void:
@@ -912,6 +911,17 @@ func _click_pose_at(point: Vector2) -> String:
 		return "face_smile"
 	return "happy"
 
+func _sample_throw(point: Vector2) -> void:
+	var tick := Time.get_ticks_usec()
+	var elapsed := (tick-sample_us)/1000000.0
+	if elapsed<0.004 or previous_pointer.distance_squared_to(point)<1:
+		return
+	var observed := ((point-previous_pointer)/elapsed).limit_length(1800)
+	throw_velocity=throw_velocity.lerp(observed,1-exp(-42*elapsed))
+	previous_pointer=point
+	last_drag_motion=now
+	sample_us=tick
+
 func _release(react := true) -> void:
 	pressed=false
 	var active := bridge.path_join("drag-active.txt")
@@ -920,7 +930,9 @@ func _release(react := true) -> void:
 	gesture_token=0
 	release_count+=1
 	if motion.held:
-		var speed:=throw_velocity if react else Vector2.ZERO
+		_sample_throw(Vector2(DisplayServer.mouse_get_position()))
+		var age := (Time.get_ticks_usec()-sample_us)/1000000.0
+		var speed:=throw_velocity*(1-smoothstep(0.07,0.18,age)) if react else Vector2.ZERO
 		if speed.length()<90:
 			speed=Vector2.ZERO
 		motion.release(speed,bool(options.physics),now,0.22)

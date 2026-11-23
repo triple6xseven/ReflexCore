@@ -21,6 +21,7 @@ var mode := ""
 var angle := 0.0
 var angular_speed := 0.0
 var impact := ""
+const NO_WINDOW_EDGES: Array[Rect2i] = []
 var impact_at := -5.0
 var impact_speed := 0.0
 var climb_progress := 0.0
@@ -104,8 +105,9 @@ func drag_to(target: Vector2, observed: Vector2, dt: float) -> void:
 
 func release(push: Vector2, physics: bool, now: float, recovery_delay := 1.4) -> void:
 	held = false
+	impact_at=-5.0
 	falling = physics
-	velocity = push.limit_length(1050) if physics else Vector2.ZERO
+	velocity = push.limit_length(1500) if physics else Vector2.ZERO
 	angular_speed = clampf(velocity.x/340.0,-3.0,3.0)
 	physics_time = 0.0
 	lock_until = now+recovery_delay
@@ -173,7 +175,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		physics_time += minf(dt,0.05)
 		while physics_time>=STEP and falling:
 			physics_time-=STEP
-			_fall_step(STEP,now,desk,size,windows if walk_windows else [],identities,foot,min_x,max_x,top,floor,float(options.get("gravity",900)))
+			_fall_step(STEP,now,desk,size,windows if walk_windows else NO_WINDOW_EDGES,identities,foot,min_x,max_x,top,floor,float(options.get("gravity",900)))
 		if falling and now-impact_at<0.26:
 			return "hard_collision" if impact_speed>510 else "soft_collision"
 		if falling:
@@ -280,7 +282,11 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 	var hit_top := position.y<top
 	if hit_side or hit_top:
 		var horizontal := "left" if position.x<min_x else "right"
-		impact="top_"+horizontal if hit_side and hit_top else horizontal if hit_side else "top"
+		var recent := now-impact_at<=0.12
+		var side := horizontal if hit_side else impact
+		var corner := hit_top and (hit_side or recent and impact in ["left","right"])
+		corner=corner or hit_side and recent and impact=="top"
+		impact="top_"+side if corner else horizontal if hit_side else "top"
 		impact_speed=velocity.length()
 		impact_at=now
 		if hit_side:
@@ -290,6 +296,11 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 		if hit_top:
 			position.y=top
 			velocity.y=absf(velocity.y)*0.20
+		if corner:
+			var inward := 1.0 if side=="left" else -1.0
+			var rebound := clampf(impact_speed*0.38,55,330)
+			velocity=Vector2(inward*maxf(absf(velocity.x),rebound),maxf(absf(velocity.y),rebound*0.78))
+			angular_speed=inward*clampf(rebound/150,0.4,2.0)
 	if velocity.y<0:
 		return
 	var seat := size.y*SEAT_RATIO
@@ -323,7 +334,8 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 	if position.y+foot>=edge:
 		position.y=maxf(top,edge-foot)
 		falling=false
-		impact="window" if landed.has_area() else "floor"
+		var bottom_corner := not landed.has_area() and now-impact_at<=0.12 and impact in ["left","right"]
+		impact="bottom_"+impact if bottom_corner else "window" if landed.has_area() else "floor"
 		impact_speed=velocity.length()
 		impact_at=now
 		velocity=Vector2.ZERO

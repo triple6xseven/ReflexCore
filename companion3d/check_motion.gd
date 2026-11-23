@@ -73,10 +73,18 @@ func _initialize() -> void:
 	_step(2)
 	_expect(pose=="idle" and body.cloud_alpha==0,"Taskbar mode should remain standing.")
 
+	body.grab()
+	body.release(Vector2(42,-290),true,clock)
+	_step(1.4)
+	_expect(not body.falling and body.impact=="floor","Taskbar throws must complete without window edges.")
 	options.mode="windows"
 	for sample in [[Vector2(-1430,90),Vector2(-1000,0),"left"],[Vector2(-330,90),Vector2(1000,0),"right"],
 		[Vector2(-900,13),Vector2(0,-900),"top"],[Vector2(-1430,10),Vector2(-705,-705),"top_left"],
-		[Vector2(-330,10),Vector2(705,-705),"top_right"]]:
+		[Vector2(-330,10),Vector2(705,-705),"top_right"],
+		[Vector2(-1400,70),Vector2(-750,-750),"top_left"],
+		[Vector2(-390,32),Vector2(750,-750),"top_right"],
+		[Vector2(-1420,405),Vector2(-650,750),"bottom_left"],
+		[Vector2(-345,405),Vector2(650,750),"bottom_right"]]:
 		body.place(sample[0])
 		body.grab()
 		body.release(sample[1],true,clock)

@@ -1,3 +1,7 @@
+## Diagonal throws
+
+- Fix a typed-array error that interrupted flight in Taskbar, Stationary and Follow Cursor modes. Preserve short mouse flicks at release, combine successive side and ceiling contacts into a corner rebound, and recognize side-to-floor corner landings.
+
 ## Companion touch and impact reactions
 
 - Add face smiles, foot tickles, directional drag lean and speed-sensitive contact rings. Free Roam approaches a distant cursor during its existing walks. The approved seated baseline is tagged companion-seated-classic-1.
