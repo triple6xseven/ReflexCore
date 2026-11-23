@@ -6,7 +6,7 @@ func _initialize() -> void:
 
 func _render() -> void:
 	var args := OS.get_cmdline_user_args()
-	if args.size()!=2:
+	if args.size() not in [2,4]:
 		quit(2)
 		return
 	root.size=Vector2i(480,620)
@@ -16,6 +16,8 @@ func _render() -> void:
 		push_error(rig.error)
 		quit(1)
 		return
+	if args.size()==4:
+		rig.set_legwear(true, int(args[2]), args[3])
 	root.add_child(rig.scene)
 	rig.scene.rotation.y=PI if rig.legacy else 0.0
 	var camera := Camera3D.new()

@@ -14,6 +14,7 @@ public sealed partial class StudioWindow
         new("nocturne", "Midnight Nocturne"),
         new("lunar", "Lunar Temptation"),
         new("velvet", "Velvet Enchantress"),
+        new("velvet_bloom", "Velvet Bloom"),
         new("zxc", "ZXC")
     };
 
@@ -37,8 +38,7 @@ public sealed partial class StudioWindow
         }
         var legwearColumn = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
         rows.Children.Add(legwearColumn);
-        var legwear = Choice(legwearColumn, "Custom legwear", new[] { "Barefoot", "Dark stockings" });
-        legwear.SelectedIndex = WidgetSettings.Bool(widgetDraft, "custom_stockings") ? 1 : 0;
+        var applyLegwear = BuildFittedLegwear(legwearColumn, custom: true, out _);
         var availability = WidgetHint("");
         editor.Children.Add(availability);
         characterEditorStatus = WidgetHint("");
@@ -49,7 +49,7 @@ public sealed partial class StudioWindow
         {
             for (int i = 0; i < controls.Length; i++)
                 ChangeWidget("custom_" + categories[i], controls[i].SelectedValue);
-            ChangeWidget("custom_stockings", legwear.SelectedIndex == 1);
+            applyLegwear();
             selectCustomEdition();
             if (ApplyWidgetChanges() && show) SendWidgetCommand("start-3d", false);
         }
@@ -82,7 +82,7 @@ public sealed partial class StudioWindow
                 control.IsEnabled = options.Length > 0;
             }
             bool ready = controls.All(control => control.SelectedIndex >= 0);
-            apply.IsEnabled = preview.IsEnabled = legwear.IsEnabled = ready;
+            apply.IsEnabled = preview.IsEnabled = legwearColumn.IsEnabled = ready;
             availability.Text = ready ? "" :
                 "The local parts library is unavailable. Follow the Character Editor setup in docs/REFLEXCOMPANION.md, then reload parts.";
             availability.Visibility = ready ? Visibility.Collapsed : Visibility.Visible;

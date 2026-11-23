@@ -11,6 +11,7 @@ const DEFAULTS := {
 	"model": "", "mode": "taskbar", "x": -1, "y": -1, "zoom": 1.0, "physics": true,
 	"gravity": 900.0, "walk_speed": 58.0, "hair": true, "stockings": true,
 	"midnight_stockings": false, "custom_stockings": false,
+	"legwear_den": 40, "legwear_color": "dark", "custom_legwear_den": 40, "custom_legwear_color": "dark",
 	"custom_outfit": "lunar", "custom_hair": "lunar", "custom_head": "lunar", "sit_style": "swing", "intensity": 1.0,
 	"animate": true, "bubble": true, "top": true, "fullscreen_overlay": false, "clickthrough": false, "fps": 30,
 	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "nocturne"
@@ -140,6 +141,7 @@ func _ready() -> void:
 	_build_scene()
 	options = _read_options()
 	_load_avatar()
+	_apply_legwear()
 	if "--check" in args:
 		print(JSON.stringify(_runtime_status()))
 		get_tree().quit(0 if rig != null else 3)
@@ -314,7 +316,12 @@ func _read_options() -> Dictionary:
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
 	next.fps = clampi(int(next.fps),15,60)
 	next.msaa=clampi(int(next.msaa),0,2)
-	if next.edition not in ["original","midnight","atelier","atelier_refined","nocturne","lunar","velvet","zxc","custom"]:next.edition="nocturne"
+	if next.edition not in ["original","midnight","atelier","atelier_refined","nocturne","lunar","velvet","velvet_bloom","zxc","custom"]:next.edition="nocturne"
+	for prefix in ["","custom_"]:
+		if int(next[prefix+"legwear_den"]) not in Rig.LEGWEAR_COVERAGE:
+			next[prefix+"legwear_den"]=40
+		if not Rig.LEGWEAR_COLORS.has(next[prefix+"legwear_color"]):
+			next[prefix+"legwear_color"]="dark"
 	if next.sit_style not in ["still","swing","relaxed"]:next.sit_style="swing"
 	next.intensity=clampf(float(next.intensity),0.0,1.0)
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
@@ -325,13 +332,13 @@ func _read_options() -> Dictionary:
 func _stocking_key() -> String:
 	if options.edition == "custom":
 		return "custom_stockings"
-	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined","nocturne","lunar","velvet","zxc"] and str(options.model).is_empty() else "stockings"
+	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined","nocturne","lunar","velvet","velvet_bloom","zxc"] and str(options.model).is_empty() else "stockings"
 
 func _pick_model() -> String:
 	var desired: String = options.model
 	dress_model=false
 	if desired.is_empty():
-		if options.edition in ["midnight","atelier","atelier_refined","nocturne","lunar","velvet","zxc"]:
+		if options.edition in ["midnight","atelier","atelier_refined","nocturne","lunar","velvet","velvet_bloom","zxc"]:
 			var suffix := "-stockings.vrm" if options.midnight_stockings else ".vrm"
 			var prefixes := [str(options.edition).replace("_","-")]
 			if options.edition=="nocturne":
@@ -439,6 +446,15 @@ func _load_avatar() -> void:
 	model_error = error_after_load
 	_camera_layout()
 
+func _apply_legwear() -> void:
+	if rig==null:
+		return
+	var custom := model_file.begins_with("wardrobe/")
+	var fitted := custom or str(options.model).is_empty() and _loaded_edition()!="original"
+	var stockings := fitted and (model_file.ends_with("-stockings.vrm") or model_file.ends_with("/stockings"))
+	var prefix := "custom_" if custom else ""
+	rig.set_legwear(stockings, int(options[prefix+"legwear_den"]), str(options[prefix+"legwear_color"]))
+
 func _apply_options(resize_window := true) -> void:
 	var window := get_window()
 	var old_body := body_size
@@ -517,6 +533,7 @@ func _poll() -> void:
 		_restore_position(true)
 		_write_position()
 	_load_avatar()
+	_apply_legwear()
 	_poll_preview()
 	var live := _read_json(bridge.path_join("live.json"),32*1024)
 	var timestamp := float(live.get("at_unix_ms",0))
@@ -1179,6 +1196,8 @@ func _loaded_edition() -> String:
 	match model_file.get_file():
 		"avatar-zxc.vrm","avatar-zxc-stockings.vrm":
 			return "zxc"
+		"avatar-velvet-bloom.vrm","avatar-velvet-bloom-stockings.vrm":
+			return "velvet_bloom"
 		"avatar-velvet.vrm","avatar-velvet-stockings.vrm":
 			return "velvet"
 		"avatar-lunar.vrm","avatar-lunar-stockings.vrm":
@@ -1205,7 +1224,7 @@ func _runtime_status() -> Dictionary:
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"mouse_interaction":not bool(options.clickthrough),
-		"bare_legs_loaded":model_file.ends_with("/barefoot") or model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm","avatar-nocturne.vrm","avatar-lunar.vrm","avatar-velvet.vrm","avatar-zxc.vrm"],"bubble_visible":bubble.visible,
+		"bare_legs_loaded":model_file.ends_with("/barefoot") or model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm","avatar-nocturne.vrm","avatar-lunar.vrm","avatar-velvet.vrm","avatar-velvet-bloom.vrm","avatar-zxc.vrm"],"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"sole_contact_y":sole_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,

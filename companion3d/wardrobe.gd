@@ -4,7 +4,7 @@ const MANIFEST := "manifest.json"
 const SCHEMA := "reflexcore.wardrobe.v1"
 const TABLES := ["accessors", "bufferViews", "materials", "textures", "images", "samplers"]
 const SLOTS := ["outfit", "hair", "head"]
-const EDITIONS := ["nocturne", "lunar", "velvet", "zxc"]
+const EDITIONS := ["nocturne", "lunar", "velvet", "velvet_bloom", "zxc"]
 const NODE_SLOTS := [1, 165, 0]
 const PART_LIMIT := 24 * 1024 * 1024
 

@@ -128,6 +128,7 @@ public sealed partial class StudioWindow
             modelLabel.Text = custom ? "Using the character editor" : path.Length == 0 ? "Default avatar" : Path.GetFileName(path);
             modelLabel.ToolTip = custom || path.Length == 0 ? null : path;
         }
+        Action updateModelControls = DescribeModel;
         var pick = Command("Choose model…", () =>
         {
             var dialog = new OpenFileDialog
@@ -144,9 +145,9 @@ public sealed partial class StudioWindow
                 return;
             }
             ChangeWidget("model", selected);
-            DescribeModel();
+            updateModelControls();
         });
-        var useDefault = Command("Use default", () => { ChangeWidget("model", ""); DescribeModel(); });
+        var useDefault = Command("Use default", () => { ChangeWidget("model", ""); updateModelControls(); });
         foreach (var button in new[] { useDefault, pick })
         {
             button.Margin = new Thickness(8, 0, 0, 0);
@@ -159,27 +160,29 @@ public sealed partial class StudioWindow
         var desktop = Section(panels[4], "Window and performance");
         desktop.Children.Add(modelRow);
         var edition = WidgetChoice(appearanceGroup, "Edition", "edition",
-            new[] { "Midnight Nocturne", "Lunar Temptation", "Velvet Enchantress", "ZXC", "Midnight Edition", "Original", "Custom character" },
-            new object[] { "nocturne", "lunar", "velvet", "zxc", "midnight", "original", "custom" });
+            new[] { "Midnight Nocturne", "Lunar Temptation", "Velvet Enchantress", "Velvet Bloom", "ZXC", "Midnight Edition", "Original", "Custom character" },
+            new object[] { "nocturne", "lunar", "velvet", "velvet_bloom", "zxc", "midnight", "original", "custom" });
         WidgetButtons(appearanceGroup, ("Open character editor", () => Select(1)));
         reloadWardrobe = BuildCharacterEditor(panels[1], () => edition.SelectedIndex = edition.Items.Count - 1);
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
         var originalLegs = new StackPanel();
-        var midnightLegs = new StackPanel();
+        var fittedLegs = new StackPanel();
         appearanceGroup.Children.Add(originalLegs);
-        appearanceGroup.Children.Add(midnightLegs);
+        appearanceGroup.Children.Add(fittedLegs);
         WidgetChoice(originalLegs, "Legwear", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
-        WidgetChoice(midnightLegs, "Legwear", "midnight_stockings", new[] { "Barefoot", "Dark stockings" }, new object[] { false, true });
+        BuildFittedLegwear(fittedLegs, custom: false, out var setStockingStyles);
         void DisplayLegwear()
         {
             string editionId = WidgetSettings.String(widgetDraft, "edition");
-            bool original = editionId == "original";
             bool custom = editionId == "custom";
-            originalLegs.Visibility = original ? Visibility.Visible : Visibility.Collapsed;
-            midnightLegs.Visibility = original || custom ? Visibility.Collapsed : Visibility.Visible;
+            bool legacy = editionId == "original" || WidgetSettings.String(widgetDraft, "model").Length > 0;
+            originalLegs.Visibility = legacy && !custom ? Visibility.Visible : Visibility.Collapsed;
+            fittedLegs.Visibility = !legacy && !custom ? Visibility.Visible : Visibility.Collapsed;
+            setStockingStyles(editionId != "midnight");
             pick.IsEnabled = useDefault.IsEnabled = !custom;
             DescribeModel();
         }
+        updateModelControls = DisplayLegwear;
         edition.SelectionChanged += (_, _) => DisplayLegwear();
         DisplayLegwear();
         WidgetChoice(movement, "Sitting style", "sit_style", new[] { "Still", "Leg swing", "Relaxed stretch" }, new object[] { "still", "swing", "relaxed" });
@@ -251,6 +254,55 @@ public sealed partial class StudioWindow
             row.Children.Add(button);
         }
         parent.Children.Add(row);
+    }
+
+    static readonly int[] legwearDensities = { 40, 30, 20, 15, 10, 5 };
+    static readonly string[] stockingColors = { "dark", "white", "lilac", "plum", "burgundy" };
+
+    Action BuildFittedLegwear(Panel parent, bool custom, out Action<bool> setStockingStyles)
+    {
+        string enabledKey = custom ? "custom_stockings" : "midnight_stockings";
+        string densityKey = custom ? "custom_legwear_den" : "legwear_den";
+        string colorKey = custom ? "custom_legwear_color" : "legwear_color";
+        var legwear = Choice(parent, custom ? "Custom legwear" : "Legwear", new[] { "Barefoot", "Stockings" });
+        legwear.SelectedIndex = WidgetSettings.Bool(widgetDraft, enabledKey) ? 1 : 0;
+        var options = new StackPanel();
+        parent.Children.Add(options);
+        var density = Choice(options, "Stocking density",
+            legwearDensities.Select(value => value.ToString(CultureInfo.InvariantCulture) + " den").ToArray());
+        var savedDensity = WidgetSettings.Number(widgetDraft, densityKey, 40);
+        density.SelectedIndex = Math.Max(0, Array.FindIndex(legwearDensities, value => value == savedDensity));
+        var color = Choice(options, "Stocking color",
+            stockingColors.Select(value => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value)).ToArray());
+        color.SelectedIndex = Math.Max(0, Array.IndexOf(stockingColors, WidgetSettings.String(widgetDraft, colorKey)));
+
+        bool supportsStyles = true;
+        void UpdateVisibility() => options.Visibility =
+            supportsStyles && legwear.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        setStockingStyles = supported =>
+        {
+            supportsStyles = supported;
+            UpdateVisibility();
+        };
+
+        void Apply()
+        {
+            if (legwear.SelectedIndex < 0 || density.SelectedIndex < 0 || color.SelectedIndex < 0) return;
+            ChangeWidget(enabledKey, legwear.SelectedIndex == 1);
+            if (!supportsStyles) return;
+            ChangeWidget(densityKey, legwearDensities[density.SelectedIndex]);
+            ChangeWidget(colorKey, stockingColors[color.SelectedIndex]);
+        }
+
+        legwear.SelectionChanged += (_, _) => UpdateVisibility();
+        UpdateVisibility();
+        if (!custom)
+        {
+            legwear.SelectionChanged += (_, _) => Apply();
+            density.SelectionChanged += (_, _) => Apply();
+            color.SelectionChanged += (_, _) => Apply();
+        }
+        return Apply;
     }
 
     void WidgetToggle(Panel parent, string label, string key)

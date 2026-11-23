@@ -226,9 +226,11 @@ def refine_proportions(obj, rest):
         if hips < height < neck and abs(x) < .20:
             waist = falloff(height,chest-.042,.141)
             ribs = falloff(height,chest+.036,.132)
-            vertex.co.x += x*(.105*waist+.022*ribs)
-            vertex.co.y -= .010*max(0.0,-depth/.076)*waist
-            vertex.co.y += .005*max(0.0,depth/.118)*ribs
+            shoulder = falloff(height,neck-.082,.097)
+            vertex.co.x += x*(.066*waist+.031*ribs+.034*shoulder)
+            vertex.co.y -= .008*max(0.0,-depth/.076)*waist
+            vertex.co.y += .003*max(0.0,depth/.118)*ribs
+            vertex.co.y -= .006*max(0.0,-depth/.09)*ribs
 
         prefix = "J_Bip_" + ("R_" if sign > 0 else "L_")
         knee_x, knee, knee_z = rest[prefix+"LowerLeg"]
@@ -244,8 +246,8 @@ def refine_proportions(obj, rest):
         tibia_z = np.interp(height,[ankle,knee],[ankle_z,knee_z])
         if height <= knee:
             vertex.co.x -= (x-tibia_x)*.045*calf
-        vertex.co.x += sign*.004*quad*max(0.0,(abs(x)-abs(knee_x))/.08)
-        vertex.co.y += .010*patella*min(1.0,max(0.0,(depth+knee_z)/.045))
+        vertex.co.x += sign*.007*quad*max(0.0,(abs(x)-abs(knee_x))/.08)
+        vertex.co.y += .007*patella*min(1.0,max(0.0,(depth+knee_z)/.045))
         vertex.co.y -= .013*calf*min(1.0,max(0.0,(-depth-tibia_z)/.064))
 
         # Widen the long blending zone around the pivot in the flexing knee.
@@ -264,25 +266,34 @@ def refine_proportions(obj, rest):
     mesh.update()
 
 
-def cut_briefs(body):
+def tailor_shorts(body):
+    """Cut fitted opaque shorts around the skinned hips and upper thighs."""
     bm = bmesh.new()
     bm.from_mesh(body.data)
-    # Cut the two leg openings on a continuous curved line over the hip.
-    for v in bm.verts:
-        v.co.z -= .56*abs(v.co.x)
-    bmesh.ops.bisect_plane(bm, geom=list(bm.verts)+list(bm.edges)+list(bm.faces),
-                                 plane_co=(0,0,.957), plane_no=(0,0,1), clear_inner=True)
-    for v in bm.verts:
-        v.co.z += .56*abs(v.co.x)
-    bmesh.ops.bisect_plane(bm, geom=list(bm.verts)+list(bm.edges)+list(bm.faces),
-                           plane_co=(0,0,1.084), plane_no=(0,0,1), clear_outer=True)
+    # A gentle hem sweep rises towards the outer thigh while retaining coverage.
+    for vertex in bm.verts:
+        vertex.co.z -= .16 * abs(vertex.co.x)
+    bmesh.ops.bisect_plane(
+        bm, geom=list(bm.verts)+list(bm.edges)+list(bm.faces),
+        plane_co=(0, 0, .919), plane_no=(0, 0, 1), clear_inner=True,
+    )
+    for vertex in bm.verts:
+        vertex.co.z += .16 * abs(vertex.co.x)
+    bmesh.ops.bisect_plane(
+        bm, geom=list(bm.verts)+list(bm.edges)+list(bm.faces),
+        plane_co=(0, 0, 1.119), plane_no=(0, 0, 1), clear_outer=True,
+    )
     bm.normal_update()
-    for v in bm.verts:
-        v.co += v.normal*.0028
-    mesh = bpy.data.meshes.new("Velvet briefs")
+    for vertex in bm.verts:
+        # Keep the shorts outside the skin across the hip and seat. The hem
+        # and waist use extra clearance so they read as sewn edges.
+        h = vertex.co.z
+        outer = .0045 + .002 * np.exp(-((h-1.11)/.017)**2)
+        vertex.co += vertex.normal * outer
+    mesh = bpy.data.meshes.new("Tailored shorts")
     bm.to_mesh(mesh)
     bm.free()
-    obj = bpy.data.objects.new("Velvet briefs", mesh)
+    obj = bpy.data.objects.new("Tailored shorts", mesh)
     bpy.context.collection.objects.link(obj)
     for group in body.vertex_groups:
         obj.vertex_groups.new(name=group.name)
@@ -310,10 +321,11 @@ def uv_for(co, normal, rear, part):
         u = 512 - np.clip(x/radius,-1,1)*width
     if part=="hands":
         rear=False
-    if part == "briefs":
-        # Tile the woven fabric swatch in the unused top-left of the atlas.
-        u = 62 + x*208
-        v = 65 + (1.084-h)*310
+    if part == "shorts":
+        # Map both hip panels into a shared fabric swatch. Curved side seams
+        # follow the silhouette instead of projecting the old A-pose briefs.
+        u = (39 if not rear else 88) + x*116
+        v = 12 + (1.119-h)*430
         rear = False
     return ((2048-u if rear else u)/2048, v/1536)
 
@@ -358,9 +370,9 @@ def main(original, lunar, output):
     sculpt_forefoot(feet)
     join_ankles(torso,feet)
     refine_proportions(torso,rest)
-    briefs = cut_briefs(torso)
+    shorts = tailor_shorts(torso)
     streams = {name: [] for name in ("pos","normal","uv","joints","weights","tri")}
-    for obj, part in [(torso,"body"),(hands,"hands"),(briefs,"briefs")]:
+    for obj, part in [(torso,"body"),(hands,"hands"),(shorts,"shorts")]:
         collect(obj, part, streams)
     with Path(output).open("xb") as dest:
         np.savez_compressed(dest, **streams, names=target_names)

@@ -16,6 +16,7 @@ LABELS = {
     "nocturne": "Midnight Nocturne",
     "lunar": "Lunar Temptation",
     "velvet": "Velvet Enchantress",
+    "velvet_bloom": "Velvet Bloom",
     "zxc": "ZXC",
 }
 TABLES = ("accessors", "bufferViews", "materials", "textures", "images", "samplers")
@@ -148,16 +149,34 @@ def extract(doc, binary, slot, edition):
     ex = Extractor(doc, binary)
     body = doc["meshes"][doc["nodes"][1]["mesh"]]
     if edition == "zxc":
-        only, = body["primitives"]
-        spans = only.get("extras", {}).get("reflexParts")
-        if not spans:
-            raise ValueError("Rebuild ZXC with the current builder before extracting wardrobe parts")
-        ranges = [np.arange(p["start"], p["start"]+p["count"]) for p in spans if p["slot"] == ("body" if slot=="outfit" else slot)]
-        indices = accessor(doc, binary, only["indices"]).ravel()[np.concatenate(ranges)]
-        names = body["extras"]["targetNames"]
-        selected = ([k for k in ("blink", "happy") if k in names] if slot=="head"
-                    else ["WindowDrape"] if slot=="outfit" and "WindowDrape" in names else [])
-        primitives = [ex.primitive(only, [names.index(k) for k in selected], indices)]
+        role = "body" if slot == "outfit" else slot
+        desired = {"outfit": ["WindowDrape"], "hair": [],
+                   "head": ["blink", "happy", "warning", "surprised"]}[slot]
+        selected = None
+        primitives = []
+        for mesh in doc["meshes"]:
+            names = mesh.get("extras", {}).get("targetNames", [])
+            for primitive in mesh["primitives"]:
+                spans = [part for part in primitive.get("extras", {}).get("reflexParts", [])
+                         if part["slot"] == role]
+                if not spans:
+                    continue
+                targets = [name for name in desired if name in names]
+                if selected is not None and targets != selected:
+                    raise ValueError(f"ZXC {role} surfaces need the same ordered morph targets")
+                selected = targets
+                source_indices = primitive.get("indices")
+                source_points = doc["accessors"][primitive["attributes"]["POSITION"]]["count"]
+                refs = (accessor(doc, binary, source_indices).ravel()
+                        if source_indices is not None else np.arange(source_points))
+                if len(spans) == 1 and spans[0]["start"] == 0 and spans[0]["count"] == len(refs):
+                    indices = None
+                else:
+                    indices = refs[np.concatenate([np.arange(p["start"], p["start"]+p["count"])
+                                                   for p in spans])]
+                primitives.append(ex.primitive(primitive, [names.index(k) for k in targets], indices))
+        if not primitives:
+            raise ValueError(f"ZXC is missing {role} parts. Rebuild the VRM with the current builder.")
     elif slot == "outfit":
         selected = []
         primitives = [ex.primitive(p, [], ix) for p, ix in outfit_sources(doc, binary, body)]
@@ -208,13 +227,14 @@ def neutral_rig(doc, binary):
     return encode(ex.out, ex.data)
 
 
-def build(models, output, zxc):
+def build(models, output, zxc, velvet_bloom=None):
     reference = None
     files = {}
     manifest = {"schema": "reflexcore.wardrobe.v1", "parts": {"outfit": {}, "hair": {}, "head": {}}}
     for edition, label in LABELS.items():
-        directory = zxc if edition == "zxc" and zxc else models
-        names = [directory / f"avatar-{edition}{suffix}.vrm" for suffix in ("", "-stockings")]
+        directory = {"zxc": zxc, "velvet_bloom": velvet_bloom}.get(edition) or models
+        stem = "avatar-" + edition.replace("_", "-")
+        names = [directory / f"{stem}{suffix}.vrm" for suffix in ("", "-stockings")]
         if not all(path.is_file() for path in names):
             continue
         for variant, name in enumerate(names):
@@ -264,5 +284,6 @@ if __name__ == "__main__":
     parser.add_argument("models", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--zxc", type=Path, help="Override the source directory for both ZXC assets")
+    parser.add_argument("--velvet-bloom", type=Path, help="Override the source directory for both Velvet Bloom assets")
     args = parser.parse_args()
-    build(args.models, args.output, args.zxc)
+    build(args.models, args.output, args.zxc, args.velvet_bloom)

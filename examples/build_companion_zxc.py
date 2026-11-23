@@ -14,7 +14,102 @@ import struct
 import numpy as np
 from PIL import Image, ImageDraw
 from build_companion_avatar import decode_glb
-from build_companion_midnight import append_accessor
+from build_companion_midnight import accessor, append_accessor
+from build_companion_wardrobe import Extractor
+
+
+def sculpt_face(points):
+    # The donor has separate corneas, eyelids and lip geometry. Apply one
+    # cheek/jaw profile to every surface so the facial layers stay aligned.
+    fitted = points.copy()
+    h = points[:, 1]
+    weight = np.clip((h-1.545)/.07,0.0,1.0)
+    fitted[:, 0] *= 1.0 + .015*weight
+    fitted[:, 1] -= .024*np.maximum(h-1.545,0.0)
+    fitted[:, 2] += (.009*weight + .08*points[:, 2])*weight
+    return fitted
+
+
+def groom_hair(points):
+    fitted = points.copy()
+    x, y, depth = points.T
+    drop = np.maximum(1.70-y,0.0)
+    rear = np.clip((depth-.045)/.17,0.0,1.0)
+    fitted[:, 0] += .04*rear*drop + .012*np.sin(drop*11.0)*rear
+    fitted[:, 1] -= .063*drop
+    fitted[:, 2] -= .19*np.maximum(depth-.045,0.0)
+    # Sweep the low edge across the forehead, retaining a longer centre
+    # taper and keeping the eyes clear. Side locks arc back to the shoulder.
+    fringe = np.clip((-depth-.036)/.055,0.0,1.0)*np.exp(-((y-1.66)/.065)**2)
+    fitted[:, 0] += .016*fringe
+    fitted[:, 1] += fringe*(.021-.028*np.exp(-((x+.013)/.028)**2))
+    side_lock = np.clip((np.abs(x)-.10)/.07,0.0,1.0)*np.clip((1.64-y)/.16,0.0,1.0)
+    fitted[:, 0] *= 1.0-.17*side_lock
+    fitted[:, 2] += .018*side_lock
+    return fitted
+
+
+def dress_parts(template, raw, doc, data, skin):
+    """Mount head and independently skinned hair on the common Lunar rig."""
+    source_nodes = {node["name"]: node for node in template["nodes"]}
+    nodes = {node["name"]: node for node in doc["nodes"]}
+    source_face = source_nodes["Face"]
+    source_hair = source_nodes["Hair001"]
+    source_body = source_nodes["Body"]
+    for node in (source_face,source_hair):
+        if template["skins"][node["skin"]]["joints"] != skin["joints"]:
+            raise ValueError(f"{node['name']} joint order does not match the body")
+    ex = Extractor(template, raw)
+    ex.out = doc
+    ex.data = data
+
+    def transform(primitive, fit):
+        vertex = primitive["attributes"]["POSITION"]
+        original = accessor(doc,data,vertex).copy()
+        fitted = fit(original)
+        primitive["attributes"]["POSITION"] = append_accessor(doc,data,fitted,"VEC3",5126)
+        for target in primitive.get("targets",[]):
+            delta = accessor(doc,data,target["POSITION"]).copy()
+            shaped_delta = fit(original+delta)-fitted
+            target["POSITION"] = append_accessor(doc,data,shaped_delta,"VEC3",5126)
+        normals = accessor(doc,data,primitive["attributes"]["NORMAL"]).copy()
+        # Pull normals through the inverse transpose of the local deformation.
+        jacobian = np.stack([(fit(original+axis*.0001)-fitted)/.0001 for axis in np.eye(3)],axis=2)
+        adjusted = np.linalg.solve(jacobian.transpose(0,2,1),normals[:,:,None])[:,:,0]
+        adjusted /= np.maximum(np.linalg.norm(adjusted,axis=1,keepdims=True),1e-8)
+        primitive["attributes"]["NORMAL"] = append_accessor(doc,data,adjusted,"VEC3",5126)
+
+    def mesh(node, name, slot, primitives, fit, shapes=()):
+        for primitive in primitives:
+            transform(primitive, fit)
+            count = doc["accessors"][primitive["indices"]]["count"] if "indices" in primitive else doc["accessors"][primitive["attributes"]["POSITION"]]["count"]
+            primitive["extras"] = {"reflexParts":[{"slot":slot,"start":0,"count":count}]}
+        dest = {"name":name,"primitives":primitives}
+        if shapes:
+            dest["weights"] = [0]*len(shapes)
+            dest["extras"] = {"targetNames":list(shapes)}
+        node.update(mesh=len(doc["meshes"]),skin=0)
+        doc["meshes"].append(dest)
+
+    groups = template["extensions"]["VRM"]["blendShapeMaster"]["blendShapeGroups"]
+    targets = {group["name"]:group["binds"][0]["index"] for group in groups if group["binds"]}
+    names = {"Blink":"blink","Joy":"happy","Sorrow":"sorrow","Surprised":"surprised"}
+    donor_face = template["meshes"][source_face["mesh"]]["primitives"]
+    face = [ex.primitive(p,[targets[name] for name in names]) for p in donor_face]
+    mesh(nodes["Face"],"ZXC Face","head",face,sculpt_face,names.values())
+    for i in {primitive["material"] for primitive in face}:
+        material = doc["materials"][i]
+        if "_Face_00_SKIN" in material["name"]:
+            # Cooler skin harmonizes the new head with ZXC's pink-lilac body.
+            material["pbrMetallicRoughness"]["baseColorFactor"] = [1.0,.925,.976,1.0]
+
+    def material(primitive):
+        return template["materials"][primitive["material"]]["name"]
+    donor_hair = template["meshes"][source_hair["mesh"]]["primitives"]
+    hair = [p for p in donor_hair if not material(p).startswith("Nocturne ear")]
+    hair += [p for p in template["meshes"][source_body["mesh"]]["primitives"] if "HairBack" in material(p)]
+    mesh(nodes["Hair001"],"ZXC Hair","hair",list(ex.collect_hair(hair)),groom_hair)
+
 
 
 def build(source, illustration, back, stockings, anatomy=None):
@@ -32,7 +127,7 @@ def build(source, illustration, back, stockings, anatomy=None):
     vrm["blendShapeMaster"]={"blendShapeGroups":[]}
     vrm["meta"].update(title="ZXC",texture=-1)
     doc=dict(asset={"version":"2.0","generator":"ReflexCore ZXC"},nodes=nodes,skins=[skin],
-             scenes=template["scenes"],scene=0,meshes=[],materials=[],images=[],textures=[],
+             scenes=template["scenes"],scene=0,meshes=[],materials=[],images=[],textures=[],samplers=[],
              accessors=[],bufferViews=[],extensionsUsed=["VRM"],extensions={"VRM":vrm})
     data=bytearray()
     def view(payload):
@@ -70,15 +165,17 @@ def build(source, illustration, back, stockings, anatomy=None):
                 strip[:]=(strip*[.37,.27,.42]).astype(np.uint8)
         im=Image.fromarray(rgb)
     if anatomy is not None:
-        # An opaque satin panel with an embroidered repeat and a scalloped waistband.
         paint=ImageDraw.Draw(im)
-        paint.rectangle((0,0,122,124), fill=(54,29,66))
-        for y in range(48,125,8):
-            for x in range(0,124,8):
-                cx=x+4*(y%16==0)
-                paint.line([(cx-3,y),(cx,y-3),(cx+3,y),(cx,y+3),(cx-3,y)],fill=(68,41,81))
-                paint.ellipse((cx-1,y-1,cx+1,y+1),fill=(101,72,117))
-        paint.line([(x,67+int(2*cos(x*pi/7))) for x in range(124)],fill=(195,143,197),width=2)
+        # Woven graphite-purple shorts, with side stitching and a rolled hem.
+        for v in range(0,125):
+            for u in range(0,123):
+                side_shade = .5+.5*cos(u*.16+.3)
+                base = (30+11*side_shade,22+8*side_shade,43+14*side_shade)
+                if v<26:
+                    base = (44+12*side_shade,32+9*side_shade,58+14*side_shade)
+                if (u in (31,48,80,97) and v%5<3) or v in (27,88):
+                    base = (88,59,115)
+                paint.point((u,v),fill=tuple(int(c) for c in base))
         paint.rectangle((140,24,188,68),fill=(248,215,214))
         # A cylindrical leg chart avoids projecting straps, dress panels or rear
         # artwork onto the calf when a seated leg turns towards the camera.
@@ -152,6 +249,11 @@ def build(source, illustration, back, stockings, anatomy=None):
                     wx=-side*((cx-512)*.00112+rx*.00091*across+.014*t)
                     wz=.011+.125*t+.042*t*across+.009*sin(across*pi*1.7+t*3)-.004*cos(angle)
                     wy+=t*(.125+.055*(1-across))
+                    if anatomy is not None:
+                        # Keep only short, tucked hip panels on the Lunar-style outfit.
+                        wy+=.50*t
+                        wx-=.052*t*side
+                        wz-=.042*t
                 if kind=="face":
                     wz-=.019*exp(-((x-512)/12)**2-((y-192)/11)**2)*max(0,cos(angle))
                 if kind=="arm":
@@ -188,6 +290,9 @@ def build(source, illustration, back, stockings, anatomy=None):
                     crown=max(0.0,wy-1.53)
                     wy-=.075*crown
                     wx*=1-.047*min(1.0,crown/.17)
+                    if kind=="ear":
+                        wz-=.019+abs(wx)*.12
+                        wx-=side*.012
                 u,v=x,y
                 if side==-1:
                     u=1024-u
@@ -229,8 +334,8 @@ def build(source, illustration, back, stockings, anatomy=None):
         pieces.append((points,norms,tex,joints,weights,tris,blink,smile))
     head=[(0,"C_Head"),(1550,"C_Head")]
     trunk=[(235,"C_Neck"),(300,"C_UpperChest"),(410,"C_Chest"),(525,"C_Spine"),(615,"C_Hips"),(750,"C_Hips")]
-    shell([(28,512,2,.01),(43,512,60,.063),(80,512,95,.10),(129,512,101,.113),(175,512,89,.111),(201,512,78,.092),(224,512,49,.076),(243,512,8,.024)],head,kind="face",depth_offset=-.018)
     if anatomy is None:
+        shell([(28,512,2,.01),(43,512,60,.063),(80,512,95,.10),(129,512,101,.113),(175,512,89,.111),(201,512,78,.092),(224,512,49,.076),(243,512,8,.024)],head,kind="face",depth_offset=-.018)
         shell([(226,512,26,.032),(258,512,38,.04),(282,512,81,.061),(306,512,115,.073),(350,512,112,.101),(397,512,116,.132),(449,512,93,.09),(500,512,80,.072),(547,512,91,.082),(603,512,117,.102),(653,512,120,.099),(693,512,88,.074),(725,512,20,.032)],trunk)
     for side,letter in [(1,"L"),(-1,"R")]:
         def limb(parts):
@@ -248,7 +353,7 @@ def build(source, illustration, back, stockings, anatomy=None):
                    (780,x+13,3,.004),(785,x+14,.7,.001)],
                   limb([(727,"Hand"),(785,"Hand")]),side,"digit"+str(finger))
         shell([(10,611,1,.003),(43,604,17,.022),(76,595,28,.029),(84,593,19,.023)],head,side,"ear",depth_offset=.012)
-        for i in range(5):
+        for i in range(5 if anatomy is None else 0):
             x=572+7*i
             shell([(53+i*2,x-25,2,.006),(93,x,21,.033),(166,x+16,26,.044),(243,x+17,22,.038),(353,x+40+i*5,24,.035),(466,x+65+i*6,22,.029),(565,x+48+i*5,19,.022),(657+i*12,x+36+i*4,11,.018),(696+i*13,x+19+i*3,1,.003)],head,side,"lock",.041+i*.011)
         # Independent fabric panels blend from the pelvis onto skirt joints.
@@ -290,12 +395,15 @@ def build(source, illustration, back, stockings, anatomy=None):
                 # upper fastening stays put; the lower silk clears the seat lip.
                 drop=np.clip((1.108-points[:,1])/.19,0,1)
                 roll=drop*drop*(3-2*drop)
-                delta[:,2]=-roll*(.14+.09*np.clip(1.05-points[:,1],0,.7))
-                delta[:,1]=.025*roll
+                delta[:,2]=-roll*(.075+.05*np.clip(1.05-points[:,1],0,.7))
+                delta[:,1]=.017*roll
             drape.append(delta)
-        primitive["targets"].append({"POSITION":append_accessor(doc,data,np.concatenate(drape),"VEC3",5126)})
-        shape_names.append("WindowDrape")
+        primitive["targets"] = [{"POSITION":append_accessor(doc,data,np.concatenate(drape),"VEC3",5126)}]
+        shape_names = ["WindowDrape"]
     doc["meshes"]=[{"name":"ZXC","weights":[0]*len(shape_names),"extras":{"targetNames":shape_names},"primitives":[primitive]}]
+    if anatomy is not None:
+        doc["extensionsUsed"].append("KHR_materials_unlit")
+        dress_parts(template,raw,doc,data,skin)
     data.extend(bytes(-len(data)%4))
     doc["buffers"]=[{"byteLength":len(data)}]
     tree=json.dumps(doc,separators=(",",":")).encode();tree+=b" "*(-len(tree)%4)

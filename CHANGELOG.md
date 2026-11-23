@@ -1,3 +1,9 @@
+## Legwear, ZXC and Velvet Bloom
+
+- Choose dark, white, lilac, plum or burgundy stockings at 5, 10, 15, 20, 30 or 40 den for fitted editions or in the character editor.
+- Rework the ZXC face, body and outfit toward the Lunar Temptation concept with the existing humanoid rig.
+- Add Velvet Bloom as a separate skin with its own outfit and accessories. Its outfit and hair are also available in the character editor.
+
 ## Companion Dev previews
 
 - Add on-desktop animation previews for the active companion from the Studio Dev tab.

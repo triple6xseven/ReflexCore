@@ -1,6 +1,13 @@
 extends RefCounted
 
 const AtelierToon = preload("res://atelier_toon.gdshader")
+const ZxcLegwear = preload("res://zxc_legwear.gdshader")
+const LEGWEAR_COLORS := {
+	"dark": Color("#241b30"), "white": Color("#f0eef5"), "lilac": Color("#bc9de3"),
+	"plum": Color("#673573"), "burgundy": Color("#642943")
+}
+const LEGWEAR_COVERAGE := {5: .24, 10: .36, 15: .48, 20: .59, 30: .76, 40: .93}
+const LEGWEAR_MATERIALS := ["stocking knit", "stocking cuff", "midnight stocking feet", "lunar stocking"]
 
 const MAX_BYTES := 96 * 1024 * 1024
 const REQUIRED := ["hips", "head", "leftUpperArm", "rightUpperArm", "leftUpperLeg", "rightUpperLeg"]
@@ -35,6 +42,8 @@ var legacy := false
 var atelier := false
 var refined := false
 var window_drape: Array = []
+var legwear_surfaces: Array = []
+var legwear_style := ""
 var drape_weight := 0.0
 var zxc := false
 var nocturne := false
@@ -181,7 +190,7 @@ func load_bytes(bytes: PackedByteArray) -> bool:
 	license_data = vrm0.get("meta", {}) if legacy else vrm1.get("meta", {})
 	var title := str(license_data.get("title",""))
 	zxc=legacy and title=="ZXC"
-	nocturne=legacy and title in ["Lumen - ReflexCompanion Midnight Nocturne","Lumen - ReflexCompanion Lunar Temptation","Lumen - ReflexCompanion Velvet Enchantress","ZXC"]
+	nocturne=legacy and title in ["Lumen - ReflexCompanion Midnight Nocturne","Lumen - ReflexCompanion Lunar Temptation","Lumen - ReflexCompanion Velvet Enchantress","Lumen - ReflexCompanion Velvet Bloom","ZXC"]
 	refined=nocturne or legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
 	sole_y=_measure_sole()
 	atelier=refined or legacy and title=="Lumen - ReflexCompanion Midnight Atelier"
@@ -346,7 +355,7 @@ func _apply_atelier_materials() -> void:
 			var profile := -1.0
 			if "hairback" in name:
 				continue
-			elif "_hair_" in name or "nocturne ear" in name or name in ["lunar pearlescent hair","lunar lilac hair"]:
+			elif "_hair_" in name or name.begins_with("bloom hair") or "nocturne ear" in name or name in ["lunar pearlescent hair","lunar lilac hair"]:
 				profile = 1.0
 			elif "_skin" in name or "midnight barefoot" in name:
 				profile = 0.0
@@ -354,7 +363,7 @@ func _apply_atelier_materials() -> void:
 				profile = 3.0
 			elif name in ["fitted top","tailored shorts","violet piping","graphite belt","corset panel",
 					"woven harness","harness piping","high collar","shorts side panel","stocking cuff",
-					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar panel","lunar seam","lunar cuff","lunar liner","lunar stocking","velvet velvet","velvet silk fold","velvet embroidery"]:
+					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar panel","lunar seam","lunar cuff","lunar liner","lunar stocking","velvet velvet","velvet silk fold","velvet embroidery", "bloom velvet", "bloom chiffon", "bloom piping", "bloom petal"]:
 				profile = 2.0
 			if profile < 0.0:
 				continue
@@ -369,6 +378,50 @@ func _apply_atelier_materials() -> void:
 				material.set_shader_parameter("alpha_cut", 0.44 if profile == 1.0 else 0.15)
 				converted[original] = material
 			mesh.set_surface_override_material(surface, converted[original])
+
+func set_legwear(stocking_asset: bool, den: int, color: String) -> void:
+	var style := "%d-%s" % [den,color] if stocking_asset else ""
+	if style==legwear_style:
+		return
+	legwear_style=style
+	if legwear_surfaces.is_empty():
+		for mesh in meshes:
+			for surface in mesh.mesh.get_surface_count():
+				var source := mesh.mesh.surface_get_material(surface) as StandardMaterial3D
+				if source==null:
+					continue
+				var name := source.resource_name.to_lower()
+				var atlas := zxc and name=="zxc painted satin"
+				if not atlas and name not in LEGWEAR_MATERIALS:
+					continue
+				var original := mesh.get_surface_override_material(surface)
+				var variant := ShaderMaterial.new()
+				if atlas:
+					variant.shader=ZxcLegwear
+					variant.set_shader_parameter("fabric_texture", source.albedo_texture)
+				elif original is ShaderMaterial:
+					variant=original.duplicate() as ShaderMaterial
+					variant.set_shader_parameter("fabric_texture", null)
+				else:
+					variant.shader=AtelierToon
+					variant.set_shader_parameter("profile", 2.0)
+				if not atlas:
+					variant.set_shader_parameter("alpha_cut", 0.0)
+				legwear_surfaces.append([mesh,surface,original,variant,atlas,name=="stocking cuff"])
+	var customized := stocking_asset and (den!=40 or color!="dark")
+	var fabric: Color = LEGWEAR_COLORS.get(color, LEGWEAR_COLORS.dark)
+	var coverage: float = LEGWEAR_COVERAGE.get(den, LEGWEAR_COVERAGE[40])
+	for record in legwear_surfaces:
+		var variant: ShaderMaterial = record[3]
+		if customized:
+			if record[4]:
+				variant.set_shader_parameter("stocking_tint", fabric)
+				variant.set_shader_parameter("fiber_coverage", coverage)
+			else:
+				var skin := Color("#f7d8d2")
+				var shade := skin.srgb_to_linear().lerp(fabric.srgb_to_linear(), .94 if record[5] else coverage)
+				variant.set_shader_parameter("base_tint", shade.linear_to_srgb())
+		record[0].set_surface_override_material(record[1], variant if customized else record[2])
 
 func _expression_key(name: String) -> String:
 	var key := _normalize(name)
