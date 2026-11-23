@@ -2,6 +2,7 @@ extends Node
 
 const Rig = preload("res://avatar_rig.gd")
 const DesktopMotion = preload("res://desktop_motion.gd")
+const Wardrobe = preload("res://wardrobe.gd")
 const Cloud = preload("res://magic_cloud.gd")
 const BASE_SIZE := Vector2i(344, 500)
 const VIEW_MARGIN := Vector2i(80, 48)
@@ -9,7 +10,8 @@ const STATUS_SCHEMA := "reflexcore.companion.runtime.v1"
 const DEFAULTS := {
 	"model": "", "mode": "taskbar", "x": -1, "y": -1, "zoom": 1.0, "physics": true,
 	"gravity": 900.0, "walk_speed": 58.0, "hair": true, "stockings": true,
-	"midnight_stockings": false, "sit_style": "swing", "intensity": 1.0,
+	"midnight_stockings": false, "custom_stockings": false,
+	"custom_outfit": "lunar", "custom_hair": "lunar", "custom_head": "lunar", "sit_style": "swing", "intensity": 1.0,
 	"animate": true, "bubble": true, "top": true, "fullscreen_overlay": false, "clickthrough": false, "fps": 30,
 	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "nocturne"
 }
@@ -91,8 +93,10 @@ var last_drag_motion := 0.0
 var release_count := 0
 var contact := Vector2.ZERO
 var previous_pointer := Vector2.ZERO
+var attentive_pointer := false
 var cloud_look_side := -1.0
-var cloud_turn_target := -0.77
+var cloud_turn_hold := 0.0
+var cloud_turn_target := 0.0
 var cloud_turning := false
 var gesture_direction := 0.0
 var gesture_extent := 0.0
@@ -303,7 +307,7 @@ func _read_options() -> Dictionary:
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
 	next.fps = clampi(int(next.fps),15,60)
 	next.msaa=clampi(int(next.msaa),0,2)
-	if next.edition not in ["original","midnight","atelier","atelier_refined","nocturne","lunar","velvet","zxc"]:next.edition="nocturne"
+	if next.edition not in ["original","midnight","atelier","atelier_refined","nocturne","lunar","velvet","zxc","custom"]:next.edition="nocturne"
 	if next.sit_style not in ["still","swing","relaxed"]:next.sit_style="swing"
 	next.intensity=clampf(float(next.intensity),0.0,1.0)
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
@@ -312,6 +316,8 @@ func _read_options() -> Dictionary:
 	return next
 
 func _stocking_key() -> String:
+	if options.edition == "custom":
+		return "custom_stockings"
 	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined","nocturne","lunar","velvet","zxc"] and str(options.model).is_empty() else "stockings"
 
 func _pick_model() -> String:
@@ -348,12 +354,33 @@ func _pick_model() -> String:
 	return alternative if dress_model and not options.stockings else desired
 
 func _load_avatar() -> void:
-	var path := _pick_model()
+	var selection := PackedStringArray()
+	var path := ""
+	var touched := 0
+	var error_after_load := ""
+	if options.edition == "custom":
+		var folder := bridge.path_join("wardrobe")
+		var manifest_path := folder.path_join(Wardrobe.MANIFEST)
+		var manifest := _read_json(manifest_path, 16384)
+		selection = Wardrobe.choices(manifest, options)
+		if selection.is_empty():
+			model_error = "custom_assets_missing"
+			if rig != null:
+				return
+			path = bridge.path_join("avatar-lunar.vrm")
+			error_after_load = model_error
+		else:
+			path = "wardrobe/" + "/".join(selection) + ("/stockings" if options.custom_stockings else "/barefoot")
+			touched = FileAccess.get_modified_time(manifest_path)
+	else:
+		path = _pick_model()
 	if path.is_empty():
 		model_error = "model_missing" if rig == null else ""
 		return
-	var touched := FileAccess.get_modified_time(path)
+	if selection.is_empty():
+		touched = FileAccess.get_modified_time(path)
 	if path==model_file and touched==model_mtime:
+		model_error = error_after_load
 		return
 	var cache_hit := path==cached_path and touched==cached_mtime
 	if not cache_hit and (now < model_attempt_at or menu.visible or pressed):
@@ -363,9 +390,27 @@ func _load_avatar() -> void:
 	var previous_file := model_file
 	var previous_mtime := model_mtime
 	var candidate = cached_rig if cache_hit else Rig.new()
-	if not cache_hit and not candidate.load_file(path):
-		model_error="edition_asset_missing" if not FileAccess.file_exists(path) else candidate.error
-		return
+	if not cache_hit:
+		if selection.is_empty():
+			if not candidate.load_file(path):
+				if options.edition == "custom":
+					model_error = "custom_assets_missing"
+				else:
+					model_error = "edition_asset_missing" if not FileAccess.file_exists(path) else candidate.error
+				return
+		else:
+			var model := Wardrobe.assemble(bridge.path_join("wardrobe"), selection, options.custom_stockings)
+			if model.is_empty() or not candidate.load_bytes(model):
+				model_error = "custom_assets_invalid"
+				if rig != null:
+					return
+				error_after_load = model_error
+				path = bridge.path_join("avatar-lunar.vrm")
+				touched = FileAccess.get_modified_time(path)
+				selection.clear()
+				candidate = Rig.new()
+				if not candidate.load_file(path):
+					return
 	model_file=path
 	model_mtime=touched
 	# Import first. An invalid replacement never removes the working character.
@@ -383,7 +428,8 @@ func _load_avatar() -> void:
 	rig.scene.scale=Vector3.ONE*size_factor
 	rig.scene.position.y=-float(rig.bottom)*size_factor
 	rig.scene.rotation.y=PI if rig.legacy else 0
-	model_error=""
+	dress_model = dress_model or not selection.is_empty()
+	model_error = error_after_load
 	_camera_layout()
 
 func _apply_options(resize_window := true) -> void:
@@ -554,7 +600,6 @@ func _process(delta: float) -> void:
 	if bridge.is_empty() or stopping:
 		return
 	now+=minf(delta,0.12)
-	_poll_surfaces(delta)
 	poll_clock-=delta
 	status_clock+=delta
 	if poll_clock<=0:
@@ -573,10 +618,13 @@ func _process(delta: float) -> void:
 		if status_clock>=1.8:
 			_publish()
 		return
+	if options.mode in ["roam","windows"]:
+		_poll_surfaces(delta)
 	var dt := clampf(delta,0.001,0.05)
 	sample_ms=lerpf(sample_ms,1000.0*delta,0.09)
 	var pointer := DisplayServer.mouse_get_position()
 	var local := Vector2(pointer-window.position)
+	var pointer_distance := _model_distance(local)
 	_check_drag_release()
 	if pressed:_maybe_grab(Vector2(pointer))
 	var area := _screen_rect()
@@ -591,21 +639,24 @@ func _process(delta: float) -> void:
 		if distance<focus_distance:
 			focus=edge
 			focus_distance=distance
-	var physical: String = motion.update(dt,now,area,body_size,pointer,options,windows,focus,identities,stage in ["working","thinking","observing"] or _near_model(local,42))
+	var physical: String = motion.update(dt,now,area,body_size,pointer,options,windows,focus,identities,stage in ["working","thinking","observing"] or pointer_distance<42.0)
 	if had_motion and not motion.falling and not motion.held:
 		_write_position()
 	had_motion=motion.falling or motion.held
-	avatar_state=_choose_pose(physical,local)
 	var actual:=Vector2i(motion.position)-view_margin
+	if window.position!=actual:
+		local=Vector2(pointer-actual)
+		pointer_distance=_model_distance(local)
+	avatar_state=_choose_pose(physical,pointer_distance)
 	if rig!=null:
 		var moving := physical in ["walk","run"]
 		var hovering := physical=="hover"
 		var cloud_pose: bool=motion.cloud_seated
 		var rising := physical=="stand_up"
 		var seated: bool=not rising and (physical in ["sit","settle","cloud_sit"] or cloud_pose)
-		var center_x := float(projected_bones.get("hips",Vector2(window.size)*.5).x)
+		var seat_delta := float(pointer.x)-motion.position.x-body_size.x*.5
 		var yaw := signf(motion.velocity.x)*PI*.46 if moving else clampf(motion.velocity.x/160.0,-.78,.78) if hovering else -.64 if seated or rising else 0.0
-		_update_facing(dt,cloud_pose,local.x-center_x,yaw)
+		_update_facing(dt,cloud_pose and not rising,seat_delta,yaw,physical=="cloud_sit")
 		if physical=="dragged" and bool(options.animate):
 			pivot.rotation.x=lerpf(pivot.rotation.x,clampf(motion.velocity.y/4500.0,-0.19,0.19),1-exp(-9*dt))
 		else:
@@ -616,16 +667,16 @@ func _process(delta: float) -> void:
 		pivot.scale=Vector3.ONE*maxf(.015,motion.portal_scale)
 		pivot.position=torso_center-pivot.basis*torso_center
 		var gaze := (local-head)/145.0
-		if not _near_model(local,52):
+		if pointer_distance>=52.0:
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
 		if cloud_pose:
-			gaze.x=clampf((local.x-head.x)/(150.0*float(options.zoom)),-1,1)
+			gaze.x=clampf(seat_delta/(150.0*float(options.zoom)),-1,1)
 		if stage=="warning" and now>=motion.operator_until:
 			gaze.y=-0.55
 		var touch_time := maxf(click_at,pet_at)
 		var new_touch := touch_time != last_animated_touch
 		last_animated_touch = touch_time
-		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose,_is_midnight_loaded() and physical=="sit",str(options.sit_style),float(options.intensity),new_touch)
+		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose,physical=="sit" and _is_midnight_loaded(),str(options.sit_style),float(options.intensity),new_touch)
 		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
 		var hip_pad := 11*float(options.zoom)
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
@@ -665,8 +716,10 @@ func _process(delta: float) -> void:
 	_update_bubble()
 	shown=true
 	_update_window_region()
-	_track_input(Vector2(pointer-window.position),dt)
-	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_fly","cloud_summon"] or _near_model(local,25)
+	pointer_distance=_model_distance(local)
+	_track_input(local,Vector2(pointer),pointer_distance)
+	var interactive := menu.visible or pressed or motion.falling or attentive_pointer or pointer_distance<25.0 \
+		or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_summon"]
 	var frame_limit := clampi(int(options.fps),15,60)
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
 	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and (fmod(rig.cloud_clock,4.8)<1.6 or fmod(rig.cloud_clock,4.8)>3.08)
@@ -674,7 +727,6 @@ func _process(delta: float) -> void:
 	if physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose or cloud_turning:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
-	interactive=interactive or physical=="portal"
 	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
 	if status_clock>=1.8 or avatar_state!=last_reported_pose:
 		last_reported_pose=avatar_state
@@ -687,22 +739,31 @@ func _process(delta: float) -> void:
 		print(JSON.stringify(_runtime_status()))
 		_shutdown()
 
-func _update_facing(dt: float, on_cloud: bool, cursor_dx: float, yaw: float) -> void:
+func _update_facing(dt: float, on_cloud: bool, cursor_dx: float, yaw: float, track_cursor := true) -> void:
 	cloud_turning=false
 	if on_cloud:
-		if absf(cursor_dx)>48.0*float(options.zoom):
-			cloud_look_side=signf(cursor_dx)
-		cloud_turn_target=lerp_angle(cloud_turn_target,.77*cloud_look_side,1-exp(-5.5*dt))
-		yaw=cloud_turn_target
-		cloud_turning=absf(angle_difference(pivot.rotation.y,.77*cloud_look_side))>.025
+		# Use the fixed seat center. Projected hips move with the animation.
+		if track_cursor and cursor_dx*cloud_look_side < -48.0*float(options.zoom):
+			cloud_turn_hold+=dt
+			if cloud_turn_hold>=.10:
+				cloud_look_side=-cloud_look_side
+				cloud_turn_hold=0.0
+		else:
+			cloud_turn_hold=0.0
+		var goal := .77*cloud_look_side
+		var blend := 1-exp(-5.5*dt)
+		cloud_turn_target=lerp_angle(cloud_turn_target,goal,blend)
+		pivot.rotation.y=lerp_angle(pivot.rotation.y,cloud_turn_target,blend)
+		cloud_turning=absf(angle_difference(pivot.rotation.y,goal))>.025
 	else:
+		cloud_turn_hold=0.0
+		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,1-exp(-10.0*dt))
 		cloud_turn_target=pivot.rotation.y
-	pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,1-exp(-(5.5 if on_cloud else 10.0)*dt))
 
 func _update_contact_effect() -> void:
 	var age: float=now-motion.impact_at
 	var show_ring: bool=bool(options.animate) and age>=0 and age<0.34 and motion.impact_speed>155 and not motion.held
-	contact_ring.visible=show_ring and projected_bones.has("leftFoot")
+	contact_ring.visible=show_ring and projected_bones.has("leftFoot") and projected_bones.has("rightFoot")
 	if not contact_ring.visible:
 		return
 	var at: Vector2=(projected_bones.leftFoot+projected_bones.rightFoot)*0.5
@@ -722,10 +783,14 @@ func _update_contact_effect() -> void:
 	contact_ring.points=points
 	contact_ring.default_color=Color(0.73,0.85,1.0,0.8*(1-t))
 
-func _choose_pose(physical: String, local: Vector2) -> String:
+func _choose_pose(physical: String, pointer_distance: float) -> String:
+	# Enter closer than we exit, so an animated wrist or knee cannot repeatedly
+	# drop and re-enter its own attentive pose under a stationary cursor.
+	attentive_pointer=rig!=null and rig.refined and physical in ["sit","cloud_sit"] \
+		and pointer_distance<(52.0 if attentive_pointer else 34.0)
 	if physical in ["dragged","thrown","falling","hard_collision"]:
 		return physical
-	if physical in ["run","walk","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_fly","look_around","cloud_summon","landing","recovering","soft_collision"]:
+	if physical in ["run","walk","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_fly","portal","look_around","cloud_summon","landing","recovering","soft_collision"]:
 		return physical
 	if now-pet_at<1.6:
 		return "petted"
@@ -733,7 +798,7 @@ func _choose_pose(physical: String, local: Vector2) -> String:
 		return click_pose
 	if stage=="success" and now-stage_at<4.2:
 		return "happy"
-	if rig!=null and rig.refined and physical in ["sit","cloud_sit"] and _near_model(local,36):
+	if attentive_pointer:
 		return "attentive"
 	if now<motion.operator_until:
 		return physical
@@ -741,7 +806,7 @@ func _choose_pose(physical: String, local: Vector2) -> String:
 		return "warning"
 	if stage in ["thinking","working"]:
 		return stage
-	if stage=="observing" or _near_model(local,25):
+	if stage=="observing" or pointer_distance<25.0:
 		return "curious"
 	return physical
 
@@ -789,25 +854,29 @@ func _head_circle(local: Vector2, padding: float) -> bool:
 	var radius := 33.0 * float(options.zoom) + padding
 	return local.distance_squared_to(head+Vector2(0,-2.0*float(options.zoom)))<radius*radius
 
-func _near_model(local: Vector2,padding: float) -> bool:
+func _model_distance(local: Vector2) -> float:
 	if rig==null:
-		return bubble.get_rect().has_point(local)
-	if _head_circle(local,padding):
-		return true
+		return -1.0 if bubble.get_rect().has_point(local) else INF
+	if projected_bones.is_empty():
+		return INF
+	var zoom := float(options.zoom)
+	if not Rect2(Vector2.ZERO,Vector2(get_window().size)).grow(52.0).has_point(local):
+		return INF
+	var distance := local.distance_to(head+Vector2(0,-2.0)*zoom)-33.0*zoom
 	for pair in HIT_SEGMENTS:
 		if not projected_bones.has(pair[0]) or not projected_bones.has(pair[1]):
 			continue
-		var a:Vector2=projected_bones[pair[0]]
-		var b:Vector2=projected_bones[pair[1]]
-		if local.distance_to(Geometry2D.get_closest_point_to_segment(local,a,b))<(float(pair[2])*float(options.zoom)+padding):
-			return true
-	return false
+		var a: Vector2=projected_bones[pair[0]]
+		var b: Vector2=projected_bones[pair[1]]
+		var point := Geometry2D.get_closest_point_to_segment(local,a,b)
+		distance=minf(distance,local.distance_to(point)-float(pair[2])*zoom)
+	return distance
 
-func _pointer_on_character(local: Vector2) -> bool:
+func _pointer_on_character(local: Vector2, pointer_distance: float) -> bool:
 	for ear in projected_ears:
 		if local.distance_to(ear)<24*float(options.zoom):
 			return true
-	if _near_model(local,12):
+	if pointer_distance<12.0:
 		return true
 	var zoom := float(options.zoom)
 	if projected_bones.has("hips"):
@@ -820,7 +889,7 @@ func _pointer_on_character(local: Vector2) -> bool:
 		return ((local-seat-Vector2(0,19*zoom))/Vector2(77,23)/zoom).length_squared()<1.0
 	return false
 
-func _track_input(local: Vector2, dt: float) -> void:
+func _track_input(local: Vector2, desktop_pointer: Vector2, pointer_distance: float) -> void:
 	# Leave the rendered pixels intact while letting clicks outside projected hit
 	# zones reach the desktop. No polling of other applications' input.
 	if menu.visible:
@@ -831,29 +900,28 @@ func _track_input(local: Vector2, dt: float) -> void:
 			outside_menu_since=now
 		if bool(options.clickthrough) or (outside_menu_since>=0 and now-outside_menu_since>0.20):
 			_hide_menu()
-		_set_cursor_passthrough(bool(options.clickthrough) or not (over_menu or _pointer_on_character(local)))
+		_set_cursor_passthrough(bool(options.clickthrough) or not (over_menu or _pointer_on_character(local,pointer_distance)))
 		return
-	var can_click := _pointer_on_character(local)
+	var can_click := _pointer_on_character(local,pointer_distance)
 	if can_click:can_click_until=now+0.14
 	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or now<can_click_until))
 	if pressed:
-		var global := Vector2(DisplayServer.mouse_get_position())
-		_sample_throw(global)
-		_maybe_grab(global)
+		_sample_throw(desktop_pointer)
+		_maybe_grab(desktop_pointer)
 		return
 	if bool(options.clickthrough) or not _head_circle(local,0):
 		gesture_turns=0
 		gesture_extent=0
 		gesture_direction=0
-		previous_pointer=local
+		previous_pointer=desktop_pointer
 		return
 	if now-gesture_at>0.85:
 		gesture_turns=0
 		gesture_extent=0
 		gesture_direction=0
 		gesture_at=now
-	var travel := local-previous_pointer
-	previous_pointer=local
+	var travel := desktop_pointer-previous_pointer
+	previous_pointer=desktop_pointer
 	if absf(travel.x)>3 and absf(travel.y)<17:
 		var direction := signf(travel.x)
 		if direction!=gesture_direction and gesture_extent>=10:
@@ -947,7 +1015,7 @@ func _input(event: InputEvent) -> void:
 			_hide_menu()
 		elif mouse.pressed and mouse.button_index==MOUSE_BUTTON_RIGHT:
 			_hide_menu()
-			_set_cursor_passthrough(not _pointer_on_character(mouse.position))
+			_set_cursor_passthrough(not _pointer_on_character(mouse.position,_model_distance(mouse.position)))
 			return
 		else:
 			return
@@ -956,14 +1024,14 @@ func _input(event: InputEvent) -> void:
 		return
 	if bool(options.clickthrough):
 		return
-	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_pointer_on_character(mouse.position) or now<can_click_until):
+	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_pointer_on_character(mouse.position,_model_distance(mouse.position)) or now<can_click_until):
 		if pressed:_release(false)
 		motion.interrupt(now,bool(options.physics))
 		_show_menu(mouse.position)
 		return
 	if mouse.button_index!=MOUSE_BUTTON_LEFT:
 		return
-	if mouse.pressed and (_pointer_on_character(mouse.position) or pressed or now<can_click_until):
+	if mouse.pressed and (_pointer_on_character(mouse.position,_model_distance(mouse.position)) or pressed or now<can_click_until):
 		# A fresh press supersedes a stale capture even if the prior mouse-up was lost.
 		if pressed:_release(false)
 		pressed=true
@@ -1067,6 +1135,8 @@ func _is_midnight_loaded() -> bool:
 	return _loaded_edition() != "original"
 
 func _loaded_edition() -> String:
+	if model_file.begins_with("wardrobe/"):
+		return "custom"
 	if not str(options.model).is_empty():
 		return "original"
 	match model_file.get_file():
@@ -1098,7 +1168,7 @@ func _runtime_status() -> Dictionary:
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"mouse_interaction":not bool(options.clickthrough),
-		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm","avatar-nocturne.vrm","avatar-lunar.vrm","avatar-velvet.vrm","avatar-zxc.vrm"],"bubble_visible":bubble.visible,
+		"bare_legs_loaded":model_file.ends_with("/barefoot") or model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm","avatar-nocturne.vrm","avatar-lunar.vrm","avatar-velvet.vrm","avatar-zxc.vrm"],"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"sole_contact_y":sole_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,

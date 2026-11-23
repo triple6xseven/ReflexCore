@@ -1,3 +1,9 @@
+## Companion character editor and seated motion
+
+- Mix fitted outfits, hairstyles, heads, and legwear from the local wardrobe in Studio. Custom selections persist separately from the other presets.
+- Stabilize cloud facing and attention, and let an already-started Free Roam stand-up transition finish despite pointer motion.
+- Refine ZXC shoulder, waist, calf, and ankle proportions in Blender. Fit sleeves to the arm pivots and reduce hair and drape geometry.
+
 ## ZXC dress, feet and cloud turns
 
 - Fit the ZXC body to the humanoid rig in Blender, join shins and forefeet, fit an opaque velvet underlayer and weight the dress panels to the skirt bones. Add an alternating seated ankle stretch and a continuous cursor-directed turn on the cloud.

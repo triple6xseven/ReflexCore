@@ -258,7 +258,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			return "falling" if falling else "recovering"
 		return _climb(dt,now,tracked,identities,seat,size)
 	if cloud_seated and now>=maxf(ferry_until,operator_until):
-		if not ferry_edge.has_area() and not target.has_area() and not occupied and now-cloud_since>2.2:
+		if stand_until==0.0 and not ferry_edge.has_area() and not target.has_area() and not occupied and now-cloud_since>2.2:
 			var best := INF
 			for edge in windows:
 				var goal := _ferry_goal(edge,desk,size)
@@ -304,7 +304,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 	if mode=="roam" and cloud_seated:
 		var roam_center := position.x+size.x*.5
 		var pointer_distance := pointer.x-roam_center
-		if not cloud_trip.is_finite() and not occupied and not target.has_area() and now>=maxf(operator_until,next_cloud_trip) \
+		if stand_until==0.0 and not cloud_trip.is_finite() and not occupied and not target.has_area() and now>=maxf(operator_until,next_cloud_trip) \
 			and now-cloud_since>6.5 and absf(pointer_distance)>size.x*.66:
 			var travel := signf(pointer_distance)*minf(size.x*.83,absf(pointer_distance)-size.x*.38)
 			var end_x := clampf(position.x+travel,min_x,max_x)
@@ -320,7 +320,10 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 				cloud_since=now-.93
 			return "cloud_fly"
 
-	var roam_departure := mode=="roam" and cloud_seated and not occupied and now>=operator_until and now-cloud_since>12.0
+	# Commit to standing once it starts. A limb entering the hover area during
+	# the transition cannot cancel the rise and restart it a frame later.
+	var roam_departure := mode=="roam" and cloud_seated and (not occupied or stand_until>0.0) \
+		and now>=operator_until and now-cloud_since>12.0
 	if cloud_seated and (target.has_area() or roam_departure):
 		if stand_until==0.0:
 			stand_until=now+.38

@@ -17,7 +17,7 @@ public sealed partial class StudioWindow
     readonly Dictionary<string, object> widgetDefaults = WidgetSettings.Defaults();
     Dictionary<string, object> widgetDraft;
     readonly HashSet<string> changedWidgetKeys = new(StringComparer.Ordinal);
-    TextBlock classicStatus, companionStatus, widgetFeedback;
+    TextBlock classicStatus, companionStatus, widgetFeedback, characterEditorStatus;
     readonly DispatcherTimer widgetSave = new() { Interval = TimeSpan.FromMilliseconds(180) };
     int widgetSection;
 
@@ -37,9 +37,10 @@ public sealed partial class StudioWindow
         page.Children.Add(widgetFeedback);
         var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
         page.Children.Add(toolbar);
-        var panels = new[] { new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel() };
-        var names = new[] { "Character", "Movement", "Classic", "Advanced" };
+        var panels = new[] { new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel() };
+        var names = new[] { "Character", "Editor", "Movement", "Classic", "Advanced" };
         var tabs = new List<Button>();
+        Action reloadWardrobe = null;
         void Select(int index)
         {
             widgetSection=index;
@@ -48,6 +49,7 @@ public sealed partial class StudioWindow
                 panels[i].Visibility=i==index ? Visibility.Visible : Visibility.Collapsed;
                 tabs[i].SetResourceReference(Control.BorderBrushProperty,i==index ? "Accent" : "PanelOutline");
             }
+            if (index == 1) reloadWardrobe?.Invoke();
             widgets.ScrollToTop();
         }
         for(int i=0;i<names.Length;i++)
@@ -59,9 +61,7 @@ public sealed partial class StudioWindow
             toolbar.Children.Add(tab);
             page.Children.Add(panels[i]);
         }
-        Select(widgetSection);
-
-        var classic = Section(panels[2], "Classic Live Status");
+        var classic = Section(panels[3], "Classic Live Status");
         classicStatus = WidgetHint("Waiting for tray status.");
         classic.Children.Add(classicStatus);
         WidgetButtons(classic,
@@ -89,8 +89,9 @@ public sealed partial class StudioWindow
         void DescribeModel()
         {
             string path = WidgetSettings.String(widgetDraft, "model");
-            modelLabel.Text = path.Length == 0 ? "Default avatar" : Path.GetFileName(path);
-            modelLabel.ToolTip = path.Length == 0 ? null : path;
+            bool custom = WidgetSettings.String(widgetDraft, "edition") == "custom";
+            modelLabel.Text = custom ? "Using the character editor" : path.Length == 0 ? "Default avatar" : Path.GetFileName(path);
+            modelLabel.ToolTip = custom || path.Length == 0 ? null : path;
         }
         var pick = Command("Choose model…", () =>
         {
@@ -118,12 +119,15 @@ public sealed partial class StudioWindow
             modelRow.Children.Add(button);
         }
         modelRow.Children.Add(modelLabel);
-        DescribeModel();
         var appearanceGroup = Section(panels[0], "Model and outfit");
-        var movement = Section(panels[1], "Behavior and animation");
-        var desktop = Section(panels[3], "Window and performance");
+        var movement = Section(panels[2], "Behavior and animation");
+        var desktop = Section(panels[4], "Window and performance");
         desktop.Children.Add(modelRow);
-        var edition = WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Midnight Nocturne", "Lunar Temptation", "Velvet Enchantress", "ZXC", "Midnight Edition", "Original" }, new object[] { "nocturne", "lunar", "velvet", "zxc", "midnight", "original" });
+        var edition = WidgetChoice(appearanceGroup, "Edition", "edition",
+            new[] { "Midnight Nocturne", "Lunar Temptation", "Velvet Enchantress", "ZXC", "Midnight Edition", "Original", "Custom character" },
+            new object[] { "nocturne", "lunar", "velvet", "zxc", "midnight", "original", "custom" });
+        WidgetButtons(appearanceGroup, ("Open character editor", () => Select(1)));
+        reloadWardrobe = BuildCharacterEditor(panels[1], () => edition.SelectedIndex = edition.Items.Count - 1);
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
         var originalLegs = new StackPanel();
         var midnightLegs = new StackPanel();
@@ -133,9 +137,13 @@ public sealed partial class StudioWindow
         WidgetChoice(midnightLegs, "Legwear", "midnight_stockings", new[] { "Barefoot", "Dark stockings" }, new object[] { false, true });
         void DisplayLegwear()
         {
-            bool original = WidgetSettings.String(widgetDraft, "edition") == "original";
+            string editionId = WidgetSettings.String(widgetDraft, "edition");
+            bool original = editionId == "original";
+            bool custom = editionId == "custom";
             originalLegs.Visibility = original ? Visibility.Visible : Visibility.Collapsed;
-            midnightLegs.Visibility = original ? Visibility.Collapsed : Visibility.Visible;
+            midnightLegs.Visibility = original || custom ? Visibility.Collapsed : Visibility.Visible;
+            pick.IsEnabled = useDefault.IsEnabled = !custom;
+            DescribeModel();
         }
         edition.SelectionChanged += (_, _) => DisplayLegwear();
         DisplayLegwear();
@@ -179,13 +187,14 @@ public sealed partial class StudioWindow
 
 
         var footer = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
-        panels[3].Children.Add(footer);
+        panels[4].Children.Add(footer);
         WidgetButtons(footer, ("Restore defaults", () =>
             {
                 foreach (var pair in widgetDefaults) ChangeWidget(pair.Key, pair.Value);
                 LayoutWidgets();
                 ApplyWidgetChanges();
             }));
+        Select(widgetSection);
         RefreshWidgetStatus();
     }
 
@@ -307,6 +316,7 @@ public sealed partial class StudioWindow
             WidgetSettings.Bool(host, "classic_visible") ? "Visible" : "Hidden";
         if (!hostReady || !WidgetSettings.Bool(host, "running"))
         {
+            characterEditorStatus.Visibility = Visibility.Collapsed;
             string message = WidgetSettings.String(host, "message");
             companionStatus.Text = !hostReady ? "Tray status unavailable" : message switch
             {
@@ -319,6 +329,24 @@ public sealed partial class StudioWindow
             return;
         }
         var runtime = WidgetSettings.Read(Path.Combine(WidgetSettings.Folder, "status.json"));
+        string runtimeError = WidgetSettings.String(runtime, "error");
+        string customError = "";
+        if (WidgetSettings.String(widgetDraft, "edition") == "custom")
+        {
+            customError = runtimeError switch
+            {
+                "custom_assets_missing" => "Custom parts are missing. Rebuild the local wardrobe, then reload parts in the editor.",
+                "custom_assets_invalid" => "Custom parts could not be loaded. Rebuild the local wardrobe from the installed presets.",
+                _ => ""
+            };
+        }
+        characterEditorStatus.Text = customError;
+        characterEditorStatus.Visibility = customError.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (customError.Length > 0)
+        {
+            companionStatus.Text = customError;
+            return;
+        }
         if (WidgetSettings.String(runtime, "schema") != "reflexcore.companion.runtime.v1" ||
             !WidgetSettings.Bool(runtime, "ready"))
         {

@@ -16,7 +16,7 @@ Selecting a theme updates both WPF resources and the hosted page colors. Only an
 
 ### Verification
 
-The **Companion & Widgets** page includes Character, Movement, Classic, and Advanced sections. Edits save automatically and apply to the running overlay. The themed title bar and theme animations stay saved across Studio sessions. Drag Classic from its background or text when it is unlocked. See [runtime setup and model requirements](REFLEXCOMPANION.md).
+The **Companion & Widgets** page includes Character, Editor, Movement, Classic, and Advanced sections. Edits save automatically and apply to the running overlay. In Editor, choose parts from the wardrobe and use Apply to save them as a Custom character. The themed title bar and theme animations stay saved across Studio sessions. Drag Classic from its background or text when it is unlocked. See [runtime setup and model requirements](REFLEXCOMPANION.md).
 
 Open the ReflexCore tray icon and choose **Widget → Show Classic**, **Show ReflexCompanion 3D**, or **Show Both**. Classic shows the hardware and Ollama metrics. With both visible, the 3D bubble reports work and the queue. **Ctrl+Alt+H** shows or hides Classic. Use **Widget → 3D mouse interaction** to restore the avatar’s drag and context menu after enabling click-through.
 

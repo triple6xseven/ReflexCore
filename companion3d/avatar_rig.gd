@@ -111,7 +111,14 @@ func load_file(path: String) -> bool:
 		error = "model_size"
 		return false
 	var bytes := input.get_buffer(size)
-	if bytes.size() != size or bytes.decode_u32(0) != 0x46546c67 or bytes.decode_u32(4) != 2 or bytes.decode_u32(8) != size:
+	if bytes.size() != size:
+		error = "invalid_glb"
+		return false
+	return load_bytes(bytes)
+
+func load_bytes(bytes: PackedByteArray) -> bool:
+	var size := bytes.size()
+	if size < 24 or size > MAX_BYTES or bytes.decode_u32(0) != 0x46546c67 or bytes.decode_u32(4) != 2 or bytes.decode_u32(8) != size:
 		error = "invalid_glb"
 		return false
 	var json_size := bytes.decode_u32(12)

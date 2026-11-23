@@ -18,6 +18,7 @@ static class WidgetSettings
     {
         ["model"] = "", ["mode"] = "taskbar", ["x"] = -1, ["y"] = -1, ["zoom"] = 1.0,
         ["edition"] = "nocturne", ["midnight_stockings"] = false, ["sit_style"] = "swing", ["intensity"] = 1.0, ["magic"] = true, ["msaa"] = 2,
+        ["custom_outfit"] = "lunar", ["custom_hair"] = "lunar", ["custom_head"] = "lunar", ["custom_stockings"] = false,
         ["physics"] = true, ["gravity"] = 900, ["walk_speed"] = 58, ["hair"] = true,
         ["stockings"] = true, ["animate"] = true, ["bubble"] = true, ["bubble_style"] = "glass",
         ["top"] = true, ["fullscreen_overlay"] = false, ["clickthrough"] = false, ["fps"] = 30, ["poll_ms"] = 450, ["app_start"] = false,

@@ -47,6 +47,10 @@ def build(source, illustration, back, stockings, anatomy=None):
     doc["accessors"].append(bind)
     skin["inverseBindMatrices"]=0
     names=[nodes[n]["name"] for n in skin["joints"]]
+    inverse = np.frombuffer(raw, dtype="<f4", count=16*bind["count"],
+                            offset=offset+bind.get("byteOffset",0))
+    rest = np.linalg.inv(inverse.reshape(-1,4,4).transpose(0,2,1))[:,:3,3]
+    pivots = dict(zip(names,rest))
     im=Image.open(illustration).convert("RGB")
     if im.size!=(1024,1536):
         raise ValueError("Use the ZXC front reference in its original resolution")
@@ -99,6 +103,7 @@ def build(source, illustration, back, stockings, anatomy=None):
         "pbrMetallicRoughness":{"baseColorTexture":{"index":0},"metallicFactor":0,"roughnessFactor":.9}})
     pieces=[]
     panel_indices=[]
+    parts=[]
     def joint(name):
         return names.index(name if name.startswith("J_Sec_") else "J_Bip_"+name)
     def influences(y, chain):
@@ -112,18 +117,32 @@ def build(source, illustration, back, stockings, anatomy=None):
     def shell(profile,chain,side=1,kind="body",depth_offset=0):
         pos=[]; tex=[]; joints=[]; weights=[]; faces=[]; blink=[]; smile=[]
         profile=np.asarray(profile)
-        ys=sorted(set(profile[:,0]).union(np.arange(profile[0,0],profile[-1,0],5 if kind=="face" else 22)))
-        segments=40 if kind=="face" else 12 if kind=="lock" else 24
+        step={"face":5,"lock":27,"panel":28}.get(kind,22)
+        ys=sorted(set(profile[:,0]).union(np.arange(profile[0,0],profile[-1,0],step)))
+        segments={"face":40,"lock":10,"panel":20}.get(kind,24)
+        if kind=="arm":
+            prefix="J_Bip_"+("L_" if side>0 else "R_")
+            upper=pivots[prefix+"UpperArm"]
+            elbow=pivots[prefix+"LowerArm"]
+            wrist=pivots[prefix+"Hand"]
+            attachment=upper.copy()
+            attachment[0]+=.014*side if anatomy is not None else .023*side
+            anchors=np.vstack((attachment,upper*.92+elbow*.08,
+                               elbow,wrist,wrist+np.array((-.137*side,0,0))))
         # Duplicate side meridians: each half has its own projection and UV island.
         meridians=[(i*2*pi/segments-pi/2,False) for i in range(segments//2+1)]
         meridians += [(i*2*pi/segments+pi/2,True) for i in range(segments//2+1)]
         stride=len(meridians)
         for row,y in enumerate(ys):
             cx,rx,rz=[np.interp(y,profile[:,0],profile[:,k]) for k in [1,2,3]]
+            js,ws=influences(y,chain)
+            height=altitude(y)
+            if kind=="arm":
+                center=[np.interp(y,[277,292,465,695,785],axis) for axis in anchors.T]
             for i,(angle,rear_half) in enumerate(meridians):
                 x=cx+rx*sin(angle)
                 wx=(512-x)*.00112*side
-                wy=altitude(y)
+                wy=height
                 wz=depth_offset-rz*cos(angle)
                 if kind=="panel":
                     # Thin folded silk hangs behind the outside of the thigh.
@@ -138,9 +157,9 @@ def build(source, illustration, back, stockings, anatomy=None):
                 if kind=="arm":
                     # The authored arm is diagonal in the image but horizontal in bind pose.
                     # Cross-section width belongs across the humerus, not along it.
-                    wx=-side*np.interp(y,[277,292,465,695,785],[.088,.127,.335,.542,.677])
-                    wy=1.459-(x-cx)*.00122-(y-280)*.000025
-                    wz*=1.12
+                    wx, upper, depth = center
+                    wy=upper-(x-cx)*.00118
+                    wz=depth-.003-rz*cos(angle)*1.12
                 if kind=="foot":
                     # Shape in anatomical space without moving the UV landmarks.
                     # Retain the original thigh-to-ankle silhouette. Vary depth
@@ -163,6 +182,12 @@ def build(source, illustration, back, stockings, anatomy=None):
                     wx=-side*(.591+length*t-(.023 if finger==0 else 0))
                     wy=1.446+(finger-2)*.011*(1+.26*t)+rx*sin(angle)*.001
                     wz=-.015-rz*cos(angle)-.010*t*t
+                if anatomy is not None and kind in ("face","ear","lock"):
+                    # Shorten the crown above the neck seam while leaving the
+                    # eye, jaw and hairline heights proportionally related.
+                    crown=max(0.0,wy-1.53)
+                    wy-=.075*crown
+                    wx*=1-.047*min(1.0,crown/.17)
                 u,v=x,y
                 if side==-1:
                     u=1024-u
@@ -173,7 +198,6 @@ def build(source, illustration, back, stockings, anatomy=None):
                     rear_half=True
                 if rear_half:
                     u=2048-u
-                js,ws=influences(y,chain)
                 pos.append([wx,wy,wz]);tex.append([u/2048,v/1536]);joints.append(js);weights.append(ws)
                 front=max(0,cos(angle))
                 eye=exp(-((abs(x-512)-40)/22)**4-((y-173)/15)**4)*front if kind=="face" else 0
@@ -201,6 +225,7 @@ def build(source, illustration, back, stockings, anatomy=None):
         norms/=np.maximum(np.linalg.norm(norms,axis=1,keepdims=True),1e-8)
         if kind=="panel":
             panel_indices.append(len(pieces))
+        parts.append({"face":"head","ear":"hair","lock":"hair"}.get(kind,"body"))
         pieces.append((points,norms,tex,joints,weights,tris,blink,smile))
     head=[(0,"C_Head"),(1550,"C_Head")]
     trunk=[(235,"C_Neck"),(300,"C_UpperChest"),(410,"C_Chest"),(525,"C_Spine"),(615,"C_Hips"),(750,"C_Hips")]
@@ -222,7 +247,7 @@ def build(source, illustration, back, stockings, anatomy=None):
             shell([(727,x,5,.007),(746,x+5,5,.006),(766,x+10,4,.005),
                    (780,x+13,3,.004),(785,x+14,.7,.001)],
                   limb([(727,"Hand"),(785,"Hand")]),side,"digit"+str(finger))
-        shell([(10,611,1,.003),(43,604,17,.022),(76,595,28,.029),(84,593,19,.023)],head,side,depth_offset=.012)
+        shell([(10,611,1,.003),(43,604,17,.022),(76,595,28,.029),(84,593,19,.023)],head,side,"ear",depth_offset=.012)
         for i in range(5):
             x=572+7*i
             shell([(53+i*2,x-25,2,.006),(93,x,21,.033),(166,x+16,26,.044),(243,x+17,22,.038),(353,x+40+i*5,24,.035),(466,x+65+i*6,22,.029),(565,x+48+i*5,19,.022),(657+i*12,x+36+i*4,11,.018),(696+i*13,x+19+i*3,1,.003)],head,side,"lock",.041+i*.011)
@@ -232,6 +257,7 @@ def build(source, illustration, back, stockings, anatomy=None):
         with np.load(anatomy,allow_pickle=False) as body_mesh:
             if body_mesh["names"].tolist()!=names:
                 raise ValueError("Body cache belongs to another skeleton")
+            parts.append("body")
             points=body_mesh["pos"]
             morph=np.zeros_like(points)
             pieces.append((points,body_mesh["normal"],body_mesh["uv"],body_mesh["joints"],
@@ -239,10 +265,19 @@ def build(source, illustration, back, stockings, anatomy=None):
     attributes={}
     for index,(name,shape,typ) in enumerate([("POSITION","VEC3",5126),("NORMAL","VEC3",5126),("TEXCOORD_0","VEC2",5126),("JOINTS_0","VEC4",5123),("WEIGHTS_0","VEC4",5126)]):
         attributes[name]=append_accessor(doc,data,np.concatenate([p[index] for p in pieces]),shape,typ)
-    indices=[];offset=0
-    for piece in pieces:
-        indices.extend((piece[5]+offset).flatten());offset+=len(piece[0])
+    indices=[]
+    ranges=[]
+    offset=0
+    for piece,slot in zip(pieces,parts):
+        triangles=(piece[5]+offset).ravel()
+        if ranges and ranges[-1]["slot"]==slot:
+            ranges[-1]["count"]+=len(triangles)
+        else:
+            ranges.append({"slot":slot,"start":len(indices),"count":len(triangles)})
+        indices.extend(triangles)
+        offset+=len(piece[0])
     primitive={"attributes":attributes,"indices":append_accessor(doc,data,np.reshape(indices,(-1,1)),"SCALAR",5125),"material":0}
+    primitive["extras"]={"reflexParts":ranges}
     primitive["targets"]=[{"POSITION":append_accessor(doc,data,np.concatenate([p[col] for p in pieces]),"VEC3",5126)} for col in (6,7)]
     shape_names=["blink","happy"]
     if anatomy is not None:

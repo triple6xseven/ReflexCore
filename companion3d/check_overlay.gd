@@ -41,8 +41,8 @@ func _verify() -> void:
 				_expect(rig.crossed<.01,"Classic window pose did not return")
 	avatar.click_at=avatar.now
 	for phase in ["approach","reach","grip","pull_up","settle","landing"]:
-		_expect(avatar._choose_pose(phase,Vector2.ZERO)==phase,"Click interrupted "+phase)
-	_expect(avatar._choose_pose("sit",Vector2.ZERO)=="happy","Seated click lost its reaction.")
+		_expect(avatar._choose_pose(phase,INF)==phase,"Click interrupted "+phase)
+	_expect(avatar._choose_pose("sit",INF)=="happy","Seated click lost its reaction.")
 	avatar.click_at=-5.0
 	avatar.options.mode="stationary"
 	avatar._process(1.0/60)
@@ -105,17 +105,17 @@ func _verify() -> void:
 	avatar._input(right)
 	_expect(avatar.menu.visible,"Right click must open the overlay menu.")
 	var far_corner := Vector2.ZERO
-	avatar._track_input(far_corner,1.0/60)
+	avatar._track_input(far_corner,far_corner,INF)
 	_expect(avatar.passthrough,"An open menu must pass through the background immediately.")
 	avatar.now+=0.25
-	avatar._track_input(far_corner,1.0/60)
+	avatar._track_input(far_corner,far_corner,INF)
 	_expect(not avatar.menu.visible and avatar.passthrough,"Leaving the menu did not return control.")
 	avatar._input(right)
 	_expect(avatar.menu.visible,"The menu did not reopen after dismissing it.")
 	avatar.menu_buttons[20].pressed.emit()
 	_expect(avatar.stopping and not avatar.menu.visible,"The menu close action did not stop the overlay.")
 	if not failed:
-		print("Windows overlay: full alpha bounds at both extreme tilts; immediate re-grab, dismissible menu, background passthrough and close action passed.")
+		print("Windows overlay: stable cloud turns, attentive hover hysteresis, full alpha bounds at both extreme tilts; immediate re-grab, dismissible menu, background passthrough and close action passed.")
 	avatar.queue_free()
 	quit(1 if failed else 0)
 
@@ -129,8 +129,19 @@ func _check_cloud_turn(avatar: Node) -> void:
 			var step: float=(avatar.pivot.rotation.y-before)*direction
 			_expect(step>=-.00001 and step<.063,"Discontinuous cloud turn")
 		_expect(absf(avatar.pivot.rotation.y-direction*.77)<.006,"Failed to face cursor")
-		avatar._update_facing(1.0/60,true,-direction*12,0)
-		_expect(avatar.cloud_look_side==direction,"Cloud seat flickered near its centre")
+		# A transient sample or animated body overlap must not reverse the seat.
+		for tick in 60:
+			var offset: float=-direction*(240.0 if tick%3==0 else 12.0)
+			avatar._update_facing(1.0/60,true,offset,0)
+		_expect(absf(avatar.pivot.rotation.y-direction*.77)<.006,"Cloud reacted to a brief cursor crossing")
+		for tick in 24:
+			avatar._update_facing(1.0/60,true,-direction*240,0,false)
+		_expect(avatar.cloud_look_side==direction,"Cloud changed sides in transit")
+	if avatar.rig.refined:
+		_expect(avatar._choose_pose("cloud_sit",20)=="attentive","Failed to notice the cursor")
+		for distance in [33.0,41.0,50.0,32.0]:
+			_expect(avatar._choose_pose("cloud_sit",distance)=="attentive","Attentive pose flickered")
+		_expect(avatar._choose_pose("cloud_sit",55)=="cloud_sit","Attentive pose stayed latched")
 	avatar._update_facing(1.0/60,false,240,0)
 	_expect(not avatar.cloud_turning,"Cloud turn leaked into another state")
 

@@ -32,7 +32,12 @@ def body_data(path):
         return np.ndarray((acc["count"], width), dtype, data, offset,
                           (view.get("byteStride", width*dtype.itemsize), dtype.itemsize))
 
-    return doc["meshes"][node["mesh"]]["primitives"], doc["materials"], names, read
+    bind = doc["accessors"][skin["inverseBindMatrices"]]
+    view = doc["bufferViews"][bind["bufferView"]]
+    offset = start + view.get("byteOffset", 0) + bind.get("byteOffset", 0)
+    inverse = np.frombuffer(data, dtype="<f4", count=16*bind["count"], offset=offset)
+    rest = np.linalg.inv(inverse.reshape(-1,4,4).transpose(0,2,1))[:,:3,3]
+    return doc["meshes"][node["mesh"]]["primitives"], doc["materials"], names, read, dict(zip(names,rest))
 
 
 def source_mesh(pr, read, names, target_names, foot):
@@ -145,22 +150,32 @@ def join_ankles(torso, feet):
             items=sorted(((float(np.arctan2(v.co.y-center.y,v.co.x-center.x))%(2*np.pi),v) for v in ring),key=lambda pair:pair[0])
             return items
         lo,hi=loop(.120),loop(.236)
-        # Add a gently tapered Achilles and paired malleoli between the openings.
-        middle=[]
+        # The ankle's cross section tapers in two stages. The upper ring
+        # follows the calf, the lower one sits on the malleoli near the pivot.
         layer=bm.verts.layers.deform.active
-        center=sum((v.co for _,v in hi),hi[0][1].co*0)/len(hi)
-        for a,v in hi:
-            c=v.co.copy()
-            c.x=center.x+(c.x-center.x)*1.11
-            c.y=center.y+(c.y-center.y)*1.08
-            c.z=.151+.006*np.cos(a)*sign
-            w=bm.verts.new(c)
-            foot_group=torso.vertex_groups["J_Bip_"+("R" if sign>0 else "L")+"_Foot"].index
-            shin_group=torso.vertex_groups["J_Bip_"+("R" if sign>0 else "L")+"_LowerLeg"].index
-            w[layer][foot_group]=.65
-            w[layer][shin_group]=.35
-            middle.append((a,w))
-        for lower,higher in [(lo,middle),(middle,hi)]:
+        high_center=sum((v.co for _,v in hi),hi[0][1].co*0)/len(hi)
+        low_center=sum((v.co for _,v in lo),lo[0][1].co*0)/len(lo)
+        prefix="J_Bip_"+("R_" if sign>0 else "L_")
+        foot_group=torso.vertex_groups[prefix+"Foot"].index
+        shin_group=torso.vertex_groups[prefix+"LowerLeg"].index
+        rings=[lo]
+        for height,width,depth,foot_weight in (
+            (.151,1.055,1.055,.75),(.191,.975,.98,.18)
+        ):
+            center=low_center.lerp(high_center,(height-.120)/(.236-.120))
+            ring=[]
+            for angle,vertex in hi:
+                point=vertex.co-high_center
+                point.x=point.x*width+center.x
+                point.y=point.y*depth+center.y
+                point.z=height+.005*np.cos(angle)*sign
+                fitted=bm.verts.new(point)
+                fitted[layer][foot_group]=foot_weight
+                fitted[layer][shin_group]=1-foot_weight
+                ring.append((angle,fitted))
+            rings.append(ring)
+        rings.append(hi)
+        for lower,higher in zip(rings,rings[1:]):
             i=j=0
             while i<len(lower) or j<len(higher):
                 left=lower[i%len(lower)][1]
@@ -188,6 +203,65 @@ def join_ankles(torso, feet):
     bm.to_mesh(torso.data)
     bm.free()
     torso.data.update()
+
+
+def refine_proportions(obj, rest):
+    # Sculpt relative to the joints that actually drive each contour.
+    # A rib cage deserves its own taper; the waist should not carry a child's
+    # torso silhouette over long legs. Preserve the existing rest skeleton.
+    mesh = obj.data
+    hips = rest["J_Bip_C_Hips"][1]
+    chest = rest["J_Bip_C_Chest"][1]
+    neck = rest["J_Bip_C_Neck"][1]
+
+    def falloff(value, center, radius):
+        t = min(abs(value-center)/radius,1.0)
+        return (1-t*t)**2
+
+    for vertex in mesh.vertices:
+        x, depth, height = vertex.co
+        sign = 1 if x >= 0 else -1
+        # Slightly relax the sharp corset taper. Carry the change into the
+        # lower ribs and lumbar line, leaving the shoulders and neck seam alone.
+        if hips < height < neck and abs(x) < .20:
+            waist = falloff(height,chest-.042,.141)
+            ribs = falloff(height,chest+.036,.132)
+            vertex.co.x += x*(.105*waist+.022*ribs)
+            vertex.co.y -= .010*max(0.0,-depth/.076)*waist
+            vertex.co.y += .005*max(0.0,depth/.118)*ribs
+
+        prefix = "J_Bip_" + ("R_" if sign > 0 else "L_")
+        knee_x, knee, knee_z = rest[prefix+"LowerLeg"]
+        ankle_x, ankle, ankle_z = rest[prefix+"Foot"]
+        if height >= hips or height <= ankle-.025:
+            continue
+        # Put the knee's definition towards the cap and the calf's volume
+        # towards the back. This keeps the silhouette slim from the front.
+        patella = falloff(height,knee+.006,.083)
+        quad = falloff(height,knee+.213,.195)
+        calf = falloff(height,knee-.132,.152)
+        tibia_x = np.interp(height,[ankle,knee],[ankle_x,knee_x])
+        tibia_z = np.interp(height,[ankle,knee],[ankle_z,knee_z])
+        if height <= knee:
+            vertex.co.x -= (x-tibia_x)*.045*calf
+        vertex.co.x += sign*.004*quad*max(0.0,(abs(x)-abs(knee_x))/.08)
+        vertex.co.y += .010*patella*min(1.0,max(0.0,(depth+knee_z)/.045))
+        vertex.co.y -= .013*calf*min(1.0,max(0.0,(-depth-tibia_z)/.064))
+
+        # Widen the long blending zone around the pivot in the flexing knee.
+        # Leave other influences (such as skirt and toe bones) untouched.
+        blend_radius=.083
+        if abs(height-knee)<blend_radius:
+            lower=obj.vertex_groups[prefix+"LowerLeg"]
+            upper=obj.vertex_groups[prefix+"UpperLeg"]
+            influences={g.group:g.weight for g in vertex.groups}
+            sum_leg=influences.get(lower.index,0)+influences.get(upper.index,0)
+            if sum_leg>.99:
+                t=(height-knee+blend_radius)/(2*blend_radius)
+                t=t*t*(3-2*t)
+                upper.add([vertex.index],sum_leg*t,"REPLACE")
+                lower.add([vertex.index],sum_leg*(1-t),"REPLACE")
+    mesh.update()
 
 
 def cut_briefs(body):
@@ -275,15 +349,16 @@ def collect(obj, part, streams):
 
 
 def main(original, lunar, output):
-    source, _, names, read = body_data(original)
-    pieces, mats, target_names, rig_read = body_data(lunar)
+    source, _, names, read, _ = body_data(original)
+    pieces, mats, target_names, rig_read, rest = body_data(lunar)
     foot = next(pr for pr in pieces if mats[pr["material"]]["name"]=="Midnight barefoot")
     torso = source_mesh(source[0], read, names, target_names, False)
     hands = source_mesh(source[2], read, names, target_names, False)
     feet = source_mesh(foot, rig_read, target_names, target_names, True)
     sculpt_forefoot(feet)
-    briefs = cut_briefs(torso)
     join_ankles(torso,feet)
+    refine_proportions(torso,rest)
+    briefs = cut_briefs(torso)
     streams = {name: [] for name in ("pos","normal","uv","joints","weights","tri")}
     for obj, part in [(torso,"body"),(hands,"hands"),(briefs,"briefs")]:
         collect(obj, part, streams)

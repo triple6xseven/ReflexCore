@@ -143,6 +143,17 @@ func _initialize() -> void:
 	_step(13.0)
 	_expect(poses.has("stand_up"),"Free Roam skipped getting up from the cloud.")
 	_expect(poses.has("walk") and not body.cloud_seated,"Free Roam must leave the cloud for a short walk.")
+	var leaving := Motion.new()
+	leaving.place(Vector2(-900,410))
+	var near_cursor := Vector2i(-730,345)
+	for frame in 110:
+		leaving.update(DT,frame*DT,DESK,SIZE,near_cursor,options,edges)
+	_expect(leaving.update(DT,13.0,DESK,SIZE,near_cursor,options,edges)=="stand_up","Roam did not start standing")
+	for frame in 21:
+		var state := leaving.update(DT,13.0+(frame+1)*DT,DESK,SIZE,near_cursor,options,edges,Rect2i(),{},frame%2==0)
+		_expect(state=="stand_up","Animated hover changed a stand-up back into a cloud sit")
+	_expect(leaving.update(DT,13.4,DESK,SIZE,near_cursor,options,edges,Rect2i(),{},true)=="falling",
+		"Cloud stand-up did not finish")
 	var perched := Motion.new()
 	perched.place(Vector2(-990,440))
 	options.mode="windows"
