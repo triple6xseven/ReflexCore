@@ -43,7 +43,6 @@ public sealed partial class StudioWindow : Window
     double tint = 88;
     string typeface;
     readonly WrapPanel gallery = new();
-    readonly TextBox search = new();
     readonly ComboBox category = new();
     readonly Sw motionSwitch = new(false);
     readonly Sw wallpaperSwitch = new(true);

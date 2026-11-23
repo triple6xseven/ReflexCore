@@ -6,7 +6,7 @@ The primary launcher opens one WPF window hosting all six existing control panel
 |---|---|
 | Themes, StudioMaterials, ThemeStyles | Original 45 themes, WPF control templates, theme colors and material buttons |
 | StudioShell | Adapted navigation rail, original navigation template, compact layout, page history, visible stop command |
-| AppearanceStudio | Original theme tile and vector preview, search and category filters, material density, artwork selection and typography |
+| AppearanceStudio | Original theme tile and vector preview, category filters, material density, artwork selection and typography |
 | Controls, Motion, Fx, HackerRain | WPF switches, slider, responsive card layout, spring scrolling, click feedback and opt-in animated background |
 | WindowChromeUi | Adapted themed caption with accessible minimize, maximize and close controls |
 | Generated artwork | Six project-owned, metadata-stripped PNG resources used for wallpapers and material textures |

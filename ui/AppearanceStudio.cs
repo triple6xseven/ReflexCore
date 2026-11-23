@@ -16,15 +16,10 @@ public sealed partial class StudioWindow
         var page=new StackPanel{Margin=new Thickness(22,18,22,26)};
         appearance.Content=page;new SmoothWheel(appearance,()=>smooth,()=>210);
         var filters=new WrapPanel{Margin=new Thickness(0,0,0,12)};
-        var filterLabel=Label("Search themes",13);filterLabel.Margin=new Thickness(0,0,8,0);filters.Children.Add(filterLabel);
-        search.Width=170;search.Padding=new Thickness(7,4,7,4);search.Margin=new Thickness(0,0,12,0);
-        search.SetResourceReference(Control.BackgroundProperty,"Card");search.SetResourceReference(Control.ForegroundProperty,"Text");
-        System.Windows.Automation.AutomationProperties.SetName(search,"Search themes");
-        filters.Children.Add(search);
         category.ItemsSource=new[]{"All themes","Studio","Retro","Dark","Light","With artwork"};
         category.SelectedIndex=0;category.MinWidth=140;System.Windows.Automation.AutomationProperties.SetName(category,"Theme category");
         filters.Children.Add(category);page.Children.Add(filters);
-        page.Children.Add(gallery);search.TextChanged+=(_,_)=>FillGallery();category.SelectionChanged+=(_,_)=>FillGallery();
+        page.Children.Add(gallery);category.SelectionChanged+=(_,_)=>FillGallery();
         var detail=new Flow{MinW=310,MaxCols=2,Gap=14,Anim=false,Margin=new Thickness(0,16,0,0)};
         page.Children.Add(detail);
         var material=Section(detail,"Material and background");
@@ -69,8 +64,7 @@ public sealed partial class StudioWindow
         foreach(var theme in Theme.All){
             bool studio=theme.Glass||theme.ControlKind>=3;
             bool retro=theme.Pixel||theme.ControlKind==1||theme.ControlKind==2||theme.Name=="zxc 2003";
-            if(theme.Name.IndexOf(search.Text,StringComparison.OrdinalIgnoreCase)<0 ||
-                category.SelectedIndex==1&&!studio || category.SelectedIndex==2&&!retro ||
+            if(category.SelectedIndex==1&&!studio || category.SelectedIndex==2&&!retro ||
                 category.SelectedIndex==3&&!theme.Dark || category.SelectedIndex==4&&theme.Dark ||
                 category.SelectedIndex==5&&theme.Artwork==null)continue;
             var tile=ThemeTile(theme,true);tile.Click+=(_,_)=>ApplyTheme(theme,true);gallery.Children.Add(tile);
@@ -91,7 +85,9 @@ public sealed partial class StudioWindow
         }
         SelectPage(6);UpdateLayout();
         if(gallery.Children.Count!=45||!appearance.IsVisible)throw new InvalidOperationException("Appearance gallery incomplete");
-        search.Text="Glacier";if(gallery.Children.Count!=2)throw new InvalidOperationException("Theme search failed");search.Clear();
+        category.SelectedIndex=3;
+        if(gallery.Children.Count!=Theme.All.Count(theme=>theme.Dark))throw new InvalidOperationException("Theme category filter failed");
+        category.SelectedIndex=0;
         foreach(var theme in Theme.All){ApplyTheme(theme,false);UpdateLayout();}
         Width=900;UpdateLayout();if(railWidth.Width.Value!=72)throw new InvalidOperationException("Compact navigation failed");
         Width=1180;UpdateLayout();ApplyCaption(true);ApplyCaption(false);
