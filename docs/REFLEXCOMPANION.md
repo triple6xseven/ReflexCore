@@ -103,3 +103,38 @@ Brush across the head three times in short alternating horizontal strokes.
 A real ReflexCore task can supply live bubble status during the recording.
 With no active task the bubble can stay hidden. Capture a clean desktop without
 private window content.
+
+## Midnight Atelier
+
+**Companion & Widgets → Edition → Midnight Atelier** selects the polished VRM.
+The Midnight legs and sitting settings are shared between the two Midnight
+editions. The local assets are `avatar-atelier.vrm` and
+`avatar-atelier-stockings.vrm` in the companion3d runtime directory under
+LocalAppData. Original and earlier Midnight variants remain selectable.
+
+From the repository, build from the existing verified Midnight VRMs. The
+builder uses Python, NumPy and Pillow, checks the input hashes, and creates
+new files. Asset binaries and private captures are outside Git.
+
+```powershell
+$models = Join-Path $env:LOCALAPPDATA 'ReflexCore/companion3d'
+py -3 examples/build_companion_atelier.py "$models/avatar-midnight.vrm" "$models/avatar-atelier.vrm"
+py -3 examples/build_companion_atelier.py "$models/avatar-midnight-stockings.vrm" "$models/avatar-atelier-stockings.vrm"
+```
+
+The generated VRM adds a beveled chest crest, routed harness panels, corset
+panels, shorts side seams and a clean cuff for the stocking variant. Its
+hair mesh is reshaped and the embedded iris, catchlight, lash, blush and
+hair textures are repainted. The humanoid mapping, skin weights and
+existing expression morphs are retained. A single lightweight toon shader
+provides soft key shading, rim and material-dependent sheen in Godot.
+Atelier uses the existing surprised morph during fast-motion reactions.
+The window pose uses the existing arm solve with wrists placed beside the
+hips and subtly articulates the ankles as the shins swing.
+
+The outfit uses fitted panels with inherited weights. The reference's
+loose sleeves, dangling hardware, detailed toe geometry and bespoke cloth
+simulation require a hand-authored garment and deformation pass. Atelier
+uses rim shading and MSAA for the silhouette. The preview accepts either
+VRM and produces front, side, back, three seating views, face, smile
+and drag renders.

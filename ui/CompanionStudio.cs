@@ -99,7 +99,7 @@ public sealed partial class StudioWindow
         var groups = new Flow { MinW = 255, MaxCols = 3, Gap = 12, Anim = false, Margin = new Thickness(0, 4, 0, 0) };
         companion.Children.Add(groups);
         var appearanceGroup = Section(groups, "Appearance");
-        WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Original", "Midnight Edition" }, new object[] { "original", "midnight" });
+        WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Original", "Midnight Edition", "Midnight Atelier" }, new object[] { "original", "midnight", "atelier" });
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
         WidgetChoice(appearanceGroup, "Original legs", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
         WidgetChoice(appearanceGroup, "Midnight legs", "midnight_stockings", new[] { "Barefoot", "Dark stockings" }, new object[] { false, true });
@@ -140,7 +140,7 @@ public sealed partial class StudioWindow
             LayoutWidgets();
             widgetFeedback.Text = "Low-power preset selected. Apply settings to save it.";
         }));
-        companion.Children.Add(WidgetHint("Clothing variants and secondary motion depend on the selected rig."));
+        companion.Children.Add(WidgetHint("Midnight and Atelier share the legs and sitting settings. Use the default model to select an edition."));
 
         var footer = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
         page.Children.Add(footer);

@@ -1,3 +1,8 @@
+## ReflexCompanion Midnight Atelier
+
+- Add a separate visually upgraded VRM edition with fitted harness panels, a bevelled crest, sculpted hair, new eye and face textures, and a lightweight toon material.
+- Add a surprised expression and soften the window-seat wrist and ankle poses for Atelier.
+
 ## Windows launcher
 
 - Add a native windowed launcher, a shared ReflexCore icon, and a desktop shortcut installer. Launch Studio directly and keep PowerShell consoles off the taskbar.

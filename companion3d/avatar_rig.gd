@@ -1,5 +1,7 @@
 extends RefCounted
 
+const AtelierToon = preload("res://atelier_toon.gdshader")
+
 const MAX_BYTES := 96 * 1024 * 1024
 const REQUIRED := ["hips", "head", "leftUpperArm", "rightUpperArm", "leftUpperLeg", "rightUpperLeg"]
 const ROLE_ALIAS := {
@@ -30,6 +32,8 @@ var bone_name_ids: Dictionary = {}
 var height := 1.65
 var bottom := 0.0
 var legacy := false
+var atelier := false
+var surprise := 0.0
 var error := ""
 var license_data := {}
 var expression_binds := 0
@@ -122,6 +126,9 @@ func load_file(path: String) -> bool:
 			error = "humanoid_map_incomplete"
 			return false
 	license_data = vrm0.get("meta", {}) if legacy else vrm1.get("meta", {})
+	atelier = legacy and str(license_data.get("title", "")) == "Lumen - ReflexCompanion Midnight Atelier"
+	if atelier:
+		_apply_atelier_materials()
 	_setup_expressions(source, vrm0, vrm1, gltf)
 	_setup_secondary(source, vrm0, extensions)
 	var head := bone_position("head")
@@ -179,8 +186,9 @@ func _bounded(source: Dictionary) -> bool:
 				return false
 			vertices += int(accessors[index].get("count", 0))
 			var index_id := int(primitive.get("indices", -1))
-			if index_id >= 0 and index_id < accessors.size():
-				triangle_count += int(accessors[index_id].get("count", 0)) / 3
+			if int(primitive.get("mode", 4)) == 4:
+				var count_id := index_id if index_id >= 0 and index_id < accessors.size() else index
+				triangle_count += int(accessors[count_id].get("count", 0)) / 3
 			if vertices > 800000:
 				return false
 	return vertices > 0 and source.get("skins", []).size() <= 16
@@ -247,8 +255,44 @@ func _setup_secondary(source: Dictionary, vrm0: Dictionary, extensions: Dictiona
 		if bone >= 0 and not roles.values().has(bone) and bone not in secondary:
 			secondary.append(bone)
 
+func _apply_atelier_materials() -> void:
+	var converted := {}
+	for mesh in meshes:
+		for surface in mesh.mesh.get_surface_count():
+			var original := mesh.get_active_material(surface) as StandardMaterial3D
+			if original == null:
+				continue
+			var name := original.resource_name.to_lower()
+			var profile := -1.0
+			if "hairback" in name:
+				continue
+			elif "_hair_" in name:
+				profile = 1.0
+			elif "_skin" in name or "midnight barefoot" in name:
+				profile = 0.0
+			elif "nickel" in name or "amethyst" in name:
+				profile = 3.0
+			elif name in ["fitted top","tailored shorts","violet piping","graphite belt","corset panel",
+					"woven harness","harness piping","high collar","shorts side panel","stocking cuff",
+					"stocking knit","midnight stocking feet"]:
+				profile = 2.0
+			if profile < 0.0:
+				continue
+			if not converted.has(original):
+				var material := ShaderMaterial.new()
+				material.shader = AtelierToon
+				if original.albedo_texture != null:
+					material.set_shader_parameter("fabric_texture", original.albedo_texture)
+				material.set_shader_parameter("base_tint", original.albedo_color)
+				material.set_shader_parameter("profile", profile)
+				material.set_shader_parameter("alpha_cut", 0.44 if profile == 1.0 else 0.15)
+				converted[original] = material
+			mesh.set_surface_override_material(surface, converted[original])
+
 func _expression_key(name: String) -> String:
 	var key := _normalize(name)
+	if atelier and key == "surprised":
+		return "surprised"
 	if key in ["blink", "eyeblink", "blinkboth", "fclallclose", "fclallblink", "fcleyeclose"]:
 		return "blink"
 	if key in ["joy", "happy", "smile", "fun", "fclalljoy", "fclallfun"]:
@@ -276,7 +320,10 @@ func _setup_expressions(source: Dictionary, vrm0: Dictionary, vrm1: Dictionary, 
 		for value in groups.get("blendShapeGroups", []):
 			if not value is Dictionary:
 				continue
-			var key := _expression_key(str(value.get("presetName", "")))
+			var preset := str(value.get("presetName", ""))
+			if atelier and preset == "fun":
+				continue
+			var key := _expression_key(str(value.get("name", "")) if preset == "unknown" else preset)
 			if key.is_empty() or expressions.has(key):
 				continue
 			for binding in value.get("binds", []):
@@ -419,6 +466,14 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	if state in ["petted", "sleepy"]:
 		blink = maxf(blink, 0.9 if state == "petted" else 0.73)
 	var target_face := Vector2(0.65 if state in ["happy","petted"] else 0, 0.45 if state in ["warning","dragged","hard_collision"] else 0)
+	if atelier:
+		var startled := enabled and state in ["dragged", "thrown", "hard_collision"]
+		surprise = lerpf(surprise, 0.45 if startled else 0.0, blend)
+		if startled:
+			target_face.y = 0.0
+		elif state == "curious":
+			target_face.x = 0.18
+		_morph("surprised", surprise)
 	face = face.lerp(target_face if enabled else Vector2.ZERO, blend)
 	_morph("blink", blink if enabled else 0)
 	_morph("happy", face.x)
@@ -476,7 +531,7 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 		_pose(foot,standing_foot,blend)
 		return
 	var knee_drop := (0.16 if cloudy else 0.12)+side_sign*0.035
-	var thigh := seat_forward-seat_right*side_sign*0.07-Vector3.UP*knee_drop
+	var thigh := seat_forward-seat_right*side_sign*(0.13 if atelier and not cloudy else 0.07)-Vector3.UP*knee_drop
 	var phase := sit_elapsed*1.9 + side_sign*0.95
 	var stretch := pow(maxf(0.0,sin(sit_elapsed*0.58+side_sign*1.57)),12)*0.32 if sit_style=="relaxed" else 0.0
 	var shin := Vector3.DOWN+seat_forward*(0.09+side_sign*0.02+leg_motion*(sin(phase)*0.13+stretch))
@@ -485,6 +540,9 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	var ankle := int(roles[foot])
 	var basis := _parent_basis(ankle)
 	var neutral := skeleton.get_bone_global_rest(ankle).basis.orthonormalized()
+	if atelier and not cloudy:
+		var tip := leg_motion*(0.08+0.1*sin(phase-0.48)) + 0.16
+		neutral = Basis(seat_right, tip) * neutral
 	var seated_rotation := (basis.inverse()*neutral).get_rotation_quaternion()
 	_blend_joint(ankle,standing_foot,seated_rotation,blend)
 
@@ -532,6 +590,11 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 		match gesture_state:
 			"seated":
 				gesture=hips-torso+Vector3(side_sign*0.117,0.081,0.16)
+				if atelier and state!="happy" and state!="petted":
+					# Aim the wrist beside the hip in the actual rig frame as the avatar turns.
+					var frame := skeleton.global_basis.orthonormalized()
+					var local_side := signf((shoulder-torso).dot(frame*seat_right))
+					gesture=hips-torso+frame*seat_right*local_side*0.18 + Vector3.UP*0.012
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
 			"dragged","thrown","falling":
@@ -549,6 +612,15 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			"landing","recovering":
 				gesture=Vector3(side_sign*0.27,-0.22,0.19)
 		_solve_arm(side,torso+gesture,Vector3(side_sign*0.65,-1.0,0.05),gesture_weight)
+		if atelier and gesture_state=="seated" and state!="happy" and state!="petted":
+			var hand := int(roles[side+"Hand"])
+			var finger := int(bone_name_ids.get("jbip"+side.left(1)+"middle1",-1))
+			if finger >= 0:
+				var wrist := skeleton.get_bone_global_pose(hand).origin
+				var direction := skeleton.get_bone_global_pose(finger).origin-wrist
+				var palm := seat_forward + Vector3.DOWN*0.38
+				_rotate_chain(hand,direction,palm,gesture_weight*0.77)
+
 
 func _solve_arm(side: String, target_world: Vector3, outward_world: Vector3, weight: float) -> void:
 	var upper := int(roles[side+"UpperArm"])

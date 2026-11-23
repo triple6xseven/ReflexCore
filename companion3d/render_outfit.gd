@@ -10,6 +10,7 @@ func _render() -> void:
 		quit(2)
 		return
 	root.size=Vector2i(480,620)
+	root.msaa_3d=Viewport.MSAA_4X
 	var rig := Rig.new()
 	if not rig.load_file(args[0]):
 		push_error(rig.error)
@@ -42,10 +43,13 @@ func _render() -> void:
 	preview_seat.material_override=seat_material
 	root.add_child(preview_seat)
 	preview_seat.visible=false
-	for item in [["front",0.0,false],["profile",PI/2,false],["back",PI,false],["seated",-.63,true],["seated-side",PI/2,true],["seated-stretch",.55,true]]:
+	for item in [["front",0.0,false],["profile",PI/2,false],["back",PI,false],["seated",-.63,true],["seated-side",PI/2,true],["seated-stretch",.55,true],["face",.23,false],["smile",-.2,false],["drag",.55,false]]:
+		var pose: String="sit" if item[2] else "petted" if item[0]=="smile" else "dragged" if item[0]=="drag" else "idle"
 		for tick in (285 if item[0]=="seated-stretch" else 95):
-			rig.animate(1.0/60.0,float(tick)/60.0,"sit" if item[2] else "idle",Vector2.ZERO,Vector2.ZERO,true,true,item[2],"",false,item[2],"relaxed")
-		var center := Vector3(0,.88 if not item[2] else .83,0)
+			rig.animate(1.0/60.0,float(tick)/60.0,pose,Vector2.ZERO,Vector2(400,-65) if pose=="dragged" else Vector2.ZERO,true,true,item[2],"",false,item[2],"relaxed")
+		var closeup: bool=item[0] in ["face","smile"]
+		camera.size=0.48 if closeup else 2.0
+		var center := Vector3(0,1.49 if closeup else .83 if item[2] else .88,0)
 		if item[2]:
 			var hips := rig.world_bone("hips")
 			preview_seat.position=hips-Vector3.UP*.18-rig.scene.basis*rig.seat_forward*.25

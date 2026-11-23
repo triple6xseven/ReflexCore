@@ -274,7 +274,7 @@ func _read_options() -> Dictionary:
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
 	next.fps = clampi(int(next.fps),15,60)
 	next.msaa=clampi(int(next.msaa),0,2)
-	if next.edition!="midnight":next.edition="original"
+	if next.edition not in ["midnight","atelier"]:next.edition="original"
 	if next.sit_style not in ["still","swing","relaxed"]:next.sit_style="swing"
 	next.intensity=clampf(float(next.intensity),0.0,1.0)
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
@@ -283,15 +283,16 @@ func _read_options() -> Dictionary:
 	return next
 
 func _stocking_key() -> String:
-	return "midnight_stockings" if options.edition=="midnight" and str(options.model).is_empty() else "stockings"
+	return "midnight_stockings" if options.edition in ["midnight","atelier"] and str(options.model).is_empty() else "stockings"
 
 func _pick_model() -> String:
 	var desired: String = options.model
 	dress_model=false
 	if desired.is_empty():
-		if options.edition=="midnight":
-			var base_skin := bridge.path_join("avatar-midnight.vrm")
-			var dark_skin := bridge.path_join("avatar-midnight-stockings.vrm")
+		if options.edition in ["midnight","atelier"]:
+			var prefix := "avatar-"+str(options.edition)
+			var base_skin := bridge.path_join(prefix+".vrm")
+			var dark_skin := bridge.path_join(prefix+"-stockings.vrm")
 			dress_model=FileAccess.file_exists(base_skin) and FileAccess.file_exists(dark_skin)
 			return dark_skin if options.midnight_stockings else base_skin
 		for extension in ["vrm","glb"]:
@@ -327,7 +328,7 @@ func _load_avatar() -> void:
 	var previous_mtime := model_mtime
 	var candidate = cached_rig if cache_hit else Rig.new()
 	if not cache_hit and not candidate.load_file(path):
-		model_error="midnight_asset_missing" if not FileAccess.file_exists(path) and path.get_file().begins_with("avatar-midnight") else candidate.error
+		model_error="edition_asset_missing" if not FileAccess.file_exists(path) else candidate.error
 		return
 	model_file=path
 	model_mtime=touched
@@ -894,7 +895,17 @@ func _menu_action(id: int) -> void:
 		poll_clock=0.0
 
 func _is_midnight_loaded() -> bool:
-	return str(options.model).is_empty() and model_file.get_file() in ["avatar-midnight.vrm","avatar-midnight-stockings.vrm"]
+	return _loaded_edition() != "original"
+
+func _loaded_edition() -> String:
+	if not str(options.model).is_empty():
+		return "original"
+	match model_file.get_file():
+		"avatar-atelier.vrm","avatar-atelier-stockings.vrm":
+			return "atelier"
+		"avatar-midnight.vrm","avatar-midnight-stockings.vrm":
+			return "midnight"
+	return "original"
 
 func _runtime_status() -> Dictionary:
 	return {
@@ -908,11 +919,11 @@ func _runtime_status() -> Dictionary:
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"mouse_interaction":not bool(options.clickthrough),
-		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file()=="avatar-midnight.vrm","bubble_visible":bubble.visible,
+		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm"],"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,
-		"msaa":get_window().msaa_3d,"edition":"midnight" if _is_midnight_loaded() else "original",
+		"msaa":get_window().msaa_3d,"edition":_loaded_edition(),
 		"interactions":interaction_count,"drags":drag_count,"held":motion.held,"releases":release_count,"body_size":[body_size.x,body_size.y]
 	}
 
