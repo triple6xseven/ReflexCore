@@ -524,7 +524,8 @@ namespace ReflexCore.Bridge
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
             speedLabel.Top=gpuLabel.Bottom+2;
-            if(!companionMode){ClientSize=new Size(420,speedLabel.Bottom+7);Reposition();}
+            if(combined)SetWidgetMode();
+            else if(!companionMode){ClientSize=new Size(420,speedLabel.Bottom+7);Reposition();}
             foreach(System.Windows.Forms.Control label in Controls)if(!ReferenceEquals(label,companion))label.Width=396;
         }
 
@@ -663,14 +664,12 @@ namespace ReflexCore.Bridge
             menu = new ContextMenuStrip();
             statusMenu = new ToolStripMenuItem("Status: ready");
             statusMenu.Enabled = false;
-            menu.Items.Add(statusMenu);
             activityMenu = new ToolStripMenuItem("Activity: idle");
             activityMenu.Enabled = false;
-            menu.Items.Add(activityMenu);
             hudMenu=new ToolStripMenuItem("Hide corner status widget");
             hudMenu.Click += delegate { ToggleHud(); };
             menu.Items.Add(hudMenu);
-            var studioAction=menu.Items.Add("Open Control Center", null, delegate(object s, EventArgs e) {
+            var studioAction=menu.Items.Add("Open Studio", null, delegate(object s, EventArgs e) {
                 string center = Path.Combine(root, "tools", "ReflexCore-ControlCenter.ps1");
                 string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
                 Process.Start(new ProcessStartInfo { FileName=ps, Arguments="-NoProfile -ExecutionPolicy Bypass -File \"" + center + "\"",WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true });
@@ -678,7 +677,7 @@ namespace ReflexCore.Bridge
             if(!isolated)
             {
                 hud.ConfigureCompanion(()=>studioAction.PerformClick(),()=>{if(hudEnabled)ToggleHud();});
-                var widgetOptions=new ToolStripMenuItem("Widget mode and settings");
+                var widgetOptions=new ToolStripMenuItem("Widget");
                 widgetOptions.DropDownOpening+=delegate {
                     while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
                     hud.AddWidgetActions(widgetOptions.DropDownItems);
@@ -686,9 +685,10 @@ namespace ReflexCore.Bridge
                 widgetOptions.DropDownItems.Add("Settings");
                 menu.Items.Add(widgetOptions);
             }
-            menu.Items.Add("Run next pending job", null, delegate(object s, EventArgs e) { StartPending(true); });
-            menu.Items.Add("STOP - Ctrl+Alt+P", null, delegate(object s, EventArgs e) { StopJob(); });
-            menu.Items.Add("STOP ALL: Reflex + Ollama", null, delegate(object s, EventArgs e) {
+            menu.Items.Add("Stop task · Ctrl+Alt+P", null, delegate(object s, EventArgs e) { StopJob(); });
+            var toolsMenu=new ToolStripMenuItem("More");
+            toolsMenu.DropDownItems.Add("Run next pending job", null, delegate(object s, EventArgs e) { StartPending(true); });
+            toolsMenu.DropDownItems.Add("Stop all · Reflex + Ollama", null, delegate(object s, EventArgs e) {
                 // Immediate local signal for Shared Control, then async unload local Ollama models.
                 try{
                     File.WriteAllText(Path.Combine(bridge,"global-stop.signal"),TimeUtc());
@@ -699,11 +699,11 @@ namespace ReflexCore.Bridge
                         WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true});
                 }catch{SetState("error",-1,"Stop-all failed; review supervised tasks");}
             });
-            menu.Items.Add("Open ReflexCore folder", null, delegate(object s, EventArgs e) {
+            toolsMenu.DropDownItems.Add("Open ReflexCore folder", null, delegate(object s, EventArgs e) {
                 Process.Start("explorer.exe", root);
             });
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Exit tray", null, delegate(object s, EventArgs e) { ExitTray(); });
+            toolsMenu.DropDownItems.Add("Exit tray", null, delegate(object s, EventArgs e) { ExitTray(); });
+            menu.Items.Add(toolsMenu);
 
             icon = new NotifyIcon();
             icon.ContextMenuStrip = menu;

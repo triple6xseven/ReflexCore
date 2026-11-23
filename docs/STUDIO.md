@@ -16,7 +16,9 @@ Selecting a theme updates both WPF resources and the hosted page colors. Only an
 
 ### Verification
 
-Open the ReflexCore tray icon and choose **Widget mode and settings → Use AI Companion**. The companion rotates through live activity, CPU/RAM, GPU/VRAM, Ollama throughput and waiting jobs. Drag it with the mouse and use its context menu for pinning, compact mode, the stockings or bare-legs preset, reaction sound and click-through. **Ctrl+Alt+H** shows or hides the widget. Use the tray menu to disable click-through or return to Classic.
+Open the ReflexCore tray icon and choose **Widget → Classic**, **AI Companion**, or **Both**. Classic shows all hardware and Ollama metrics at once. In Both, the companion bubble only shows activity and waiting jobs. Drag the companion with the mouse and use **Widget → Companion options** for pinning, compact mode, appearance, sound, and click-through. **Ctrl+Alt+H** shows or hides the widget.
+
+**Appearance → Smooth scrolling** controls both the theme gallery and the scrollable hosted pages. The hosted pages reuse the same damped spring as the zxcLagLab gallery. Lists, model pickers and numeric editors keep their native wheel behavior.
 
 The built-in silver-haired avatar is procedural. To replace it, put transparent PNGs in the per-user LocalAppData ReflexCore/companion directory, under stockings or bare-legs. Supported names are idle.png, observing.png, thinking.png, working.png, success.png and warning.png. Missing poses fall back to idle PNG or the built-in character. Restart the tray after replacing assets. The viewer accepts images up to 1600 × 1600 and 4 MiB per pose.
 

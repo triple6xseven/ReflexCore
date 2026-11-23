@@ -56,6 +56,7 @@ public sealed partial class StudioWindow : Window
         InitStudioButtons(); InitSurfaceStyles();
         BuildShell(); ApplyTheme(current,false);
         native.Child=pages;
+        var hostedWheel=new HostedWheel(pages,()=>smooth);
         SelectPage(Math.Max(0,pages.SelectedIndex));
         pulse.Tick+=(_,_)=>stage.Text=readStage();
         ContentRendered+=(_,_)=>{ stage.Text=readStage(); if(WindowState!=WindowState.Minimized)pulse.Start(); };
@@ -66,7 +67,7 @@ public sealed partial class StudioWindow : Window
                 VisitHistory(e.ChangedButton==MouseButton.XButton1?-1:1);e.Handled=true;
             }
         };
-        Closed+=(_,_)=>{pulse.Stop();rain.SetRunning(false);native.Child=null;native.Dispose();};
+        Closed+=(_,_)=>{hostedWheel.Dispose();pulse.Stop();rain.SetRunning(false);native.Child=null;native.Dispose();};
     }
     static Color Col(string hex)=>(Color)ColorConverter.ConvertFromString(hex);
     static SolidColorBrush Brush(string hex) { var b=new SolidColorBrush(Col(hex));b.Freeze();return b; }
@@ -185,6 +186,10 @@ public sealed partial class StudioWindow : Window
             grid.BackgroundColor=bg;grid.GridColor=track;grid.DefaultCellStyle.BackColor=card;grid.DefaultCellStyle.ForeColor=ink;
             grid.DefaultCellStyle.SelectionBackColor=track;grid.DefaultCellStyle.SelectionForeColor=ink;
             grid.ColumnHeadersDefaultCellStyle.BackColor=track;grid.ColumnHeadersDefaultCellStyle.ForeColor=accent;
+        }else if(c is Forms.ListView list){
+            list.BackColor=card;list.ForeColor=ink;list.Invalidate();
+        }else if(c is Forms.TabControl tab){
+            tab.BackColor=bg;tab.ForeColor=ink;tab.Invalidate();
         }else if(c is Forms.Button b){
             b.BackColor=track;b.ForeColor=ink;b.FlatAppearance.BorderColor=accent;
         }else if(c is Forms.TextBoxBase || c is Forms.ComboBox || c is Forms.NumericUpDown){

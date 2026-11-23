@@ -56,9 +56,12 @@ namespace ReflexCore.Bridge
     {
         internal string Stage="Idle", Host="", Gpus="", Throughput="";
         internal int Pending;
+        internal bool ShowTelemetry=true;
         internal string Bubble(double seconds,bool compact)
         {
-            var messages=new[]{Stage,Host.Replace("    ","  ·  "),Gpus,Throughput,"Queue: "+Pending+" jobs"};
+            var messages=ShowTelemetry
+                ?new[]{Stage,Host.Replace("    ","  ·  "),Gpus,Throughput,"Queue: "+Pending+" jobs"}
+                :new[]{Stage,"Queue: "+Pending+" jobs"};
             string value=compact?Stage:messages[(int)(seconds/3.6)%messages.Length];
             if(String.IsNullOrWhiteSpace(value))return Stage;
             if(value.Contains(Environment.NewLine))
@@ -116,6 +119,8 @@ namespace ReflexCore.Bridge
             {
                 canvas.Model.Pending=2;
                 if(canvas.Model.Bubble(15,false)!="Queue: 2 jobs")throw new InvalidOperationException("Companion queue rotation failed.");
+                canvas.Model.ShowTelemetry=false;canvas.Model.Host="CPU 42%";
+                if(canvas.Model.Bubble(4,false)!="Queue: 2 jobs")throw new InvalidOperationException("Combined widget repeated telemetry.");
                 canvas.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));
                 if(bitmap.GetPixel(22,30).ToArgb()==Color.Magenta.ToArgb() ||
                    bitmap.GetPixel(145,100).ToArgb()==Color.Magenta.ToArgb())
@@ -213,7 +218,7 @@ namespace ReflexCore.Bridge
     internal sealed partial class ActivityHud
     {
         private CompanionCanvas companion;
-        private bool companionMode,pinned,clickThrough,positioned,muted=true;
+        private bool companionMode,combined,pinned,clickThrough,positioned,muted=true;
         private Point dragStart, windowStart;
         private bool dragging;
         private string preferences;
@@ -232,7 +237,7 @@ namespace ReflexCore.Bridge
                     string[] v=File.ReadAllText(preferences).Split(',');
                     if(v.Length==7)
                     {
-                        companionMode=v[0]=="1";pinned=v[1]=="1";companion.Compact=v[2]=="1";companion.Stockings=v[3]!="0";muted=v[4]!="0";
+                        companionMode=v[0]=="1"||v[0]=="2";combined=v[0]=="2";pinned=v[1]=="1";companion.Compact=v[2]=="1";companion.Stockings=v[3]!="0";muted=v[4]!="0";
                         int x,y;
                         if(Int32.TryParse(v[5],out x)&&Int32.TryParse(v[6],out y)&&Screen.FromPoint(new Point(x,y)).WorkingArea.Contains(x,y))
                         {Location=new Point(x,y);positioned=true;}
@@ -249,31 +254,56 @@ namespace ReflexCore.Bridge
                 SaveWidget();
             };
             companion.ContextMenuStrip=new ContextMenuStrip();
-            companion.ContextMenuStrip.Opening+=(s,e)=>{while(companion.ContextMenuStrip.Items.Count>0)companion.ContextMenuStrip.Items[0].Dispose();AddWidgetActions(companion.ContextMenuStrip.Items);};
+            companion.ContextMenuStrip.Opening+=(s,e)=>{while(companion.ContextMenuStrip.Items.Count>0)companion.ContextMenuStrip.Items[0].Dispose();AddWidgetActions(companion.ContextMenuStrip.Items,true);};
             SetWidgetMode();
         }
 
-        internal void AddWidgetActions(ToolStripItemCollection items)
+        internal void AddWidgetActions(ToolStripItemCollection items,bool detailed=false)
         {
-            items.Add(companionMode?"Use Classic Widget":"Use AI Companion",null,(s,e)=>{companionMode=!companionMode;SetWidgetMode();SaveWidget();});
+            string[] names={"Classic","AI Companion","Both"};
+            for(int i=0;i<names.Length;i++)
+            {
+                int mode=i;
+                var choice=new ToolStripMenuItem(names[i]){Checked=mode==(combined?2:companionMode?1:0)};
+                choice.Click+=(s,e)=>{companionMode=mode!=0;combined=mode==2;SetWidgetMode();SaveWidget();};
+                items.Add(choice);
+            }
+            if(!detailed)
+            {
+                var settings=new ToolStripMenuItem("Companion options");
+                AddCompanionOptions(settings.DropDownItems);items.Add(settings);return;
+            }
+            items.Add(new ToolStripSeparator());AddCompanionOptions(items);
+            items.Add("Open ReflexCore Studio",null,(s,e)=>openStudio());
+            items.Add("Hide Widget",null,(s,e)=>hideWidget());
+        }
+
+        private void AddCompanionOptions(ToolStripItemCollection items)
+        {
             items.Add(clickThrough?"Disable Click-through":"Enable Click-through",null,(s,e)=>{clickThrough=!clickThrough;RecreateHandle();});
             items.Add(companion.Compact?"Full Companion":"Compact Companion",null,(s,e)=>{companion.Compact=!companion.Compact;SetWidgetMode();SaveWidget();});
             items.Add(companion.Stockings?"Use Bare-legs Preset":"Use Stockings Preset",null,(s,e)=>{companion.Stockings=!companion.Stockings;SaveWidget();});
             items.Add(pinned?"Unlock Position":"Pin Position",null,(s,e)=>{pinned=!pinned;SaveWidget();});
             items.Add(muted?"Enable Reaction Sound":"Mute Reaction Sound",null,(s,e)=>{muted=!muted;if(!muted)System.Media.SystemSounds.Asterisk.Play();SaveWidget();});
-            items.Add("Open ReflexCore Studio",null,(s,e)=>openStudio());
-            items.Add("Hide Widget",null,(s,e)=>hideWidget());
         }
 
         private void SetWidgetMode()
         {
             if(companion==null)return;
-            foreach(Control control in Controls)if(!ReferenceEquals(control,companion))control.Visible=!companionMode;
+            foreach(Control control in Controls)if(!ReferenceEquals(control,companion))control.Visible=!companionMode||combined;
             companion.Visible=companionMode;
             companion.BringToFront();
-            BackColor=companionMode?Color.Magenta:Color.FromArgb(14,24,27);
+            companion.Model.ShowTelemetry=!combined;
+            BackColor=companionMode&&!combined?Color.Magenta:Color.FromArgb(14,24,27);
             TransparencyKey=companionMode?Color.Magenta:Color.Empty;
-            if(companionMode)ClientSize=new Size(companion.Compact?224:292,companion.Compact?218:271);
+            companion.Dock=DockStyle.None;
+            if(companionMode)
+            {
+                companion.Size=new Size(companion.Compact?224:292,companion.Compact?218:271);
+                int width=combined?420:companion.Width;
+                companion.Location=new Point((width-companion.Width)/2,combined?speedLabel.Bottom+7:0);
+                ClientSize=new Size(width,companion.Bottom);
+            }
             else ClientSize=new Size(420,speedLabel.Bottom+7);
             Reposition();
         }
@@ -283,7 +313,7 @@ namespace ReflexCore.Bridge
             try
             {
                 Directory.CreateDirectory(CharacterAssetPack.Folder);
-                File.WriteAllText(preferences,String.Join(",",new[]{companionMode?"1":"0",pinned?"1":"0",companion.Compact?"1":"0",companion.Stockings?"1":"0",muted?"1":"0",Left.ToString(),Top.ToString()}));
+                File.WriteAllText(preferences,String.Join(",",new[]{combined?"2":companionMode?"1":"0",pinned?"1":"0",companion.Compact?"1":"0",companion.Stockings?"1":"0",muted?"1":"0",Left.ToString(),Top.ToString()}));
             }
             catch(IOException){} catch(UnauthorizedAccessException){}
         }

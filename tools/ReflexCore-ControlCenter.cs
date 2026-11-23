@@ -108,28 +108,35 @@ namespace ReflexCore.Control
             else if(initialTab=="Diagnostics")tabs.SelectedTab=diagnosticsTab;
             else tabs.SelectedTab=agent;
             if(tabs.SelectedTab==diagnosticsTab)diagnosticView.Show();
-            agent.Controls.Add(Header("AGENT SUPERVISOR",18,22));
-            bridgeText=Info("BRIDGE: waiting...",18,62,680);agent.Controls.Add(bridgeText);
-            agent.Controls.Add(Header("Verified local tasks",18,102));
-            AddButton(agent,"STOP TASK  ·  CTRL+ALT+P",18,150,365,44,()=>WriteControl("stop"),true);
-            AddButton(agent,"OPEN PROJECT FOLDER",401,150,365,44,()=>Process.Start("explorer.exe",root),false);
-            AddButton(agent,"RUN AGENT DEMO",18,219,365,44,()=>RunTask("agent-demo"),false);
-            AddButton(agent,"REFRESH STATUS",401,219,365,44,()=>UpdateStatus(),false);
-            AddButton(agent,"NOTEPAD · CREATE FILE",18,279,365,43,()=>RunTask("notepad-save"),false);
-            AddButton(agent,"NOTEPAD · CHECK WITH MODEL",401,279,365,43,()=>RunTask("notepad-visual"),false);
+            bridgeText=Info("Bridge: waiting",18,20,680);agent.Controls.Add(bridgeText);
+            AddButton(agent,"RUN AGENT DEMO",18,68,222,38,()=>RunTask("agent-demo"),true);
+            AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
+            AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
+            agent.Controls.Add(Header("Task queue",18,131));
             var jobs=new ListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
-                Location=new Point(18,337),Size=new Size(748,164),AccessibleName="Task queue"};
+                OwnerDraw=true,BorderStyle=BorderStyle.None,
+                Location=new Point(18,168),Size=new Size(748,215),AccessibleName="Task queue"};
+            jobs.DrawColumnHeader+=(sender,args)=>{
+                using(var brush=new SolidBrush(jobs.BackColor))args.Graphics.FillRectangle(brush,args.Bounds);
+                TextRenderer.DrawText(args.Graphics,args.Header.Text,jobs.Font,Rectangle.Inflate(args.Bounds,-7,0),
+                    jobs.ForeColor,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
+            };
+            jobs.DrawItem+=(sender,args)=>args.DrawDefault=true;
+            jobs.DrawSubItem+=(sender,args)=>args.DrawDefault=true;
+            jobs.ContextMenuStrip=new ContextMenuStrip();
+            jobs.ContextMenuStrip.Items.Add("Open project folder",null,(sender,args)=>Process.Start("explorer.exe",root));
+            jobs.ContextMenuStrip.Items.Add("Refresh queue",null,(sender,args)=>{UpdateStatus();refreshQueue();});
             jobs.Columns.Add("Local time",180);jobs.Columns.Add("Task",235);jobs.Columns.Add("Status",290);
             agent.Controls.Add(jobs);
-            var notice=Info("Approve a pending task after restart. Interrupted tasks appear in the history.",18,560,748);
+            var notice=Info("No jobs yet. Choose a task above to get started.",18,437,748);
             agent.Controls.Add(notice);
             Action<string> command=delegate(string action){
                 if(jobs.SelectedItems.Count==0){notice.Text="Select a task in the queue.";return;}
                 string id=(string)jobs.SelectedItems[0].Tag;
                 notice.Text=queue.Request(id,action)?"Request sent to the task supervisor.":"The task status has changed.";
             };
-            AddButton(agent,"CANCEL SELECTED",18,511,365,40,()=>command("cancel"),false);
-            AddButton(agent,"APPROVE SELECTED",401,511,365,40,()=>command("approve"),false);
+            AddButton(agent,"CANCEL SELECTED",18,395,182,32,()=>command("cancel"),false);
+            AddButton(agent,"APPROVE SELECTED",211,395,182,32,()=>command("approve"),false);
             string lastSnapshot=null;
             var taskTimer=new System.Windows.Forms.Timer{Interval=900};
             refreshQueue=delegate {
@@ -154,6 +161,8 @@ namespace ReflexCore.Control
                             if(row.Id==selected)entry.Selected=true;
                         }
                         lastSnapshot=signature;
+                        notice.Text=rows.Count==0?"No jobs yet. Choose a task above to get started.":
+                            "Select a pending task to approve or cancel it.";
                     }finally{jobs.EndUpdate();}
                 }catch(IOException){notice.Text="Refreshing the task queue.";}
             };

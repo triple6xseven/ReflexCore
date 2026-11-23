@@ -4,6 +4,9 @@
 
 ### ReflexVision v0.1
 
+* Simplify the tray menu and add a combined Classic and AI Companion mode. Keep hardware metrics visible together and reserve the companion bubble for task activity in combined mode.
+* Match the theme in the Agent queue and Models controls, reduce duplicate Agent actions, and apply the gallery's smooth scrolling to hosted pages.
+
 * Add AI Companion as an optional tray widget mode with an original animated avatar, live status and replaceable local poses.
 
 * Show each physical GPU separately in the tray HUD with utilization, dedicated video memory and shared memory usage. Join Windows GPU counters to DXGI adapters by LUID.

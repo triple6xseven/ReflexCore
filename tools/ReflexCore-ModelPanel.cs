@@ -38,14 +38,22 @@ namespace ReflexCore.Control
             outer.RowStyles.Add(new RowStyle(SizeType.Absolute,63));outer.RowStyles.Add(new RowStyle(SizeType.Absolute,94));
             outer.RowStyles.Add(new RowStyle(SizeType.Percent,100));outer.RowStyles.Add(new RowStyle(SizeType.Absolute,68));
             Controls.Add(outer);
-            var top=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1};
-            top.RowStyles.Add(new RowStyle(SizeType.Absolute,31));top.RowStyles.Add(new RowStyle(SizeType.Percent,100));outer.Controls.Add(top,0,0);
-            top.Controls.Add(new Label{Text="OLLAMA  /  LOCAL MODELS",Dock=DockStyle.Fill,ForeColor=green,Font=new Font("Consolas",16,FontStyle.Bold)},0,0);
-            top.Controls.Add(new Label{Text="Load or unload a local model and tune Qwen. Model actions run on request.",Dock=DockStyle.Fill,ForeColor=muted},0,1);
+            outer.RowStyles[0].Height=30;
+            outer.Controls.Add(new Label{Text="Local models · Ollama",Dock=DockStyle.Fill,ForeColor=fg},0,0);
             var commands=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=true,BackColor=panel,Padding=new Padding(8,7,8,5)};
             outer.Controls.Add(commands,0,1);
             commands.Controls.Add(new Label{Text="Model",ForeColor=fg,Width=65,Height=30,TextAlign=ContentAlignment.MiddleLeft});
-            models=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=240,Height=31,BackColor=panel,ForeColor=fg};commands.Controls.Add(models);
+            models=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,DrawMode=DrawMode.OwnerDrawFixed,
+                FlatStyle=FlatStyle.Flat,Width=240,Height=31,BackColor=panel,ForeColor=fg};
+            models.DrawItem+=(sender,args)=>{
+                bool selected=(args.State&DrawItemState.Selected)!=0 && (args.State&DrawItemState.ComboBoxEdit)==0;
+                Color background=selected?Color.FromArgb(65,67,93):models.BackColor;
+                using(var brush=new SolidBrush(background))args.Graphics.FillRectangle(brush,args.Bounds);
+                if(args.Index>=0)TextRenderer.DrawText(args.Graphics,models.GetItemText(models.Items[args.Index]),
+                    models.Font,args.Bounds,selected?Color.White:models.ForeColor,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
+                args.DrawFocusRectangle();
+            };
+            commands.Controls.Add(models);
             commands.Controls.Add(new Label{Text="Minutes",ForeColor=fg,Width=61,Height=30,TextAlign=ContentAlignment.MiddleRight});
             minutes=new NumericUpDown{Minimum=1,Maximum=240,Value=15,Width=62,BackColor=panel,ForeColor=fg};commands.Controls.Add(minutes);
             loadButton=MakeModelButton("▶  LOAD MODEL",147,()=>Call("Load",true));commands.Controls.Add(loadButton);
@@ -55,8 +63,15 @@ namespace ReflexCore.Control
             allButton=MakeModelButton("■  STOP ALL",155,()=>{
                 if(MessageBox.Show("Stop ReflexCore tasks and unload all local Ollama models?\nThis also unloads models in use by other Ollama clients.","ReflexCore — Confirm Stop All",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)==DialogResult.Yes)EmergencyStop();
             });allButton.BackColor=Color.FromArgb(105,43,47);commands.Controls.Add(allButton);
-            var tabs=new TabControl{Dock=DockStyle.Fill};outer.Controls.Add(tabs,0,2);
-            var basic=new TabPage("Basic settings"){BackColor=bg};var advanced=new TabPage("Advanced settings"){BackColor=bg};tabs.TabPages.AddRange(new TabPage[]{basic,advanced});
+            var settingsPane=new Panel{Dock=DockStyle.Fill,BackColor=bg};outer.Controls.Add(settingsPane,0,2);
+            var selector=new FlowLayoutPanel{Dock=DockStyle.Top,Height=44,WrapContents=false};
+            var sections=new Panel{Dock=DockStyle.Fill};
+            settingsPane.Controls.Add(sections);settingsPane.Controls.Add(selector);
+            var basic=new Panel{Dock=DockStyle.Fill,BackColor=bg};
+            var advanced=new Panel{Dock=DockStyle.Fill,BackColor=bg,Visible=false};
+            sections.Controls.Add(advanced);sections.Controls.Add(basic);
+            selector.Controls.Add(MakeModelButton("BASIC",107,()=>{advanced.Hide();basic.Show();basic.BringToFront();}));
+            selector.Controls.Add(MakeModelButton("ADVANCED",127,()=>{basic.Hide();advanced.Show();advanced.BringToFront();}));
             var basicFlow=SettingsFlow(basic);var advancedFlow=SettingsFlow(advanced);
             temp=Field(basicFlow,"Temperature",0m,2m,0.05m,2,"Use 0 for repeatable decisions. Higher values increase variety.");
             context=Field(basicFlow,"Context (num_ctx)",512m,8192m,256m,0,"Context size defaults to 2048. At 4096 or more, expect higher RAM and VRAM use.");
@@ -80,7 +95,7 @@ namespace ReflexCore.Control
             Disposed+=delegate{leasePollTimer.Stop();leasePollTimer.Dispose();};
             HandleCreated+=delegate{if(!initialSelection){initialSelection=true;Call("List",false);}PollLease();};
         }
-        static FlowLayoutPanel SettingsFlow(TabPage tab)
+        static FlowLayoutPanel SettingsFlow(Panel tab)
         {
             var flow=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=false,FlowDirection=FlowDirection.TopDown,Padding=new Padding(12,9,12,12),BackColor=Color.FromArgb(11,19,18)};
             tab.Controls.Add(flow);
