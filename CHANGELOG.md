@@ -1,3 +1,7 @@
+## Diagnostics navigation contrast
+
+- Replace native tab headers with themed section buttons and place the measurement note above the content.
+
 ## Diagnostics theme
 
 - Theme Diagnostics tabs and chart from the Studio palette and fit the embedded dashboard footer to the available height.

@@ -93,6 +93,14 @@ namespace ReflexCore.Diagnostics
             chart.Invalidate();
         }
 
+        private static void SelectSection(Panel[] screens,List<Button> buttons,int selected)
+        {
+            for(int i=0;i<screens.Length;i++){
+                screens[i].Visible=i==selected;
+                buttons[i].FlatAppearance.BorderSize=i==selected?2:1;
+            }
+        }
+
         public Dashboard(string project)
         {
             root=Path.GetFullPath(project);
@@ -103,8 +111,8 @@ namespace ReflexCore.Diagnostics
             var outer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,BackColor=bg};
             outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
             outer.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
-            outer.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             outer.RowStyles.Add(new RowStyle(SizeType.Absolute,27));
+            outer.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             Controls.Add(outer);
             var header=new Panel{Dock=DockStyle.Fill,BackColor=panel};outer.Controls.Add(header,0,0);
             // Responsive 2-column header, safe under high-DPI and embedded tab widths.
@@ -124,20 +132,15 @@ namespace ReflexCore.Diagnostics
             n=new NumericUpDown{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=53,Height=28};tools.Controls.Add(n);
             var open=new Button{Text="OPEN REPORTS",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg,Width=135,Height=33};
             open.Click+=delegate{Directory.CreateDirectory(dir);Process.Start("explorer.exe","\""+dir+"\"");};tools.Controls.Add(open);
-            var tabs=new TabControl{Dock=DockStyle.Fill,Font=new Font("Segoe UI",10),
-                BackColor=bg,ForeColor=fg,DrawMode=TabDrawMode.OwnerDrawFixed,Padding=new Point(11,6)};
-            tabs.DrawItem+=delegate(object sender,DrawItemEventArgs args){
-                bool selected=args.Index==tabs.SelectedIndex;
-                Color fill=selected?launch.BackColor:tabs.BackColor;
-                using(var brush=new SolidBrush(fill))args.Graphics.FillRectangle(brush,args.Bounds);
-                TextRenderer.DrawText(args.Graphics,tabs.TabPages[args.Index].Text,tabs.Font,args.Bounds,tabs.ForeColor,
-                    TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
-                if(selected){using(var pen=new Pen(launch.FlatAppearance.BorderColor.IsEmpty?tabs.ForeColor:launch.FlatAppearance.BorderColor))
-                    args.Graphics.DrawLine(pen,args.Bounds.Left,args.Bounds.Bottom-2,args.Bounds.Right,args.Bounds.Bottom-2);}
-                if((args.State&DrawItemState.Focus)!=0)args.DrawFocusRectangle();
-            };
-            outer.Controls.Add(tabs,0,1);
-            TabPage overview=new TabPage("Benchmark / history"){BackColor=bg,ForeColor=fg};tabs.TabPages.Add(overview);
+            var sectionLayout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=new Padding(0)};
+            sectionLayout.RowStyles.Add(new RowStyle(SizeType.Absolute,44));
+            sectionLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+            outer.Controls.Add(sectionLayout,0,2);
+            var sectionBar=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,AutoScroll=true};
+            sectionLayout.Controls.Add(sectionBar,0,0);
+            var content=new Panel{Dock=DockStyle.Fill,Margin=new Padding(0)};
+            sectionLayout.Controls.Add(content,0,1);
+            var overview=new Panel{Dock=DockStyle.Fill};
             summary=MakeLabel("No benchmark results recorded.",new Font("Consolas",11),accent);
             var overviewLayout=Rows(62,155);overview.Controls.Add(overviewLayout);
             summary.Dock=DockStyle.Fill;overviewLayout.Controls.Add(summary,0,0);
@@ -154,7 +157,7 @@ namespace ReflexCore.Diagnostics
             foreach(int k in new[]{3,4,5,6}){runs.Columns[k].ValueType=typeof(double);runs.Columns[k].DefaultCellStyle.Format="F1";}
             runs.Columns[0].ToolTipText="Shown in local time. Stored in UTC.";
             runs.SelectionChanged+=delegate{ShowSelected();};
-            TabPage details=new TabPage("Evidence / decisions"){BackColor=bg};tabs.TabPages.Add(details);
+            var details=new Panel{Dock=DockStyle.Fill};
             evidence=new TextBox{Dock=DockStyle.Top,Height=135,ReadOnly=true,Multiline=true,BackColor=panel,ForeColor=fg,BorderStyle=BorderStyle.None,
                 Font=new Font("Consolas",10),Text="Select a benchmark run to inspect its structural decision evidence."};
             var detailsLayout=Rows(135);details.Controls.Add(detailsLayout);
@@ -162,13 +165,13 @@ namespace ReflexCore.Diagnostics
             trace=Grid();trace.Dock=DockStyle.Fill;detailsLayout.Controls.Add(trace,0,1);
             trace.Columns.Add("step","Step");trace.Columns.Add("action","UIA action");trace.Columns.Add("tries","Attempts");
             trace.Columns.Add("status","Status");trace.Columns.Add("verify","Verification");trace.Columns.Add("duration","Elapsed ms");trace.Columns.Add("why","Evidence code");
-            TabPage resourcePage=new TabPage("Live resources"){BackColor=bg};tabs.TabPages.Add(resourcePage);
+            var resourcePage=new Panel{Dock=DockStyle.Fill};
             var resourceLayout=Rows(112);resourcePage.Controls.Add(resourceLayout);
             resources=MakeLabel("CPU/RAM polling…",new Font("Consolas",12),accent);resources.Dock=DockStyle.Fill;resourceLayout.Controls.Add(resources,0,0);
             procGrid=Grid();procGrid.Dock=DockStyle.Fill;resourceLayout.Controls.Add(procGrid,0,1);
             procGrid.Columns.Add("group","Process group");procGrid.Columns.Add("count","Instances");procGrid.Columns.Add("cpu","CPU % (system normalized)");
             procGrid.Columns.Add("ram","Working RAM MB");procGrid.Columns.Add("priv","Private RAM MB");
-            TabPage modelPage=new TabPage("Qwen / bottlenecks"){BackColor=bg};tabs.TabPages.Add(modelPage);
+            var modelPage=new Panel{Dock=DockStyle.Fill};
             qwen=MakeLabel("No local Qwen measurements loaded yet.",new Font("Consolas",11),fg);
             var modelLayout=Rows(50);modelPage.Controls.Add(modelLayout);
             qwen.Dock=DockStyle.Fill;qwen.TextAlign=ContentAlignment.TopLeft;modelLayout.Controls.Add(qwen,0,1);
@@ -176,7 +179,20 @@ namespace ReflexCore.Diagnostics
             var inspect=new Button{Text="REFRESH QWEN REVIEW",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg};inspect.SetBounds(20,8,240,32);toolbar.Controls.Add(inspect);
             inspect.Click+=delegate{LaunchKnownScript("Review-ReflexPerformance.ps1","");};
             help=MakeLabel("Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",new Font("Segoe UI",9),Color.Gray);
-            help.Dock=DockStyle.Fill;outer.Controls.Add(help,0,2);
+            help.Dock=DockStyle.Fill;help.AutoEllipsis=true;outer.Controls.Add(help,0,1);
+            var screens=new[]{overview,details,resourcePage,modelPage};
+            var sectionNames=new[]{"Benchmark / history","Evidence / decisions","Live resources","Qwen / bottlenecks"};
+            var sectionButtons=new List<Button>();
+            for(int index=0;index<screens.Length;index++){
+                int selected=index;
+                var button=new Button{Text=sectionNames[index],AutoSize=true,Height=32,
+                    Padding=new Padding(9,0,9,0),FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg};
+                button.Click+=delegate{SelectSection(screens,sectionButtons,selected);};
+                sectionButtons.Add(button);
+                sectionBar.Controls.Add(button);
+                content.Controls.Add(screens[index]);
+            }
+            SelectSection(screens,sectionButtons,0);
             timer=new System.Windows.Forms.Timer{Interval=800};timer.Tick+=delegate{RefreshAll();};
             VisibleChanged+=delegate{timer.Enabled=Visible;if(Visible)RefreshAll();};
         }
