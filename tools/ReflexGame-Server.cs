@@ -22,6 +22,12 @@ namespace ReflexCore.Citadel
         internal struct Rect {public int Left,Top,Right,Bottom;}
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         static extern IntPtr GetForegroundWindow();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr WindowFromPoint(Point point);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr GetAncestor(IntPtr hwnd,uint flags);
         [System.Runtime.InteropServices.DllImport("user32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
         static extern int GetWindowText(IntPtr window,System.Text.StringBuilder buffer,int capacity);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -40,6 +46,9 @@ namespace ReflexCore.Citadel
         static string session="";
         static IntPtr window=IntPtr.Zero;
         static int originX,originY,actions;
+        static double scale;
+        static Rect calibratedBounds;
+        static readonly IntPtr PerMonitorDpiV2=new IntPtr(-4);
         static long deadline;
         static volatile bool abort;
         static long pauseUntil;
@@ -55,40 +64,70 @@ namespace ReflexCore.Citadel
                 string name=p.ProcessName.ToLowerInvariant();return name=="chrome"||name=="msedge"||name=="chromium";
             }}catch{return false;}
         }
-        static int Number(Dictionary<string,object> data,string key){
+        static int Number(Dictionary<string,object> data,string key,int minimum=0){
             if(!data.ContainsKey(key))throw new InvalidOperationException("Missing coordinate");
             int v=Convert.ToInt32(data[key],System.Globalization.CultureInfo.InvariantCulture);
-            if(v<0||v>10000)throw new InvalidOperationException("Coordinate out of range");return v;
+            if(v<minimum||v>10000)throw new InvalidOperationException("Coordinate out of range");return v;
+        }
+        static double ReadScale(Dictionary<string,object> data){
+            object value;
+            double ratio=data.TryGetValue("scale",out value)
+                ?Convert.ToDouble(value,System.Globalization.CultureInfo.InvariantCulture):1.0;
+            if(double.IsNaN(ratio)||ratio<0.25||ratio>8)
+                throw new InvalidOperationException("INVALID_DISPLAY_SCALE");
+            return ratio;
+        }
+        static int DevicePixel(int logical,double ratio){
+            return (int)Math.Round(logical*ratio,MidpointRounding.AwayFromZero);
+        }
+        static bool SameBounds(Rect a,Rect b){
+            return a.Left==b.Left&&a.Top==b.Top&&a.Right==b.Right&&a.Bottom==b.Bottom;
+        }
+        static bool BrowserOwns(Point point){
+            return GetAncestor(WindowFromPoint(point),2)==window; // GA_ROOT
         }
         public static string Start(Dictionary<string,object> data){
             lock(sync){
+                IntPtr previousContext=SetThreadDpiAwarenessContext(PerMonitorDpiV2);
+                try{return Calibrate(data);}
+                finally{if(previousContext!=IntPtr.Zero)SetThreadDpiAwarenessContext(previousContext);}
+            }
+        }
+        static string Calibrate(Dictionary<string,object> data){
                 if(DateTime.UtcNow.Ticks<pauseUntil)return "{\"ok\":false,\"error\":\"Human input cooldown\"}";
                 IntPtr focus=GetForegroundWindow();if(!IsCitadelChrome(focus))return "{\"ok\":false,\"error\":\"Focus the Citadel browser window first\"}";
                 Point p;if(!GetCursorPos(out p))return "{\"ok\":false,\"error\":\"Cannot read cursor\"}";
-                try{originX=p.X-Number(data,"anchor_x");originY=p.Y-Number(data,"anchor_y");}
-                catch{return "{\"ok\":false,\"error\":\"Invalid calibration\"}";}
+                if(!GetWindowRect(focus,out calibratedBounds)||GetAncestor(WindowFromPoint(p),2)!=focus)
+                    return "{\"ok\":false,\"error\":\"PHYSICAL_TARGET_OCCLUDED\"}";
+                try{
+                    scale=ReadScale(data);
+                    originX=p.X-DevicePixel(Number(data,"anchor_x"),scale);
+                    originY=p.Y-DevicePixel(Number(data,"anchor_y"),scale);
+                }
+                catch{return "{\"ok\":false,\"error\":\"INVALID_PHYSICAL_CALIBRATION\"}";}
                 window=focus;actions=0;abort=false;session=Guid.NewGuid().ToString("N");
                 deadline=DateTime.UtcNow.AddMinutes(2).Ticks;
                 return "{\"ok\":true,\"token\":\""+session+"\",\"mode\":\"REAL_WINDOWS_CURSOR\"}";
-            }
         }
         static bool InWindow(int x,int y,Rect r){return x>=r.Left+4&&x<=r.Right-4&&y>=r.Top+4&&y<=r.Bottom-4;}
         static bool Cancelled(){return abort||StopKey()||GetForegroundWindow()!=window||DateTime.UtcNow.Ticks>deadline;}
         static void Move(Point from,Point to,int steps){
+            Point previous=from;
             for(int i=1;i<=steps;i++){
                 if(Cancelled())throw new InvalidOperationException("CANCELLED_OR_FOCUS_LOST");
                 Point actual;if(!GetCursorPos(out actual))throw new InvalidOperationException("CURSOR_UNAVAILABLE");
-                if(i>1&&(Math.Abs(actual.X-from.X)>36||Math.Abs(actual.Y-from.Y)>36))
+                if(Math.Abs(actual.X-previous.X)>36||Math.Abs(actual.Y-previous.Y)>36)
                     throw new InvalidOperationException("USER_OVERRIDE");
                 int x=from.X+(to.X-from.X)*i/steps,y=from.Y+(to.Y-from.Y)*i/steps;
                 if(!SetCursorPos(x,y))throw new InvalidOperationException("CURSOR_MOVE_FAILED");
-                from=new Point{X=x,Y=y};
+                previous=new Point{X=x,Y=y};
                 Thread.Sleep(16);
             }
         }
         public static string Drag(Dictionary<string,object> data){
             lock(sync){
                 bool pressed=false;
+                IntPtr previousContext=SetThreadDpiAwarenessContext(PerMonitorDpiV2);
                 try{
                     if(session==""||!data.ContainsKey("token")||Convert.ToString(data["token"])!=session)
                         throw new InvalidOperationException("NO_ACTIVE_SESSION");
@@ -96,19 +135,26 @@ namespace ReflexCore.Citadel
                     if(Cancelled())throw new InvalidOperationException("CANCELLED_OR_FOCUS_LOST");
                     int sx=Number(data,"start_x"),sy=Number(data,"start_y");
                     int ex=Number(data,"end_x"),ey=Number(data,"end_y");
-                    int vx=Number(data,"viewport_x"),vw=Number(data,"viewport_w");
-                    int vy=Number(data,"viewport_y"),vh=Number(data,"viewport_h");
-                    if(vw<160||vh<160||sx<vx+8||sx>vx+vw-8||sy<vy+(int)(vh*.73)||
-                       ex<vx+12||ex>vx+(int)(vw*.36)||ey<vy+12||ey>vy+(int)(vh*.80))
+                    int vx=Number(data,"viewport_x",-10000),vw=Number(data,"viewport_w");
+                    int vy=Number(data,"viewport_y",-10000),vh=Number(data,"viewport_h");
+                    if(vw<160||vh<160||sx<vx+8||sx>vx+vw-8||sy<vy+(int)(vh*.55)||sy>=vy+vh||
+                       ex<vx+(int)(vw*34.0/1024)||ex>vx+(int)Math.Ceiling(vw*371.0/1024)||
+                       ey<vy+(int)(vh*24.0/640)||ey>vy+(int)Math.Ceiling(vh*616.0/640))
                         throw new InvalidOperationException("DRAG_OUTSIDE_CITADEL_DEPLOY_ZONE");
                     Rect rect;if(!GetWindowRect(window,out rect))throw new InvalidOperationException("WINDOW_RECT_FAILED");
-                    Point source=new Point{X=originX+sx,Y=originY+sy};
-                    Point dest=new Point{X=originX+ex,Y=originY+ey};
+                    if(!SameBounds(rect,calibratedBounds)||Math.Abs(ReadScale(data)-scale)>0.001)
+                        throw new InvalidOperationException("PHYSICAL_CALIBRATION_CHANGED");
+                    Point source=new Point{X=originX+DevicePixel(sx,scale),Y=originY+DevicePixel(sy,scale)};
+                    Point dest=new Point{X=originX+DevicePixel(ex,scale),Y=originY+DevicePixel(ey,scale)};
                     if(!InWindow(source.X,source.Y,rect)||!InWindow(dest.X,dest.Y,rect))
                         throw new InvalidOperationException("OUTSIDE_FOREGROUND_WINDOW");
+                    if(!BrowserOwns(source)||!BrowserOwns(dest))
+                        throw new InvalidOperationException("PHYSICAL_TARGET_OCCLUDED");
                     Point cursor;if(!GetCursorPos(out cursor))throw new InvalidOperationException("CURSOR_UNAVAILABLE");
                     Move(cursor,source,12);
                     if(Cancelled())throw new InvalidOperationException("CANCELLED_OR_FOCUS_LOST");
+                    if(!BrowserOwns(source)||!BrowserOwns(dest))
+                        throw new InvalidOperationException("PHYSICAL_TARGET_OCCLUDED");
                     mouse_event(MouseDown,0,0,0,UIntPtr.Zero);pressed=true;
                     Move(source,dest,24);
                     mouse_event(MouseUp,0,0,0,UIntPtr.Zero);pressed=false;
@@ -120,12 +166,16 @@ namespace ReflexCore.Citadel
                     string code=e.Message.Replace("\\","_").Replace("\"","_");
                     return "{\"ok\":false,\"error\":\""+code+"\"}";
                 }
-                finally{if(pressed)mouse_event(MouseUp,0,0,0,UIntPtr.Zero);}
+                finally{
+                    if(pressed)mouse_event(MouseUp,0,0,0,UIntPtr.Zero);
+                    if(previousContext!=IntPtr.Zero)SetThreadDpiAwarenessContext(previousContext);
+                }
             }
         }
         public static string Stop(){abort=true;lock(sync){session="";return "{\"ok\":true,\"stopped\":true}";}}
         public static void SelfTest(){
-            if(MouseDown==MouseUp||InWindow(9,10,new Rect{Left=0,Top=0,Right=5,Bottom=5}))
+            if(MouseDown==MouseUp||InWindow(9,10,new Rect{Left=0,Top=0,Right=5,Bottom=5})||
+               DevicePixel(124,1.25)!=155||DevicePixel(20,1.5)!=30)
                 throw new Exception("Physical mouse guard test failed");
         }
     }
