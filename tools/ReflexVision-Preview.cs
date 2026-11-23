@@ -85,7 +85,7 @@ namespace ReflexCore.Vision
                         renderer.Visible.Add(results[0]);
                         renderer.DrawToBitmap(rendered, new Rectangle(0, 0, 320, 200));
                         Rectangle bounds = results[0].Object.Box;
-                        if (rendered.GetPixel(bounds.Left, bounds.Top + 4).G < 210)
+                        if (rendered.GetPixel(bounds.Left, bounds.Top + 4).ToArgb() != Overlay.TrackColor.ToArgb())
                             throw new InvalidOperationException("Preview did not draw a track border.");
                     }
                     int id = results[0].Id;
@@ -133,6 +133,7 @@ namespace ReflexCore.Vision
 
     internal sealed class Overlay : Control
     {
+        internal static readonly Color TrackColor = Color.FromArgb(203, 131, 255);
         internal Surface Frame;
         internal readonly List<Track> Visible = new List<Track>();
         internal Overlay() { DoubleBuffered = true; BackColor = Color.FromArgb(14, 20, 27); }
@@ -145,16 +146,20 @@ namespace ReflexCore.Vision
             var target = new RectangleF((ClientSize.Width - Frame.Width * scale) / 2,
                 (ClientSize.Height - Frame.Height * scale) / 2, Frame.Width * scale, Frame.Height * scale);
             e.Graphics.DrawImage(Frame.Image, target);
-            foreach (var detection in Visible)
+            using (var border = new Pen(TrackColor))
+            using (var label = new SolidBrush(TrackColor))
+            foreach (var track in Visible)
             {
-                Rectangle bounds = detection.Object.Box;
+                Rectangle bounds = track.Object.Box;
                 float x = target.X + bounds.X * scale, y = target.Y + bounds.Y * scale;
-                e.Graphics.DrawRectangle(Pens.Lime, x, y, bounds.Width * scale, bounds.Height * scale);
-                string text = detection.Object.Kind + " #" + detection.Id + " " + detection.Object.Score.ToString("0.00");
+                e.Graphics.DrawRectangle(border, x, y, bounds.Width * scale, bounds.Height * scale);
+                string kind = track.Object.Kind == "red_cue" ? "Scene cue" : track.Object.Kind.Replace("hud_", "HUD ");
+                string text = kind + " #" + track.Id + "  " + track.Object.Score.ToString("0.00");
                 SizeF size = e.Graphics.MeasureString(text, Font);
+                float labelX = Math.Max(target.Left, Math.Min(x, target.Right - size.Width));
                 float labelY = Math.Max(target.Top, y - size.Height);
-                e.Graphics.FillRectangle(Brushes.Black, x, labelY, Math.Min(size.Width, target.Right - x), size.Height);
-                e.Graphics.DrawString(text, Font, Brushes.LightGreen, x, labelY);
+                e.Graphics.FillRectangle(Brushes.Black, labelX, labelY, Math.Min(size.Width, target.Right - labelX), size.Height);
+                e.Graphics.DrawString(text, Font, label, labelX, labelY);
             }
         }
     }
@@ -315,7 +320,7 @@ namespace ReflexCore.Vision
                     Publish("live", surface, frameUnixMs);
                 if (!finalized)
                 {
-                    status.Text = overlay.Visible.Count + " tracked | " + elapsed.ToString("0.0") + " ms" +
+                    status.Text = overlay.Visible.Count + " color / HUD tracks | " + elapsed.ToString("0.0") + " ms" +
                         (hotkey ? " | Ctrl+Alt+F10" : "");
                 }
             }

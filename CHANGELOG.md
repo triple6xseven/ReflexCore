@@ -1,3 +1,8 @@
+## Windows notifications and seated poses
+
+- Make native Windows activity notifications opt-in and keep Classic visibility independent of the 3D companion.
+- Alternate the top leg in window and cloud seats, and make the tucked-knee cloud pose less frequent.
+
 ## Companion animation hot path
 
 - Reuse the rig frame and seated knee positions across arm calculations.

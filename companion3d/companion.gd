@@ -101,7 +101,7 @@ var cloud_turn_target := 0.0
 var cloud_turning := false
 const PREVIEW_LENGTH := {"idle":4.0,"walk":4.0,"run":4.0,"hover":4.0,
 	"dragged":3.0,"thrown":1.5,"landing":1.2,"sit":12.5,"cloud_summon":1.4,
-	"cloud_sit":15.0,"petted":2.0,"face_smile":2.0,"tickled":2.0,
+	"cloud_sit":24.2,"petted":2.0,"face_smile":2.0,"tickled":2.0,
 	"thinking":4.0,"working":4.0,"happy":2.0}
 var preview_token := ""
 var preview_pose := ""
@@ -736,7 +736,7 @@ func _process(delta: float) -> void:
 		var animation_velocity: Vector2 = motion.velocity
 		if preview:
 			animation_velocity=Vector2(350*sin(now*3),-80) if physical in ["hover","dragged","thrown"] else Vector2.ZERO
-		rig.animate(dt,now,avatar_state,gaze,animation_velocity,bool(options.hair),preview or bool(options.animate),seated,motion.impact,cloud_pose,physical=="sit" and (preview or _is_midnight_loaded()),"relaxed" if preview else str(options.sit_style),1.0 if preview else float(options.intensity),new_touch)
+		rig.animate(dt,now,avatar_state,gaze,animation_velocity,bool(options.hair),preview or bool(options.animate),seated,motion.impact,cloud_pose,physical=="sit" and (preview or _is_midnight_loaded()),"relaxed" if preview else str(options.sit_style),1.0 if preview else float(options.intensity),new_touch,preview)
 		var edge := float(motion.support.position.y) if motion.seated and not preview else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
 		var hip_pad := 11*float(options.zoom)
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
@@ -786,10 +786,10 @@ func _process(delta: float) -> void:
 		or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_summon"]
 	var frame_limit := clampi(int(options.fps),15,60)
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
-	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and (fmod(rig.cloud_clock,4.8)<1.6 or fmod(rig.cloud_clock,4.8)>3.08)
-	var changing_window_pose: bool = rig!=null and rig.crossed>0 and rig.crossed<1
+	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and (fmod(rig.cloud_clock,Rig.CLOUD_POSE_SECONDS)<1.6 or fmod(rig.cloud_clock,Rig.CLOUD_POSE_SECONDS)>3.08)
+	var changing_leg_cross: bool = rig!=null and rig.crossed>0 and rig.crossed<1
 	var starting_walk: bool = rig!=null and physical in ["walk","run"] and rig.gait<.95
-	if preview or physical in ["cloud_fly","portal","stand_up"] or seat_transition or starting_walk or changing_cloud_pose or changing_window_pose or cloud_turning:
+	if preview or physical in ["cloud_fly","portal","stand_up"] or seat_transition or starting_walk or changing_cloud_pose or changing_leg_cross or cloud_turning:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
 	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)

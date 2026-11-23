@@ -50,6 +50,10 @@ namespace ReflexCore.Bridge
             if(!ActivityHud.ThroughputText(31.2,at.AddSeconds(-66),at,true).Contains("no recent sample") ||
                !ActivityHud.ThroughputText(31.2,at.AddSeconds(11),at,true).Contains("no recent sample"))
                 throw new Exception("Throughput age bounds regression");
+            if(!TrayWindow.CaptureSignalActive(at.AddSeconds(-1),at) ||
+               TrayWindow.CaptureSignalActive(at.AddSeconds(-16),at) ||
+               TrayWindow.CaptureSignalActive(at.AddSeconds(1),at))
+                throw new Exception("HUD capture marker age bounds regression");
             Console.WriteLine("[ReflexCore] Tray/HUD C# compiled and self-test passed.");
         }
 
@@ -626,6 +630,7 @@ namespace ReflexCore.Bridge
         private bool hudEnabled=true;
         private readonly CompanionHost companionHost;
         private readonly string captureSignalPath;
+        private static readonly TimeSpan CaptureSignalLifetime=TimeSpan.FromSeconds(15);
         private readonly ContextMenuStrip menu;
         private readonly ToolStripMenuItem statusMenu;
         private readonly ToolStripMenuItem activityMenu;
@@ -703,8 +708,8 @@ namespace ReflexCore.Bridge
                     while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
                     var entries=widgetOptions.DropDownItems;
                     entries.Add("Show Classic",null,(s,e)=>SetHudVisible(true));
-                    entries.Add("Show ReflexCompanion 3D",null,(s,e)=>companionHost.Show3D(false,SetHudVisible));
-                    entries.Add("Show Both",null,(s,e)=>companionHost.Show3D(true,SetHudVisible));
+                    entries.Add("Show ReflexCompanion 3D",null,(s,e)=>companionHost.Show3D());
+                    entries.Add("Show Both",null,(s,e)=>{SetHudVisible(true);companionHost.Show3D();});
                     if(companionHost.Running)
                     {
                         entries.Add("Restart 3D",null,(s,e)=>companionHost.Restart3D());
@@ -919,14 +924,19 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             return precise?ActivityTime(json,"last_tps_utc"):activityUtc;
         }
 
+        internal static bool CaptureSignalActive(DateTime writtenUtc,DateTime now)
+        {
+            return writtenUtc<=now && now-writtenUtc<=CaptureSignalLifetime;
+        }
+
         private void PollActivity()
         {
-            bool capturing=File.Exists(captureSignalPath);
+            var now=DateTime.UtcNow;
+            // A terminated capture worker can leave its marker behind.
+            bool capturing=CaptureSignalActive(File.GetLastWriteTimeUtc(captureSignalPath),now);
             if(capturing || !hudEnabled) { if(hud.Visible) hud.Hide(); }
             else if(!hud.Visible){ hud.Reposition(); hud.Show(); }
             hud.RefreshResources();
-
-            var now=DateTime.UtcNow;
             if(!Fresh(activeStageUtc,now) && lastActivityStage!="")
             {
                 lastActivityStage="";lastActivitySource="";
@@ -988,7 +998,10 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             {
                 string message=origin+": "+label;
                 toast.Display(message);
-                try {icon.ShowBalloonTip(2200,"ReflexCore",message,ToolTipIcon.Info);}catch{}
+                if(companionHost!=null && companionHost.WindowsNotificationsEnabled)
+                {
+                    try {icon.ShowBalloonTip(2200,"ReflexCore",message,ToolTipIcon.Info);}catch{}
+                }
             }
             return true;
         }

@@ -20,6 +20,8 @@ The **Companion & Widgets** page includes Character, Editor, Movement, Classic, 
 
 Open the ReflexCore tray icon and choose **Widget → Show Classic**, **Show ReflexCompanion 3D**, or **Show Both**. Classic shows the hardware and Ollama metrics. With both visible, the 3D bubble reports work and the queue. **Ctrl+Alt+H** shows or hides Classic. Use **Widget → 3D mouse interaction** to restore the avatar’s drag and context menu after enabling click-through.
 
+The **Companion & Widgets > Advanced > Windows activity notifications** toggle controls the Windows PowerShell 5.1 notifications from ReflexCore. It defaults to off. Opening the 3D companion keeps the current Classic widget visibility.
+
 **Appearance → Smooth scrolling** controls both the theme gallery and the scrollable hosted pages. The hosted pages reuse the same damped spring as the zxcLagLab gallery. Lists, model pickers and numeric editors keep their native wheel behavior.
 
 Select a local VRM or GLB in **Companion & Widgets**, or use **Edition** to choose between the installed Original and Midnight VRMs.

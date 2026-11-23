@@ -1,6 +1,7 @@
 extends SceneTree
 
 const Main = preload("res://main.tscn")
+const Rig = preload("res://avatar_rig.gd")
 var failed := false
 
 func _initialize() -> void:
@@ -31,14 +32,7 @@ func _verify() -> void:
 			_expect(variant==(visit==1),"Wrong rotation for "+pose)
 			if visit==1:
 				_expect(point.distance_to(classic)>.001,"No joint variation in "+pose)
-	if rig.nocturne:
-		rig.animate(1.0/60,0,"idle",Vector2.ZERO,Vector2.ZERO,true,true)
-		for tick in 750:
-			rig.animate(1.0/60,tick/60.0,"sit",Vector2.ZERO,Vector2.ZERO,true,true,true,"",false,true,"relaxed")
-			if tick==449:
-				_expect(rig.crossed>.99,"Window leg cross never reached its hold")
-			if tick==735:
-				_expect(rig.crossed<.01,"Classic window pose did not return")
+	_check_seated_variations(rig)
 	avatar.click_at=avatar.now
 	for phase in ["approach","reach","grip","pull_up","settle","landing"]:
 		_expect(avatar._choose_pose(phase,INF)==phase,"Click interrupted "+phase)
@@ -120,6 +114,33 @@ func _verify() -> void:
 		print("Windows overlay: stable cloud turns, attentive hover hysteresis, full alpha bounds at both extreme tilts; immediate re-grab, dismissible menu, background passthrough and close action passed.")
 	avatar.queue_free()
 	quit(1 if failed else 0)
+
+func _check_seated_variations(rig: RefCounted) -> void:
+	const FRAME := 1.0/60
+	_expect(Rig.CLOUD_SEQUENCE.count(Rig.CloudPose.TUCK)*6<=Rig.CLOUD_SEQUENCE.size(),
+		"Knee tucks must occupy at most half the previous share of cloud poses")
+	for cloudy in [false,true]:
+		rig.animate(FRAME,0,"idle",Vector2.ZERO,Vector2.ZERO,true,true)
+		var sides: Array[float] = []
+		var crossing := false
+		var tucked := false
+		var hugs := 0
+		# Standalone preview shows both leg orders before the tucked variation.
+		for tick in 1500:
+			rig.animate(FRAME,tick*FRAME,"cloud_sit" if cloudy else "sit",Vector2.ZERO,Vector2.ZERO,true,true,true,"",cloudy,true,"relaxed",1.0,false,true)
+			if rig.crossed>.99 and not crossing:
+				sides.append(rig.cross_direction)
+				var left: Vector3 = rig.world_bone("leftLowerLeg")
+				var right: Vector3 = rig.world_bone("rightLowerLeg")
+				_expect(signf(left.y-right.y)==rig.cross_direction,"Raised knee must match the crossed side")
+			crossing=rig.crossed>.99
+			if rig.hug_progress>.9 and not tucked:
+				hugs+=1
+			tucked=rig.hug_progress>.9
+		_expect(sides.size()==2 and sides[0]==-sides[1],"Seated leg crossings must alternate legs")
+		_expect(hugs==(1 if cloudy else 0),"Only the cloud preview should briefly tuck the knees")
+		rig.animate(FRAME,30,"sit",Vector2.ZERO,Vector2.ZERO,true,true,true,"",cloudy,true,"still")
+		_expect(rig.crossed==0.0,"Still must suppress crossing")
 
 func _check_cloud_turn(avatar: Node) -> void:
 	avatar.pivot.rotation.y=-.77

@@ -4,7 +4,7 @@ ReflexVision provides a live preview for windowed Counter-Strike 1.6 and publish
 
 ## Use Studio
 
-Open **Shared Control**. **Start ReflexVision** opens a preview next to the local game. Bring the game into the foreground to resume capture. Leave room beside or below the window for the preview. **Stop Capture**, **Ctrl+Alt+F10**, or the PowerShell stop action ends the preview and invalidates the observation immediately. The start script checks that the selected game process owns a loopback-accessible CS 1.6 listen server with one human player.
+Open **Shared Control**. **Start ReflexVision** opens a preview with purple tracks next to the local game. Labels identify tracked color and HUD regions. Bring the game into the foreground to resume capture. Leave room beside or below the window for the preview. **Stop Capture**, **Ctrl+Alt+F10**, or the PowerShell stop action ends the preview and invalidates the observation immediately. The start script checks that the selected game process owns a loopback-accessible CS 1.6 listen server with one human player.
 
 **Start Offline Plant Drill** opens a second panel with the real position of the ReflexCore player, the route and the controller's progress. The fixture launches a dedicated loopback server with no human clients. The player moves through ordinary game ticks and holds Attack with C4 equipped inside an engine-confirmed plant zone. The Rust result requires the owned actor's plant event. The panel's Stop button cancels that run. The movement display is a route view, while ReflexVision displays video from a windowed client.
 

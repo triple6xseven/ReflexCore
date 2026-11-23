@@ -24,6 +24,7 @@ namespace ReflexCore.Bridge
         private int watchedGesture;
         private long gestureCheck;
         internal bool ClassicPreferred {get{return classicPreferred;}}
+        internal bool WindowsNotificationsEnabled {get;private set;}
         private string statusSnapshot;
         private string message="Stopped";
         private string mode="taskbar";
@@ -31,11 +32,10 @@ namespace ReflexCore.Bridge
         private bool fullscreenOverlay;
         internal bool Running {get{return child!=null && !child.HasExited;}}
 
-        internal void Show3D(bool showClassic,Action<bool> applyClassic)
+        internal void Show3D()
         {
             try
             {
-                applyClassic(showClassic);
                 RememberCompanion(true);
                 Start();
             }
@@ -55,6 +55,7 @@ namespace ReflexCore.Bridge
         {
             root=project;hud=widget;commandPath=Path.Combine(bridge,"widget-command.txt");
             var settings=ReadSettings("settings.json");
+            WindowsNotificationsEnabled=Boolean(settings,"windows_notifications",false);
             appStart=Boolean(settings,"app_start",false);
             var saved=ReadSettings("widget-visibility.json");
             var previous=ReadSettings("host-status.json");
@@ -100,11 +101,19 @@ namespace ReflexCore.Bridge
         private void RefreshSettings()
         {
             var file=new FileInfo(InBridge("settings.json"));
-            if(!file.Exists || file.Length>16384 || (file.LastWriteTimeUtc==settingsTime && file.Length==settingsLength))return;
+            if(!file.Exists || file.Length>16384)
+            {
+                WindowsNotificationsEnabled=false;
+                settingsLength=-1;
+                return;
+            }
+            if(file.LastWriteTimeUtc==settingsTime && file.Length==settingsLength)return;
+            WindowsNotificationsEnabled=false;
             var settings=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(file.FullName));
             if(settings==null)return;
             settingsTime=file.LastWriteTimeUtc;
             settingsLength=file.Length;
+            WindowsNotificationsEnabled=Boolean(settings,"windows_notifications",false);
             object opacityValue, behavior;
             double opacity=.94;
             if(settings.TryGetValue("classic_opacity",out opacityValue) &&
@@ -189,7 +198,7 @@ namespace ReflexCore.Bridge
             switch(action)
             {
                 case "start-3d":
-                    RememberCompanion(true);Start();break;
+                    Show3D();break;
                 case "restart-3d":
                     Restart3D();break;
                 case "stop-3d":Hide3D();break;

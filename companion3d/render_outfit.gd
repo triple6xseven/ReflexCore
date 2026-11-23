@@ -45,15 +45,22 @@ func _render() -> void:
 	preview_seat.material_override=seat_material
 	root.add_child(preview_seat)
 	preview_seat.visible=false
-	for item in [["front",0.0,false],["three-quarter",.61,false],["profile",PI/2,false],["back",PI,false],["seated-front",0.0,true],["seated",-.63,true],["seated-side",PI/2,true],["seated-stretch",.55,true],["window-crossed",-.63,true],["face",.23,false],["smile",-.2,false],["drag",.55,false],["cloud",-.71,true],["cloud-tucked",-.71,true],["cloud-side",-.71,true],["attentive",.5,true],["thinking",.32,false],["walk",1.25,false],["summon",.5,false],["feet",.45,false],["hover",.65,false]]:
+	for item in [["front",0.0,false],["three-quarter",.61,false],["profile",PI/2,false],["back",PI,false],["seated-front",0.0,true],["seated",-.63,true],["seated-side",PI/2,true],["seated-stretch",.55,true],["window-crossed",-.63,true],["face",.23,false],["smile",-.2,false],["drag",.55,false],["cloud",-.71,true],["cloud-crossed",-.71,true],["cloud-tucked",-.71,true],["cloud-side",-.71,true],["attentive",.5,true],["thinking",.32,false],["walk",1.25,false],["summon",.5,false],["feet",.45,false],["hover",.65,false]]:
 		var pose: String={"cloud":"cloud_sit","attentive":"attentive","thinking":"thinking",
 			"smile":"petted","drag":"dragged","walk":"walk","summon":"cloud_summon","hover":"hover"}.get(item[0],"sit" if item[2] else "idle")
 		if str(item[0]).begins_with("cloud"):
 			pose="cloud_sit"
-		if item[0]=="window-crossed":
+		if item[0]=="window-crossed" or pose=="cloud_sit":
 			rig.animate(1.0/60,0,"idle",Vector2.ZERO,Vector2.ZERO,true,true)
-		for tick in (440 if item[0]=="window-crossed" else 288 if item[0] in ["cloud-tucked","cloud-side"] else 285 if item[0]=="seated-stretch" else 95):
-			rig.animate(1.0/60.0,float(tick)/60.0,pose,Vector2.ZERO,Vector2(400,-65) if pose=="dragged" else Vector2(115,-32) if pose=="hover" else Vector2.ZERO,true,true,item[2],"",pose=="cloud_sit",item[2],"relaxed")
+		if pose=="cloud_sit":
+			rig.animate(1.0/60,0,pose,Vector2.ZERO,Vector2.ZERO,true,true,true,"",true,true,"relaxed",1.0,false,true)
+			var sample := Rig.CLOUD_PREVIEW_SEQUENCE.find({
+				"cloud-crossed":Rig.CloudPose.CROSS,"cloud-tucked":Rig.CloudPose.TUCK,
+				"cloud-side":Rig.CloudPose.SIDE
+			}.get(item[0],Rig.CloudPose.REST))
+			rig.cloud_clock=sample*Rig.CLOUD_POSE_SECONDS
+		for tick in (440 if item[0]=="window-crossed" else 285 if item[0]=="seated-stretch" else 120 if pose=="cloud_sit" else 95):
+			rig.animate(1.0/60.0,float(tick)/60.0,pose,Vector2.ZERO,Vector2(400,-65) if pose=="dragged" else Vector2(115,-32) if pose=="hover" else Vector2.ZERO,true,true,item[2],"",pose=="cloud_sit",item[2],"relaxed",1.0,false,pose=="cloud_sit")
 		var closeup: bool=item[0] in ["face","smile","thinking","feet"]
 		camera.size=0.54 if closeup else 2.10
 		var center := Vector3(0,1.57 if closeup else .88 if item[2] else .95,0)

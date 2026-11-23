@@ -79,6 +79,12 @@ const FAMILIES := {"petted":"pat","face_smile":"smile","happy":"happy","dragged"
 	"thrown":"flight","falling":"flight","hard_collision":"impact","soft_collision":"impact",
 	"landing":"land","recovering":"land","thinking":"think","working":"work",
 	"reach":"climb","grip":"climb","pull_up":"climb"}
+enum CloudPose { REST, CROSS, SIDE, TUCK }
+const CLOUD_POSE_SECONDS := 4.8
+const CLOUD_SEQUENCE := [CloudPose.REST, CloudPose.CROSS, CloudPose.SIDE, CloudPose.CROSS,
+	CloudPose.REST, CloudPose.CROSS, CloudPose.SIDE, CloudPose.TUCK]
+const CLOUD_PREVIEW_SEQUENCE := [CloudPose.REST, CloudPose.CROSS, CloudPose.SIDE,
+	CloudPose.CROSS, CloudPose.TUCK]
 var turns := {}
 var family := ""
 var alternate := false
@@ -87,6 +93,7 @@ var alternate_seat := false
 var reaction_time := 0.0
 var window_clock := 0.0
 var crossed := 0.0
+var cross_direction := -1.0
 var cloud_clock := 0.0
 var cloud_visit := -1
 var hug_progress := 0.0
@@ -108,7 +115,7 @@ func _select_variant(next: String, seated: bool, cloudy: bool, dt: float, enable
 	var seat := ("cloud" if cloudy else "window") if seated and enabled else ""
 	if seat != surface:
 		if seat=="cloud":
-			cloud_visit=(cloud_visit+1)%3
+			cloud_visit=(cloud_visit+1)%CLOUD_SEQUENCE.size()
 		cloud_clock=0.0
 		surface = seat
 		alternate_seat = seat != "" and _take_turn(seat)
@@ -559,25 +566,37 @@ func _morph(key: String, value: float) -> void:
 		var mesh: MeshInstance3D = binding[0]
 		mesh.set_blend_shape_value(binding[1], value * binding[2])
 
-func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false, window_swing := false, sit_style := "still", intensity := 1.0, touch := false) -> void:
+func _cross_phrase(seconds: float) -> float:
+	# Lift, hold, then trace the same path back to the neutral seat.
+	return smoothstep(5.0,6.4,seconds)*(1.0-smoothstep(10.5,12.0,seconds))
+
+func _update_seated_variants(dt: float, window_cycle: bool, cloud_cycle: bool, preview: bool) -> void:
+	window_clock=window_clock+dt if window_cycle else 0.0
+	var cross_target := _cross_phrase(fmod(window_clock,12.0))
+	var cloud_pose := CloudPose.REST
+	if cloud_cycle:
+		cloud_clock+=dt
+		var segment := int(cloud_clock/CLOUD_POSE_SECONDS)
+		cloud_pose=CLOUD_PREVIEW_SEQUENCE[segment%CLOUD_PREVIEW_SEQUENCE.size()] if preview else CLOUD_SEQUENCE[(cloud_visit+segment)%CLOUD_SEQUENCE.size()]
+	var beat := fmod(cloud_clock,CLOUD_POSE_SECONDS)
+	if cloud_pose==CloudPose.CROSS:
+		cross_target=_cross_phrase(lerpf(5.0,12.0,beat/CLOUD_POSE_SECONDS))
+	if cross_target>0.0 and crossed==0.0:
+		cross_direction=-cross_direction
+	crossed=cross_target
+	# Each cloud variation releases back to the ordinary seat before the next.
+	var phrase := smoothstep(.08,1.38,beat)*(1-smoothstep(3.08,4.58,beat))
+	var shift := 1-exp(-6.0*dt)
+	hug_progress=lerpf(hug_progress,phrase if cloud_pose==CloudPose.TUCK else 0.0,shift)
+	knee_hug=smoothstep(.04,.93,hug_progress)
+	side_sit=lerpf(side_sit,phrase if cloud_pose==CloudPose.SIDE else 0.0,shift)
+
+func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false, window_swing := false, sit_style := "still", intensity := 1.0, touch := false, preview := false) -> void:
 	_select_variant(next,seated,cloudy,dt,enabled,touch)
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
-	var window_cycle := enabled and seated and not cloudy and sit_style!="still" and window_swing
-	window_clock = window_clock+dt if window_cycle else 0.0
-	var phase_seconds := fmod(window_clock,12.0)
-	crossed = smoothstep(5.0,6.4,phase_seconds)*(1.0-smoothstep(10.5,12.0,phase_seconds))
-	var cycles := enabled and cloudy and seated and sit_style!="still"
-	if cycles:
-		cloud_clock += dt
-	var pose := (cloud_visit+int(cloud_clock/4.8))%3 if cycles else 0
-	# A complete phrase starts and ends at the ordinary seat before the next pose.
-	var beat := fmod(cloud_clock,4.8)
-	var phrase := smoothstep(.08,1.38,beat)*(1-smoothstep(3.08,4.58,beat))
-	var shift := 1-exp(-6.0*dt)
-	hug_progress=lerpf(hug_progress,phrase if pose==1 else 0.0,shift)
-	knee_hug=smoothstep(.04,.93,hug_progress)
-	side_sit=lerpf(side_sit,phrase if pose==2 else 0.0,shift)
+	var variations := enabled and seated and sit_style!="still"
+	_update_seated_variants(dt,variations and not cloudy and window_swing,variations and cloudy,preview)
 	var swing_active := enabled and seated and (window_swing or refined and cloudy) and sit_style!="still"
 	attentive=lerpf(attentive,1.0 if refined and seated and state=="attentive" else 0.0,blend)
 	sit_elapsed=sit_elapsed+dt if swing_active else 0.0
@@ -610,7 +629,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_pose("leftEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("rightEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("spine", Vector3(posture * sign + breathe, 0.02 * sin(step_phase) * gait, 0.012 * sin(now * 1.7)-hover_drift.x*.13), blend)
-	_pose("chest", Vector3(breathe+.12*knee_hug*sign, 0.04 * sin(step_phase) * gait+.16*side_sit+.13*crossed, look.x * 0.025+.06*side_sit-.07*crossed), blend)
+	_pose("chest", Vector3(breathe+.12*knee_hug*sign, 0.04 * sin(step_phase) * gait+.16*side_sit+.13*crossed*cross_direction, look.x * 0.025+.06*side_sit-.07*crossed*cross_direction), blend)
 	var arm_lift := 0.0
 	if enabled and not seated:
 		arm_lift = float({"happy": 0.18, "working": 0.32, "thinking": 0.48}.get(state, 0.0))
@@ -777,10 +796,11 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	if crossed>0:
 		# Lift before moving across the supporting thigh. Reverse the path to release.
 		var across := smoothstep(.25,1.0,crossed)
-		var upper_leg := side=="left"
+		var upper_leg := side_sign*cross_direction<0
+		var across_seat := seat_right*cross_direction
 		var lift := (.42*crossed+.21*sin(PI*crossed)) if upper_leg else -.08*crossed
-		thigh+=Vector3.UP*lift+seat_right*(.61 if upper_leg else -.09)*across
-		shin+=seat_forward*(.32 if upper_leg else -.09)*crossed+seat_right*(.18 if upper_leg else -.08)*across
+		thigh+=Vector3.UP*lift+across_seat*(.61 if upper_leg else -.09)*across
+		shin+=seat_forward*(.32 if upper_leg else -.09)*crossed+across_seat*(.18 if upper_leg else -.08)*across
 	_orient_segment(upper,lower,thigh,standing_thigh,blend)
 	_orient_segment(lower,foot,shin,standing_shin,blend)
 	var ankle := int(roles[foot])
@@ -878,7 +898,7 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					knee_grip=smoothstep(.22 if side=="left" else .32,.88 if side=="left" else .98,hug_progress)
 					gesture=gesture.lerp(wrist_target-torso,knee_grip)
 					gesture+=outward*.044*sin(PI*knee_grip)
-				if crossed>0 and side=="right":
+				if crossed>0 and side==("right" if cross_direction>0 else "left"):
 					gesture=gesture.lerp(hips-torso+outward*.265-forward*.045+Vector3.DOWN*.055,crossed)
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
