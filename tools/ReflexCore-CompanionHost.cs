@@ -16,6 +16,7 @@ namespace ReflexCore.Bridge
         private readonly ActivityHud hud;
         private readonly JavaScriptSerializer json=new JavaScriptSerializer{MaxJsonLength=16384,RecursionLimit=10};
         private Process child;
+        private WindowSurfaces surfaces;
         private DateTime settingsTime;
         private long settingsLength=-1;
         private long nextUpdate,stopDeadline;
@@ -89,6 +90,7 @@ namespace ReflexCore.Bridge
                     if(stopDeadline==0)message=child.ExitCode==0?"Stopped":"3D renderer exited. See runtime status.";
                     else message="Stopped";
                     child.Dispose();child=null;stopDeadline=0;
+                    if(surfaces!=null){surfaces.Dispose();surfaces=null;}
                     if(restart){restart=false;Start();}
                 }
                 long now=Stopwatch.GetTimestamp();
@@ -112,11 +114,9 @@ namespace ReflexCore.Bridge
                     statusSnapshot=status;
                 }
                 if(!Running)return;
-                bool geometry=physics||mode=="windows"||mode=="roam";
                 bool pause=capture||WindowSurfaces.ForegroundFullscreen(child.Id);
                 WriteText("live.json",json.Serialize(hud.CompanionSnapshot(pending,queueState,!classic,pause,
-                    geometry&&!pause?WindowSurfaces.Scan(child.Id):new int[0][],
-                    geometry&&!pause?WindowSurfaces.Foreground(child.Id):null)));
+                    new int[0][],null)));
             }
             catch(IOException){} catch(UnauthorizedAccessException){}
             catch(ArgumentException){} catch(InvalidOperationException){}
@@ -142,13 +142,18 @@ namespace ReflexCore.Bridge
                     NormalizeLegacy(classicVisibility);Start();break;
                 case "restart-3d":
                     NormalizeLegacy(classicVisibility);
-                    if(Running){restart=true;Stop();}else Start();
-                    break;
+                    Restart3D();break;
                 case "stop-3d":restart=false;Stop();break;
                 case "show-classic":hud.ShowClassicOnly();classicVisibility(true);break;
                 case "hide-classic":classicVisibility(false);break;
                 case "reset-classic-position":hud.ResetWidgetPosition();break;
             }
+        }
+
+        internal void Restart3D()
+        {
+            if(Running){restart=true;Stop();}
+            else Start();
         }
 
         private void NormalizeLegacy(Action<bool> classicVisibility)
@@ -177,6 +182,12 @@ namespace ReflexCore.Bridge
             };
             child=Process.Start(start);
             message=child==null?"Could not start Godot.":"3D renderer started.";
+            if(child!=null)
+            {
+                WriteText("surfaces.json","{\"edges\":[]}");
+                surfaces=new WindowSurfaces(child.Id,snapshot=>WriteText("surfaces.json",json.Serialize(snapshot)),
+                    ()=>physics||mode=="windows"||mode=="roam");
+            }
         }
 
         private void Stop()
@@ -198,6 +209,7 @@ namespace ReflexCore.Bridge
 
         public void Dispose()
         {
+            if(surfaces!=null){surfaces.Dispose();surfaces=null;}
             try
             {
                 if(child!=null){Stop();if(!child.WaitForExit(900))child.Kill();}
@@ -212,8 +224,8 @@ namespace ReflexCore.Bridge
     }
 
     // Same visible / non-cloaked filter as the existing Rust observer. This boundary returns
-    // only DWM geometry and does not read captions or emit window identifiers.
-    internal static class WindowSurfaces
+    // DWM geometry and transient support IDs. It does not read caption text or emit handles.
+    internal sealed class WindowSurfaces : IDisposable
     {
         [StructLayout(LayoutKind.Sequential)] private struct Rect {public int Left,Top,Right,Bottom;}
         private delegate bool Visit(IntPtr hwnd,IntPtr ignored);
@@ -240,36 +252,182 @@ namespace ReflexCore.Bridge
                 bounds.Right>=screen.Right-1 && bounds.Bottom>=screen.Bottom-1;
         }
 
-        internal static int[] Foreground(int renderer)
+        private const uint LocationChange=0x800B, Show=0x8002, Reorder=0x8004;
+        private const int ExStyle=-20, ToolWindow=0x80, AppWindow=0x40000, NoActivate=0x08000000;
+        private delegate void WinEvent(IntPtr hook,uint kind,IntPtr hwnd,int objectId,int childId,uint thread,uint time);
+        [DllImport("user32.dll")] private static extern IntPtr SetWinEventHook(uint first,uint last,IntPtr module,WinEvent callback,uint process,uint thread,uint flags);
+        [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr hook);
+        [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr hwnd);
+        [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd,int index);
+        [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd,int index,int value);
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd,IntPtr after,int x,int y,int width,int height,uint flags);
+
+        private readonly int renderer;
+        private readonly uint host;
+        private readonly Action<object> publish;
+        private readonly Func<bool> enabled;
+        private readonly Timer timer=new Timer{Interval=40};
+        private readonly WinEvent callback;
+        private readonly List<IntPtr> hooks=new List<IntPtr>();
+        private readonly Dictionary<IntPtr,int> ids=new Dictionary<IntPtr,int>();
+        private int nextId;
+        private bool dirty=true;
+        private int ticks;
+        private string lastGeometry;
+        private IntPtr styled;
+
+        internal WindowSurfaces(int renderer,Action<object> publish,Func<bool> enabled)
         {
-            var hwnd=GetForegroundWindow();
-            uint pid;
-            Rect frame;
-            if(GetWindowThreadProcessId(hwnd,out pid)==0 || pid==renderer ||
-                GetWindowTextLength(hwnd)==0 || DwmRect(hwnd,9,out frame,16)!=0)
-                return null;
-            return new[]{frame.Left,frame.Top,frame.Right-frame.Left,frame.Bottom-frame.Top};
+            this.renderer=renderer;this.publish=publish;this.enabled=enabled;
+            using(var own=Process.GetCurrentProcess())host=(uint)own.Id;
+            callback=OnEvent;
+            hooks.Add(SetWinEventHook(3,3,IntPtr.Zero,callback,0,0,2)); // foreground
+            hooks.Add(SetWinEventHook(Show,Reorder,IntPtr.Zero,callback,0,0,2));
+            hooks.Add(SetWinEventHook(LocationChange,LocationChange,IntPtr.Zero,callback,0,0,2));
+            timer.Tick+=(sender,args)=>Refresh();
+            timer.Start();
         }
 
-        internal static int[][] Scan(int renderer)
+        private void OnEvent(IntPtr hook,uint kind,IntPtr hwnd,int objectId,int childId,uint thread,uint time)
         {
-            var list=new List<int[]>(24);
-            var foreground=GetForegroundWindow();
-            uint host;
-            using(var own=Process.GetCurrentProcess())host=(uint)own.Id;
+            if(objectId!=0||childId!=0||hwnd==IntPtr.Zero)return;
+            uint pid;
+            GetWindowThreadProcessId(hwnd,out pid);
+            if(pid!=renderer)dirty=true;
+        }
+
+        private void Refresh()
+        {
+            if(!dirty && ++ticks<16)return;
+            dirty=false;ticks=0;
+            try
+            {
+                var edges=Scan(enabled());
+                var key=String.Join(";",edges.ConvertAll(edge=>String.Join(",",edge)));
+                if(key!=lastGeometry){publish(new{edges=edges});lastGeometry=key;}
+            }
+            catch(IOException){dirty=true;}
+            catch(UnauthorizedAccessException){}
+        }
+
+        [ComImport,Guid("56FDF344-FD6D-11D0-958A-006097C9A090")]
+        private class ShellTaskbar {}
+        [ComImport,Guid("56FDF342-FD6D-11D0-958A-006097C9A090"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITaskbarList
+        {
+            void HrInit();
+            void AddTab(IntPtr hwnd);
+            void DeleteTab(IntPtr hwnd);
+        }
+
+        private void StyleOverlay(IntPtr hwnd)
+        {
+            int current=GetWindowLong(hwnd,ExStyle);
+            int desired=(current|ToolWindow|NoActivate)&~AppWindow;
+            if(desired!=current)
+            {
+                SetWindowLong(hwnd,ExStyle,desired);
+                SetWindowPos(hwnd,IntPtr.Zero,0,0,0,0,0x37); // frame changed without moving or activating the overlay
+            }
+            if(styled!=hwnd||desired!=current)
+            {
+                try
+                {
+                    var shell=(ITaskbarList)new ShellTaskbar();
+                    try {shell.HrInit();shell.DeleteTab(hwnd);styled=hwnd;}
+                    finally {Marshal.ReleaseComObject(shell);}
+                }
+                catch(COMException){}
+            }
+        }
+
+        private List<int[]> Scan(bool collect)
+        {
+            var edges=new List<int[]>(48);
+            var covers=new List<System.Drawing.Rectangle>(64);
+            var present=new HashSet<IntPtr>();
+            var active=GetForegroundWindow();
+            var monitors=Screen.AllScreens;
+            int visited=0;
             EnumWindows((hwnd,ignored)=>{
                 uint pid,cloaked;Rect frame;
+                if(++visited>160)return false;
                 GetWindowThreadProcessId(hwnd,out pid);
-                if(pid==host || pid==renderer || !IsWindowVisible(hwnd) || IsIconic(hwnd) || GetWindowTextLength(hwnd)==0 ||
+                if(!IsWindowVisible(hwnd)||IsIconic(hwnd))return true;
+                if(pid==renderer)
+                {
+                    if(GetWindowTextLength(hwnd)>0 && DwmRect(hwnd,9,out frame,16)==0 && frame.Bottom-frame.Top>=250)
+                        StyleOverlay(hwnd);
+                    return true;
+                }
+                if(!collect || pid==host || (GetWindowLong(hwnd,ExStyle)&0x20)!=0 ||
                     (DwmInt(hwnd,14,out cloaked,4)==0&&cloaked!=0) ||
                     DwmRect(hwnd,9,out frame,16)!=0)return true;
-                int width=frame.Right-frame.Left,height=frame.Bottom-frame.Top;
-                if(width<180||height<100)return true;
-                var bounds=new[]{frame.Left,frame.Top,width,height};
-                if(hwnd==foreground)list.Insert(0,bounds);else list.Add(bounds);
-                return list.Count<24;
+
+                var bounds=System.Drawing.Rectangle.FromLTRB(frame.Left,frame.Top,frame.Right,frame.Bottom);
+                if(bounds.Width<1||bounds.Height<1)return true;
+                if(bounds.Width>=140 && bounds.Height>=90 && GetWindowTextLength(hwnd)>0 && !IsZoomed(hwnd))
+                {
+                    int id;
+                    if(!ids.TryGetValue(hwnd,out id)){id=++nextId;ids.Add(hwnd,id);}
+                    present.Add(hwnd);
+                    foreach(var monitor in monitors)
+                    {
+                        var area=monitor.WorkingArea;
+                        if(bounds.Top<=area.Top+12||bounds.Top>=area.Bottom-25)continue;
+                        int left=Math.Max(bounds.Left,area.Left),right=Math.Min(bounds.Right,area.Right);
+                        if(right-left<94)continue;
+                        foreach(var segment in Exposed(left,right,bounds.Top,covers))
+                        {
+                            if(edges.Count==48)break;
+                            edges.Add(new[]{segment[0],bounds.Top,segment[1]-segment[0],
+                                Math.Min(bounds.Height,area.Bottom-bounds.Top),id,bounds.Left,bounds.Top,hwnd==active?1:0});
+                        }
+                    }
+                }
+                covers.Add(bounds);
+                return true;
             },IntPtr.Zero);
-            return list.ToArray();
+            foreach(var hwnd in new List<IntPtr>(ids.Keys))
+                if(!present.Contains(hwnd))ids.Remove(hwnd);
+            return edges;
+        }
+
+        internal static List<int[]> Exposed(int left,int right,int y,List<System.Drawing.Rectangle> covers)
+        {
+            var segments=new List<int[]>{new[]{left,right}};
+            foreach(var other in covers)
+            {
+                // Keep the edge and a small title/seat clearance strip visible.
+                if(other.Top>y+10||other.Bottom<=y-65)continue;
+                for(int i=segments.Count-1;i>=0;i--)
+                {
+                    var range=segments[i];
+                    if(other.Right<=range[0]||other.Left>=range[1])continue;
+                    segments.RemoveAt(i);
+                    if(other.Left-range[0]>=94)segments.Add(new[]{range[0],other.Left});
+                    if(range[1]-other.Right>=94)segments.Add(new[]{other.Right,range[1]});
+                }
+            }
+            return segments;
+        }
+
+        internal static void SelfTest()
+        {
+            var covers=new List<System.Drawing.Rectangle>{new System.Drawing.Rectangle(320,20,200,200)};
+            var edges=Exposed(100,900,150,covers);
+            if(edges.Count!=2 || !edges.Exists(edge=>edge[0]==100&&edge[1]==320) ||
+                !edges.Exists(edge=>edge[0]==520&&edge[1]==900))
+                throw new InvalidOperationException("Companion partial occlusion failed.");
+            covers.Add(new System.Drawing.Rectangle(90,140,840,180));
+            if(Exposed(100,900,150,covers).Count!=0)
+                throw new InvalidOperationException("Companion complete occlusion failed.");
+        }
+
+        public void Dispose()
+        {
+            timer.Dispose();
+            foreach(var hook in hooks)if(hook!=IntPtr.Zero)UnhookWinEvent(hook);
         }
     }
 }

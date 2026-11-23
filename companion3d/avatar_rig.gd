@@ -21,6 +21,7 @@ var meshes: Array[MeshInstance3D] = []
 var roles: Dictionary = {}
 var expressions: Dictionary = {}
 var secondary: Array[int] = []
+var skirt_roots: Array[int] = []
 var animation_player: AnimationPlayer
 var natural: Dictionary = {}
 var rotations: Dictionary = {}
@@ -43,6 +44,10 @@ var secondary_velocity := Vector2.ZERO
 var look := Vector2.ZERO
 var face := Vector2.ZERO
 var last_expression: Dictionary = {}
+var gesture_weight := 0.0
+var gesture_state := ""
+var midnight: BoneAttachment3D
+var midnight_materials := {}
 
 func load_file(path: String) -> bool:
 	var input := FileAccess.open(path, FileAccess.READ)
@@ -229,6 +234,10 @@ func _setup_secondary(source: Dictionary, vrm0: Dictionary, extensions: Dictiona
 			var display := str(skeleton.get_bone_name(i)).to_lower()
 			if "hair" in display or "skirt" in display:
 				candidates.append(i)
+	for i in skeleton.get_bone_count():
+		var display := String(skeleton.get_bone_name(i)).to_lower()
+		if display.ends_with("0") and ("skirtfront" in display or "skirtside" in display):
+			skirt_roots.append(i)
 	for bone in candidates:
 		if secondary.size() >= 22:
 			break
@@ -341,17 +350,23 @@ func _morph(key: String, value: float) -> void:
 		var mesh: MeshInstance3D = binding[0]
 		mesh.set_blend_shape_value(binding[1], value * binding[2])
 
-func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false) -> void:
+func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="") -> void:
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
 	var moving := state in ["walk", "run"]
 	gait = lerpf(gait, 1.0 if moving and enabled else 0.0, blend)
-	stance = lerpf(stance, 1.0 if seated and enabled else 0.0, blend)
+	stance = lerpf(stance, 1.0 if seated else 0.0, blend)
 	posture = lerpf(posture, float({"thinking": 0.16, "working": 0.08, "sleepy": 0.24, "falling": -0.13,
-		"dragged": -0.22, "landing": 0.25, "recovering": 0.12, "petted": 0.08}.get(state, 0.0)) if enabled else 0.0, blend)
+		"dragged": -0.14, "thrown": -0.24, "landing": 0.28, "recovering": 0.12, "petted": 0.08,
+		"approach": 0.13, "reach": 0.16, "grip": 0.30, "pull_up": 0.38, "settle": 0.10,
+		"soft_collision": 0.18, "hard_collision": 0.39, "cloud_summon": -0.11}.get(state, 0.0)) if enabled else 0.0, blend)
 	step_phase += dt * (10.0 if state == "run" else 6.8) * gait
 	if not enabled:
 		cursor = Vector2.ZERO
+	if enabled and state=="look_around":
+		cursor=Vector2(sin(now*9)*0.77,0.32)
+	if enabled and state in ["reach","grip","pull_up","cloud_summon"]:
+		cursor=Vector2(0,0.42)
 	look = look.lerp(cursor.limit_length(1), blend)
 	var breathe := sin(now * 2.4) * 0.019 if enabled else 0.0
 	var nod := sin(now * 11) * 0.09 if enabled and state in ["happy", "petted"] else 0.0
@@ -362,21 +377,26 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_pose("spine", Vector3(posture * sign + breathe, 0.02 * sin(step_phase) * gait, 0.012 * sin(now * 1.7)), blend)
 	_pose("chest", Vector3(breathe, 0.04 * sin(step_phase) * gait, look.x * 0.025), blend)
 	var arm_lift := 0.0
-	if enabled:
-		arm_lift = float({"happy": 0.65, "dragged": 0.42, "falling": 0.51, "working": 0.32, "thinking": 0.48}.get(state, 0.0))
+	if enabled and not seated:
+		arm_lift = float({"happy": 0.65, "working": 0.32, "thinking": 0.48}.get(state, 0.0))
 	for side in ["left", "right"]:
 		var side_sign := -1.0 if side == "left" else 1.0
 		var swing := sin(step_phase) * gait * side_sign
-		var wave := sin(now*14)*0.22 if state=="happy" and side=="right" and enabled else 0.0
+		var wave := sin(now*14)*0.22 if state=="happy" and side=="right" and enabled and not seated else 0.0
 		var relax := 0.16 if state=="petted" and enabled else 0.0
 		_pose(side + "UpperArm", Vector3(swing * -0.24 - relax, 0, (arm_lift+wave) * side_sign * sign), blend)
 		_pose(side + "LowerArm", Vector3(-swing * 0.12 - 0.13 - absf(wave)*1.7, side_sign * arm_lift * 0.24, 0), blend)
-		_pose(side + "UpperLeg", Vector3((swing * 0.27 - stance * 1.40) * sign, 0, stance * side_sign * 0.05), blend)
-		_pose(side + "LowerLeg", Vector3((maxf(0, -swing) * 0.27 + stance * 0.91) * sign, 0, 0), blend)
+		_pose(side + "UpperLeg", Vector3((swing * 0.27 - stance * 1.04) * sign, 0, stance * side_sign * 0.05), blend)
+		var tuck := 0.0
+		if enabled and state in ["dragged","thrown","falling","landing","hard_collision"]:
+			tuck=clampf(0.13+motion.length()/2100,0.13,0.64)
+		_pose(side + "LowerLeg", Vector3((maxf(0, -swing) * 0.27 + stance * 1.10 + tuck) * sign, 0, 0), blend)
+		_pose(side + "Foot",Vector3((-stance*0.23-tuck*0.22)*sign,0,0),blend)
 	var hips := int(roles["hips"])
 	var hip_rest: Vector3 = starting_positions[hips]
 	hip_rest.y += (-stance * 0.12 + breathe * 0.14 - posture * 0.03) * height
 	skeleton.set_bone_pose_position(hips, skeleton.get_bone_pose_position(hips).lerp(hip_rest, blend))
+	_gesture(now,dt,enabled,seated,impact,motion)
 	var exposure := motion.limit_length(700.0) / 700.0 if hair and enabled else Vector2.ZERO
 	secondary_velocity += ((exposure - secondary_motion) * 35.0 - secondary_velocity * 10.0) * dt
 	secondary_motion = (secondary_motion + secondary_velocity * dt).limit_length(1.0)
@@ -384,14 +404,138 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var bone := secondary[i]
 		var rest: Quaternion = rotations.get(bone, Quaternion.IDENTITY)
 		var drift := 0.015 * sin(now * 4 + i * 0.7) if enabled and hair else 0.0
-		var movement := Quaternion.from_euler(Vector3((secondary_motion.y * 0.16 + drift) * sign, 0, secondary_motion.x * 0.225))
+		var bone_name := String(skeleton.get_bone_name(bone)).to_lower()
+		var cloth := 0.20 if "skirtfront" in bone_name and bone not in skirt_roots else 0.0
+		var movement := Quaternion.from_euler(Vector3((secondary_motion.y * 0.16 + drift - stance*cloth) * sign, 0, secondary_motion.x * 0.225))
 		skeleton.set_bone_pose_rotation(bone, (rest * movement).normalized())
+	for bone in skirt_roots:
+		var rest: Quaternion = rotations[bone]
+		var vector := Vector3((-stance*0.67+secondary_motion.y*0.09)*sign,0,secondary_motion.x*0.14)
+		skeleton.set_bone_pose_rotation(bone,(rest*Quaternion.from_euler(vector)).normalized())
 	var blink_phase := fmod(now + sin(now * 0.37) * 0.7, 4.9)
 	var blink := 1.0 - clampf(absf(blink_phase - 4.72) / 0.12, 0, 1)
 	if state in ["petted", "sleepy"]:
 		blink = maxf(blink, 0.9 if state == "petted" else 0.73)
-	var target_face := Vector2(0.65 if state in ["happy","petted"] else 0, 0.45 if state == "warning" else 0)
+	var target_face := Vector2(0.65 if state in ["happy","petted"] else 0, 0.45 if state in ["warning","dragged","hard_collision"] else 0)
 	face = face.lerp(target_face if enabled else Vector2.ZERO, blend)
 	_morph("blink", blink if enabled else 0)
 	_morph("happy", face.x)
 	_morph("warning", face.y)
+
+func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String, motion: Vector2) -> void:
+	var active := seated or enabled and state in ["dragged","thrown","falling","soft_collision","hard_collision",
+		"approach","reach","grip","pull_up","cloud_summon","landing","recovering"]
+	var target_weight := 0.94 if active else 0.0
+	gesture_weight=lerpf(gesture_weight,target_weight,1-exp(-9*dt))
+	if active:
+		gesture_state="seated" if seated else state
+	if gesture_weight<0.02:
+		return
+	var torso := world_bone("chest" if roles.has("chest") else "spine")
+	var hips := world_bone("hips")
+	for side in ["left","right"]:
+		if not roles.has(side+"Hand") or not roles.has(side+"LowerArm"):
+			continue
+		var shoulder := world_bone(side+"UpperArm")
+		var side_sign := signf(shoulder.x-torso.x)
+		var gesture := Vector3(side_sign*0.135,-0.10,0.15)
+		match gesture_state:
+			"seated":
+				gesture=hips-torso+Vector3(side_sign*0.117,0.081,0.16)
+				if enabled and state=="happy":
+					gesture.y+=sin(now*8)*0.024
+			"dragged","thrown","falling":
+				gesture=Vector3(side_sign*0.22-clampf(motion.x/4800,-0.13,0.13),-0.09+clampf(absf(motion.x)/2800,0,0.18),0.20)
+			"approach":
+				gesture=Vector3(side_sign*0.17,-0.25,0.11)
+			"reach","grip","pull_up":
+				var vertical := -0.04 if gesture_state=="reach" else -0.15 if gesture_state=="grip" else -0.21
+				gesture=Vector3(side_sign*0.135,vertical,0.29)
+			"cloud_summon":
+				gesture=Vector3(side_sign*(0.14+sin(now*8)*0.035),-0.07+sin(now*8)*0.065,0.27)
+			"soft_collision","hard_collision":
+				var toward := -1.0 if "left" in impact else 1.0 if "right" in impact else 0.0
+				gesture=Vector3(side_sign*0.08+toward*0.07,0.16 if "top" in impact else 0.05,0.16)
+			"landing","recovering":
+				gesture=Vector3(side_sign*0.27,-0.22,0.19)
+		_solve_arm(side,torso+gesture,Vector3(side_sign*0.65,-1.0,0.05),gesture_weight)
+
+func _solve_arm(side: String, target_world: Vector3, outward_world: Vector3, weight: float) -> void:
+	var upper := int(roles[side+"UpperArm"])
+	var lower := int(roles[side+"LowerArm"])
+	var hand := int(roles[side+"Hand"])
+	var shoulder := skeleton.get_bone_global_pose(upper).origin
+	var elbow := skeleton.get_bone_global_pose(lower).origin
+	var wrist := skeleton.get_bone_global_pose(hand).origin
+	var a := shoulder.distance_to(elbow)
+	var b := elbow.distance_to(wrist)
+	var goal := skeleton.to_local(target_world)-shoulder
+	if minf(a,b)<0.001 or goal.length_squared()<0.000001:
+		return
+	var axis := goal.normalized()
+	var reach := clampf(goal.length(),absf(a-b)+0.001,a+b-0.001)
+	var along := (a*a-b*b+reach*reach)/(2.0*reach)
+	var outward := skeleton.global_transform.basis.inverse()*outward_world
+	var pole := (outward-axis*outward.dot(axis)).normalized()
+	var next_elbow := shoulder+axis*along+pole*sqrt(maxf(0,a*a-along*along))
+	_rotate_chain(upper,elbow-shoulder,next_elbow-shoulder,weight)
+	elbow=skeleton.get_bone_global_pose(lower).origin
+	wrist=skeleton.get_bone_global_pose(hand).origin
+	_rotate_chain(lower,wrist-elbow,shoulder+axis*reach-elbow,weight)
+
+func _rotate_chain(bone: int, current: Vector3, desired: Vector3, weight: float) -> void:
+	if minf(current.length_squared(),desired.length_squared())<0.000001:
+		return
+	var parent := skeleton.get_bone_parent(bone)
+	var basis := skeleton.get_bone_global_pose(parent).basis.orthonormalized().inverse() if parent>=0 else Basis.IDENTITY
+	var rotation := skeleton.get_bone_pose_rotation(bone)
+	var change := Quaternion((basis*current).normalized(),(basis*desired).normalized())
+	skeleton.set_bone_pose_rotation(bone,rotation.slerp((change*rotation).normalized(),weight))
+
+func set_edition(enabled: bool) -> void:
+	if midnight!=null and midnight.visible==enabled:
+		return
+	if enabled and midnight==null:
+		# Derive an outfit scene from the loaded rig. Source VRM bytes stay intact.
+		midnight=BoneAttachment3D.new()
+		midnight.bone_idx=int(roles["hips"])
+		skeleton.add_child(midnight)
+		var metal := StandardMaterial3D.new()
+		metal.albedo_color=Color("#ab9cc9")
+		metal.metallic=0.54
+		metal.roughness=0.32
+		var gem := StandardMaterial3D.new()
+		gem.albedo_color=Color("#735de3")
+		gem.emission_enabled=true
+		gem.emission=Color("#502f9c")
+		gem.emission_energy_multiplier=0.28
+		var clasp := TorusMesh.new()
+		clasp.inner_radius=0.024
+		clasp.outer_radius=0.034
+		clasp.rings=14
+		clasp.ring_segments=10
+		var stone := BoxMesh.new()
+		stone.size=Vector3(0.031,0.031,0.013)
+		_mount_detail(clasp,metal,Vector3(0,0.096,0.11),Vector3(PI/2,0,0))
+		_mount_detail(stone,gem,Vector3(0,0.096,0.121),Vector3(0,0,PI/4))
+		for mesh in meshes:
+			for surface in mesh.mesh.get_surface_count():
+				var original := mesh.get_active_material(surface) as StandardMaterial3D
+				if original==null or not "cloth" in (original.resource_name+" "+mesh.mesh.surface_get_name(surface)).to_lower():
+					continue
+				var tint := original.duplicate() as StandardMaterial3D
+				tint.albedo_color *= Color(0.82,0.76,1.0)
+				midnight_materials[[mesh,surface]]=[original,tint]
+	if midnight!=null:
+		midnight.visible=enabled
+	for key in midnight_materials:
+		var mesh: MeshInstance3D=key[0]
+		mesh.set_surface_override_material(key[1],midnight_materials[key][int(enabled)])
+
+func _mount_detail(mesh: PrimitiveMesh, material: Material, at: Vector3, angle: Vector3) -> void:
+	var part := MeshInstance3D.new()
+	part.mesh=mesh
+	part.material_override=material
+	part.position=at
+	part.rotation=angle
+	midnight.add_child(part)

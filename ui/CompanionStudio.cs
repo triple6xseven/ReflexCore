@@ -99,6 +99,7 @@ public sealed partial class StudioWindow
         var groups = new Flow { MinW = 255, MaxCols = 3, Gap = 12, Anim = false, Margin = new Thickness(0, 4, 0, 0) };
         companion.Children.Add(groups);
         var appearanceGroup = Section(groups, "Appearance");
+        WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Original", "Midnight Edition" }, new object[] { "original", "midnight" });
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
         WidgetChoice(appearanceGroup, "Outfit", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
         WidgetToggle(appearanceGroup, "Animations", "animate");
@@ -111,6 +112,7 @@ public sealed partial class StudioWindow
         WidgetChoice(behavior, "Mode", "mode", new[] { "Taskbar", "Window edges", "Free roam", "Stationary", "Follow cursor" },
             new object[] { "taskbar", "windows", "roam", "stationary", "follow" });
         WidgetToggle(behavior, "Physics", "physics");
+        WidgetToggle(behavior, "Magic Platforms", "magic");
         WidgetNumber(behavior, "Gravity", "gravity", 120, 2400, "px/s²");
         WidgetNumber(behavior, "Walk speed", "walk_speed", 10, 280, "px/s");
         WidgetButtons(behavior, ("Reset 3D position", () =>
@@ -124,10 +126,12 @@ public sealed partial class StudioWindow
         WidgetToggle(desktop, "Always on top", "top");
         WidgetToggle(desktop, "Click-through", "clickthrough");
         WidgetToggle(desktop, "Start with ReflexCore", "app_start");
+        WidgetChoice(desktop, "Edge smoothing", "msaa", new[] { "Off", "2× MSAA", "4× MSAA" }, new object[] { 0, 1, 2 });
         WidgetNumber(desktop, "FPS limit", "fps", 15, 60, "FPS");
         WidgetButtons(desktop, ("Use low-power preset", () =>
         {
             ChangeWidget("fps", 24);
+            ChangeWidget("msaa", 1);
             ChangeWidget("hair", false);
             ChangeWidget("poll_ms", 900);
             LayoutWidgets();

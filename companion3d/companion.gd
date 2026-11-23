@@ -2,13 +2,14 @@ extends Node
 
 const Rig = preload("res://avatar_rig.gd")
 const DesktopMotion = preload("res://desktop_motion.gd")
+const Cloud = preload("res://magic_cloud.gd")
 const BASE_SIZE := Vector2i(344, 500)
 const STATUS_SCHEMA := "reflexcore.companion.runtime.v1"
 const DEFAULTS := {
 	"model": "", "mode": "taskbar", "x": -1, "y": -1, "zoom": 1.0, "physics": true,
 	"gravity": 900.0, "walk_speed": 58.0, "hair": true, "stockings": true,
 	"animate": true, "bubble": true, "top": true, "clickthrough": false, "fps": 30,
-	"bubble_style": "glass", "poll_ms": 400
+	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "original"
 }
 const MODE_NAMES := ["Stationary", "Taskbar Companion", "Window Companion", "Free Roam", "Follow Cursor"]
 const MODE_VALUES := ["stationary", "taskbar", "windows", "roam", "follow"]
@@ -35,11 +36,16 @@ var model_attempt_at := 0.0
 var cached_path := ""
 var cached_mtime := 0
 var cached_rig: RefCounted
-var perch_offset := 0.0
+var cloud: Node2D
+var seat_contact_y := -1
+var surface_clock := 0.0
+var last_geometry := ""
+var identities := {}
 var model_mtime := 0
 var motion := DesktopMotion.new()
 var windows: Array[Rect2i] = []
 var foreground := Rect2i()
+var focused_edges: Array[Rect2i] = []
 var status_clock := 0.0
 var poll_clock := 0.0
 var now := 0.0
@@ -56,6 +62,7 @@ var show_metrics := false
 var paused := false
 var passthrough := false
 var avatar_state := "idle"
+var last_reported_pose := ""
 var click_at := -5.0
 var pet_at := -5.0
 var pressed := false
@@ -145,6 +152,8 @@ func _build_scene() -> void:
 
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	cloud = Cloud.new()
+	layer.add_child(cloud)
 	bubble = Panel.new()
 	bubble.size = Vector2(250, 40)
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -175,6 +184,7 @@ func _build_scene() -> void:
 	menu.add_separator()
 	menu.add_check_item("Show status bubble",10)
 	menu.add_check_item("Stockings",11)
+	menu.add_check_item("Magic Platforms",12)
 	menu.add_item("Close ReflexCompanion",20)
 	menu.id_pressed.connect(_menu_action)
 
@@ -198,6 +208,8 @@ func _read_options() -> Dictionary:
 	next.gravity = clampf(float(next.gravity),120,2400)
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
 	next.fps = clampi(int(next.fps),15,60)
+	next.msaa=clampi(int(next.msaa),0,2)
+	if next.edition!="midnight":next.edition="original"
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
 	if next.model is String and (not next.model.is_absolute_path() or next.model.length()>3000):
 		next.model = ""
@@ -254,6 +266,8 @@ func _load_avatar() -> void:
 		cached_mtime=previous_mtime
 	rig=candidate
 	pivot.add_child(rig.scene)
+	projected_bones.clear()
+	rig.set_edition(options.edition=="midnight" and str(options.model).is_empty())
 	var size_factor:=1.65/float(rig.height)
 	rig.scene.scale=Vector3.ONE*size_factor
 	rig.scene.position.y=-float(rig.bottom)*size_factor
@@ -287,6 +301,8 @@ func _apply_options() -> void:
 		if not initial:
 			motion.position+=Vector2(float(old_size.x-desired.x)/2,float(old_size.y-desired.y))
 	window.always_on_top=bool(options.top)
+	window.msaa_3d=int(options.msaa) as Viewport.MSAA
+	if rig!=null:rig.set_edition(options.edition=="midnight" and str(options.model).is_empty())
 	bubble_style.bg_color=Color("#101b27e9") if options.bubble_style=="minimal" else Color("#182238ed")
 	bubble_style.set_corner_radius_all(5 if options.bubble_style=="minimal" else 13)
 	_camera_layout()
@@ -353,8 +369,7 @@ func _poll() -> void:
 			message=""
 			metrics.clear()
 			pending=0
-			windows.clear()
-			foreground=Rect2i()
+			paused=false
 		return
 	host_seen=true
 	paused=live.get("paused",false)==true and smoke_time==0.0
@@ -375,19 +390,47 @@ func _poll() -> void:
 			if metric is String:
 				metrics.append(metric.replace("\n"," ").left(110))
 	show_metrics=live.get("show_metrics",false)==true and live.get("classic_visible",false)!=true
-	var bounds: Variant = live.get("bounds",[])
-	var focused: Variant = live.get("foreground",[])
-	foreground=Rect2i(int(focused[0]),int(focused[1]),int(focused[2]),int(focused[3])) if focused is Array and focused.size()==4 else Rect2i()
+	# Older hosts publish rectangles only. Current hosts publish exposed edges separately.
+	if not FileAccess.file_exists(bridge.path_join("surfaces.json")):
+		var focused: Variant = live.get("foreground",[])
+		foreground=Rect2i(int(focused[0]),int(focused[1]),int(focused[2]),int(focused[3])) if focused is Array and focused.size()==4 else Rect2i()
+		_set_surfaces(live.get("bounds",[]))
+
+func _poll_surfaces(dt: float) -> void:
+	surface_clock+=dt
+	if surface_clock<0.038:
+		return
+	surface_clock=0.0
+	var file := FileAccess.open(bridge.path_join("surfaces.json"),FileAccess.READ)
+	if file==null or file.get_length()>16*1024:
+		return
+	var raw := file.get_as_text()
+	if raw==last_geometry:
+		return
+	var value: Variant = JSON.parse_string(raw)
+	if not value is Dictionary:
+		return
+	last_geometry=raw
+	foreground=Rect2i()
+	_set_surfaces(value.get("edges",[]))
+
+func _set_surfaces(rows: Variant) -> void:
 	windows.clear()
-	if bounds is Array:
-		for rect in bounds:
-			if not rect is Array or rect.size()!=4:
-				continue
-			var b := Rect2i(int(rect[0]),int(rect[1]),clampi(int(rect[2]),0,20000),clampi(int(rect[3]),0,20000))
-			if b.has_area():
-				windows.append(b)
-			if windows.size()>=24:
-				break
+	identities.clear()
+	focused_edges.clear()
+	if not rows is Array:
+		return
+	for row in rows.slice(0,48):
+		if not row is Array or not row.size() in [4,8]:
+			continue
+		var edge := Rect2i(int(row[0]),int(row[1]),clampi(int(row[2]),0,20000),clampi(int(row[3]),0,20000))
+		if not edge.has_area():
+			continue
+		windows.append(edge)
+		if row.size()==8:
+			identities[edge]=[int(row[4]),int(row[5]),int(row[6])]
+			if row[7]==1:
+				focused_edges.append(edge)
 
 func _normal_stage(text: String) -> String:
 	if "warn" in text or "fail" in text or "error" in text or "stop" in text:
@@ -406,6 +449,7 @@ func _process(delta: float) -> void:
 	if bridge.is_empty() or stopping:
 		return
 	now+=minf(delta,0.12)
+	_poll_surfaces(delta)
 	poll_clock-=delta
 	status_clock+=delta
 	if poll_clock<=0:
@@ -433,39 +477,49 @@ func _process(delta: float) -> void:
 		var wanted := Vector2(pointer)-contact
 		# Follow the cursor between displays while leaving all applications untouched.
 		motion.drag_to(wanted,throw_velocity,dt)
-	var physical: String = motion.update(dt,now,area,window.size,pointer,options,windows,foreground)
+	var focus := foreground
+	var focus_distance := INF
+	for edge in focused_edges:
+		var distance := absf(float(edge.get_center().x)-motion.position.x-window.size.x*0.5)
+		if distance<focus_distance:
+			focus=edge
+			focus_distance=distance
+	var physical: String = motion.update(dt,now,area,window.size,pointer,options,windows,focus,identities)
 	if had_motion and not motion.falling and not motion.held:
 		_write_position()
 	had_motion=motion.falling or motion.held
 	avatar_state=_choose_pose(physical,local)
 	if rig!=null:
 		var moving := physical in ["walk","run"]
-		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.27 if physical=="sit" else 0.0
+		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.27 if physical in ["sit","settle","cloud_sit"] else 0.0
 		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,minf(10*dt,1))
-		for role in rig.roles:
-			projected_bones[role]=camera.unproject_position(rig.world_bone(role))
-		head=projected_bones["head"]
+		pivot.rotation.z=lerpf(pivot.rotation.z,motion.angle,1-exp(-11*dt))
 		var gaze := (local-head)/145.0
 		if not _near_model(local,52):
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
 		if stage=="warning":
 			gaze.y=-0.55
-		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),physical=="sit")
-		if physical=="sit":
-			var hips := camera.unproject_position(rig.world_bone("hips")).y
-			var edge := motion.support.position.y
-			perch_offset=lerpf(perch_offset,edge-motion.position.y-hips-12*float(options.zoom),minf(12*dt,1))
-		else:
-			perch_offset=lerpf(perch_offset,0,minf(15*dt,1))
-	var actual:=Vector2i(motion.position+Vector2(0,perch_offset))
+		var seated: bool = physical in ["sit","settle","cloud_sit"] or motion.cloud_seated
+		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact)
+		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+window.size.y*DesktopMotion.SEAT_RATIO
+		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+12*float(options.zoom)
+		var seat_shift := (hip_y-(edge-motion.position.y))*camera.size/window.size.y if seated else 0.0
+		pivot.position.y=lerpf(pivot.position.y,seat_shift,1-exp(-14*dt))
+		seat_contact_y=roundi(motion.position.y+camera.unproject_position(rig.world_bone("hips")).y+12*float(options.zoom)) if seated else -1
+		for role in rig.roles:
+			projected_bones[role]=camera.unproject_position(rig.world_bone(role))
+		head=projected_bones["head"]
+	var actual:=Vector2i(motion.position)
+	cloud.show_at(Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+window.size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now)
 	if actual!=last_window_position:
 		window.position=actual
 		last_window_position=actual
 	_update_bubble()
-	_track_input(local,dt)
-	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted"] or _near_model(local,25)
+	_track_input(Vector2(pointer-window.position),dt)
+	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","cloud_summon"] or _near_model(local,25)
 	Engine.max_fps=clampi(int(options.fps),15,60) if interactive else mini(24,int(options.fps))
-	if status_clock>=1.8:
+	if status_clock>=1.8 or avatar_state!=last_reported_pose:
+		last_reported_pose=avatar_state
 		_publish()
 	if smoke_time>0 and now>=smoke_time:
 		if not smoke_path.is_empty():
@@ -476,7 +530,7 @@ func _process(delta: float) -> void:
 		_shutdown()
 
 func _choose_pose(physical: String, local: Vector2) -> String:
-	if physical in ["dragged","falling","landing","recovering","run","walk"]:
+	if physical in ["dragged","thrown","falling","landing","recovering","run","walk","soft_collision","hard_collision","approach","reach","grip","pull_up","settle","look_around","cloud_summon"]:
 		return physical
 	if now-pet_at<1.6:
 		return "petted"
@@ -513,7 +567,7 @@ func _bubble_message() -> String:
 	if rig==null:
 		return "Choose a rigged VRM or GLB in Studio."
 	if now-pet_at<1.6:
-		return "✦"
+		return "Ã¢Å“Â¦"
 	if stage=="idle" and pending==0:
 		return ""
 	if stage=="success" and pending==0 and now-stage_at>4.2:
@@ -525,7 +579,7 @@ func _bubble_message() -> String:
 		return ("%d task waiting" if pending==1 else "%d tasks waiting")%pending
 	if not message.is_empty() and stage!="idle":
 		return message
-	return {"thinking":"Thinking…","working":"Working…","observing":"Observing",
+	return {"thinking":"ThinkingÃ¢â‚¬Â¦","working":"WorkingÃ¢â‚¬Â¦","observing":"Observing",
 		"success":"Task complete","warning":"Task needs attention"}.get(stage,"")
 
 func _head_circle(local: Vector2, padding: float) -> bool:
@@ -605,6 +659,7 @@ func _input(event: InputEvent) -> void:
 			menu.set_item_checked(i,MODE_VALUES[i]==options.mode)
 		menu.set_item_checked(menu.get_item_index(10),bool(options.bubble))
 		menu.set_item_checked(menu.get_item_index(11),bool(options.stockings))
+		menu.set_item_checked(menu.get_item_index(12),bool(options.magic))
 		menu.position=Vector2i(position)
 		menu.popup()
 		return
@@ -621,15 +676,11 @@ func _input(event: InputEvent) -> void:
 		throw_velocity=Vector2.ZERO
 	elif not mouse.pressed and pressed:
 		_maybe_grab(position)
-		_release(position)
+		_release()
 
-func _release(pointer := Vector2.INF) -> void:
-	if not pointer.is_finite():
-		pointer=Vector2(DisplayServer.mouse_get_position())
+func _release() -> void:
 	pressed=false
 	if motion.held:
-		var anchor := pointer-contact
-		motion.drag_to(anchor,throw_velocity,0.024)
 		var speed:=throw_velocity
 		if speed.length()<90:
 			speed=Vector2.ZERO
@@ -642,7 +693,7 @@ var pressed_at := 0
 
 func _maybe_grab(global: Vector2) -> void:
 	if pressed and not motion.held and (global-motion.position-contact).length()>7*float(options.zoom):
-		motion.grab()
+		motion.grab(now,motion.position.y+get_window().size.y*DesktopMotion.SEAT_RATIO)
 		drag_count+=1
 
 func _menu_action(id: int) -> void:
@@ -656,6 +707,8 @@ func _menu_action(id: int) -> void:
 		values.bubble=not options.bubble
 	elif id==11:
 		values.stockings=not options.stockings
+	elif id==12:
+		values.magic=not options.magic
 	if _write_json("settings.json",values):
 		poll_clock=0.0
 
@@ -672,7 +725,9 @@ func _runtime_status() -> Dictionary:
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,
 		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs"),"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
-		"seat_contact_y":roundi(get_window().position.y+camera.unproject_position(rig.world_bone("hips")).y+12*float(options.zoom)) if rig!=null and motion.support.has_area() else -1,
+		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
+		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,
+		"msaa":get_window().msaa_3d,"edition":options.edition,
 		"interactions":interaction_count,"drags":drag_count
 	}
 

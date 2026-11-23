@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Keep the 3D companion seated as its real support window moves. Release on a fast move, window closure or occlusion and restrict climbs to exposed edges within reach.
+* Add a procedural approach-to-seat sequence, grounded magic cloud support, damped grabs, directional throws and arm IK for seated reactions.
+* Add Studio controls for Magic Platforms, Original and Midnight Edition, and edge smoothing. Add Restart 3D to the tray and hide the renderer from the Windows taskbar.
+
 * Hide the 3D companion's bubble while idle, turn the avatar in its walking direction and remove periodic random pacing. Anchor the seated pose to a reachable window edge.
 * Apply clothing changes during the current Godot session. Keep one alternate outfit in memory for switching and defer model imports while the context menu is open.
 

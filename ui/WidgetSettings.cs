@@ -17,6 +17,7 @@ static class WidgetSettings
     internal static Dictionary<string, object> Defaults() => new()
     {
         ["model"] = "", ["mode"] = "taskbar", ["x"] = -1, ["y"] = -1, ["zoom"] = 1.0,
+        ["edition"] = "original", ["magic"] = true, ["msaa"] = 2,
         ["physics"] = true, ["gravity"] = 900, ["walk_speed"] = 58, ["hair"] = true,
         ["stockings"] = true, ["animate"] = true, ["bubble"] = true, ["bubble_style"] = "glass",
         ["top"] = true, ["clickthrough"] = false, ["fps"] = 30, ["poll_ms"] = 450, ["app_start"] = false,

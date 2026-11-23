@@ -17,6 +17,7 @@ namespace ReflexCore.Bridge
         public static void SelfTest(string root)
         {
             CompanionCanvas.SelfTest();
+            WindowSurfaces.SelfTest();
             if (!File.Exists(Path.Combine(root, "Cargo.toml")))
                 throw new Exception("Cargo.toml missing");
             if (!File.Exists(Path.Combine(root, "tools", "ReflexCore-Tray.cs")))
@@ -688,7 +689,11 @@ namespace ReflexCore.Bridge
                     entries.Add("Show Classic",null,(s,e)=>{hud.ShowClassicOnly();SetHudVisible(true);});
                     entries.Add("Show ReflexCompanion 3D",null,(s,e)=>companionHost.Show3D(false,SetHudVisible));
                     entries.Add("Show Both",null,(s,e)=>companionHost.Show3D(true,SetHudVisible));
-                    if(companionHost.Running)entries.Add("Stop 3D",null,(s,e)=>companionHost.Hide3D());
+                    if(companionHost.Running)
+                    {
+                        entries.Add("Restart 3D",null,(s,e)=>companionHost.Restart3D());
+                        entries.Add("Stop 3D",null,(s,e)=>companionHost.Hide3D());
+                    }
                     var legacy=new ToolStripMenuItem("Legacy widget options");
                     hud.AddWidgetActions(legacy.DropDownItems);
                     entries.Add(legacy);
