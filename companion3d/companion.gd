@@ -1090,6 +1090,7 @@ func _input(event: InputEvent) -> void:
 	if bool(options.clickthrough):
 		return
 	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_pointer_on_character(mouse.position,_model_distance(mouse.position)) or now<can_click_until):
+		preview_until=0.0
 		if pressed:_release(false)
 		motion.interrupt(now,bool(options.physics))
 		_show_menu(mouse.position)

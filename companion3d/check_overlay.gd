@@ -102,7 +102,9 @@ func _verify() -> void:
 	right.button_index=MOUSE_BUTTON_RIGHT
 	right.position=avatar.projected_bones["chest"]
 	right.pressed=true
+	avatar.preview_until=avatar.now+5.0
 	avatar._input(right)
+	_expect(avatar.preview_until<=avatar.now,"Right click must cancel Dev preview.")
 	_expect(avatar.menu.visible,"Right click must open the overlay menu.")
 	var far_corner := Vector2.ZERO
 	avatar._track_input(far_corner,far_corner,INF)
