@@ -702,7 +702,17 @@ func _process(delta: float) -> void:
 		var rising := physical=="stand_up"
 		var seated: bool=not rising and (physical in ["sit","settle","cloud_sit"] or cloud_pose)
 		var seat_delta := float(pointer.x)-motion.position.x-body_size.x*.5
-		var yaw := (1.0 if preview else signf(motion.velocity.x))*PI*.46 if moving else clampf(motion.velocity.x/160.0,-.78,.78) if hovering else -.64 if seated or rising else 0.0
+		var turn_speed := maxf(25.0,float(options.walk_speed)*.5)
+		var gait_heading := clampf(motion.velocity.x/turn_speed,-1.0,1.0)
+		var yaw := 0.0
+		if rising:
+			yaw=pivot.rotation.y
+		elif moving:
+			yaw=(1.0 if preview else gait_heading)*PI*.46
+		elif hovering:
+			yaw=clampf(motion.velocity.x/160.0,-.78,.78)
+		elif seated:
+			yaw=-.64
 		_update_facing(dt,cloud_pose and not rising,seat_delta,yaw,physical=="cloud_sit")
 		if physical=="dragged" and bool(options.animate):
 			pivot.rotation.x=lerpf(pivot.rotation.x,clampf(motion.velocity.y/4500.0,-0.19,0.19),1-exp(-9*dt))
@@ -732,10 +742,10 @@ func _process(delta: float) -> void:
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
 		var target_offset := (hip_y-(edge-actual.y))*camera.size/window.size.y if seated else 0.0
 		var contact_y := -1.0
-		var floor_pose := not pressed and not motion.supported and physical in ["walk","run"]
+		var stand_on_floor := not preview and not pressed and not seated and not motion.supported \
+			and physical in ["idle","sleepy","walk","run","landing","recovering"]
 		var collision_floor := area.end.y-3-(body_size.y-25.0*body_size.y/500.0)
-		floor_pose=floor_pose and motion.position.y>=collision_floor-4
-		if (options.mode=="taskbar" and physical in ["idle","sleepy"] and not pressed) or floor_pose:
+		if stand_on_floor and motion.position.y>=collision_floor-4:
 			contact_y=camera.unproject_position(rig.scene.to_global(Vector3(0,rig.sole_y,0))).y
 			target_offset=(contact_y-(area.end.y-1-actual.y))*camera.size/window.size.y
 		if hovering:
@@ -778,7 +788,8 @@ func _process(delta: float) -> void:
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
 	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and (fmod(rig.cloud_clock,4.8)<1.6 or fmod(rig.cloud_clock,4.8)>3.08)
 	var changing_window_pose: bool = rig!=null and rig.crossed>0 and rig.crossed<1
-	if preview or physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose or cloud_turning:
+	var starting_walk: bool = rig!=null and physical in ["walk","run"] and rig.gait<.95
+	if preview or physical in ["cloud_fly","portal","stand_up"] or seat_transition or starting_walk or changing_cloud_pose or changing_window_pose or cloud_turning:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
 	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)

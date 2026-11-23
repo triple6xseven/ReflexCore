@@ -1,3 +1,8 @@
+## Companion pose transitions and black stockings
+
+- Add black as a separate stocking color and smooth the shift from cloud seating to standing and walking.
+- Guide both palms around the knees during the tucked cloud pose and soften the blend of wrist and elbow targets.
+
 ## Legwear, ZXC and Velvet Bloom
 
 - Choose dark, white, lilac, plum or burgundy stockings at 5, 10, 15, 20, 30 or 40 den for fitted editions or in the character editor.

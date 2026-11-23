@@ -231,7 +231,7 @@ Select **Velvet Bloom** in **Companion & Widgets > Character > Edition**. This a
 
 In Studio, open **Companion & Widgets > Editor**. Pick an outfit, hairstyle, head, and legwear. Select **Apply and show on desktop** to save the combination as **Custom character** and preview it. Switch back to a named Edition to use its original appearance.
 
-The library currently includes fitted outfits and hair from Midnight Nocturne, Lunar Temptation, Velvet Enchantress, Velvet Bloom and ZXC, plus Lumen and ZXC heads. Legwear uses the matching barefoot or stockings variant of the selected outfit. For stockings, choose 5, 10, 15, 20, 30 or 40 den and select dark, white, lilac, plum or burgundy. Density changes the visible blend of skin and fabric. Original, Midnight Edition and imported models keep their existing legwear choices. The private library keeps only referenced meshes, textures, and facial shapes needed by the widget. Godot assembles the selected parts on one shared skeleton.
+The library currently includes fitted outfits and hair from Midnight Nocturne, Lunar Temptation, Velvet Enchantress, Velvet Bloom and ZXC, plus Lumen and ZXC heads. Legwear uses the matching barefoot or stockings variant of the selected outfit. For stockings, choose 5, 10, 15, 20, 30 or 40 den and select dark, black, white, lilac, plum or burgundy. Density changes the visible blend of skin and fabric. Original, Midnight Edition and imported models keep their existing legwear choices. The private library keeps only referenced meshes, textures, and facial shapes needed by the widget. Godot assembles the selected parts on one shared skeleton.
 
 After installing or rebuilding supported assets, refresh the private library with Python 3, NumPy, and Pillow.
 

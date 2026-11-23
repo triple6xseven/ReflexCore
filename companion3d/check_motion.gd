@@ -152,8 +152,26 @@ func _initialize() -> void:
 	for frame in 21:
 		var state := leaving.update(DT,13.0+(frame+1)*DT,DESK,SIZE,near_cursor,options,edges,Rect2i(),{},frame%2==0)
 		_expect(state=="stand_up","Animated hover changed a stand-up back into a cloud sit")
-	_expect(leaving.update(DT,13.4,DESK,SIZE,near_cursor,options,edges,Rect2i(),{},true)=="falling",
+	var last_seat_y: float=leaving.position.y+SIZE.y*Motion.SEAT_RATIO
+	_expect(leaving.update(DT,13.0+Motion.STAND_SECONDS+DT,DESK,SIZE,near_cursor,options,edges,Rect2i(),{},true)=="falling",
 		"Cloud stand-up did not finish")
+	_expect(absf(leaving.cloud_edge-last_seat_y)<0.001,"Cloud jumped when the sitter let go.")
+	var following := Motion.new()
+	following.place(Vector2(-890,410))
+	var follow_options := {"mode":"follow","walk_speed":58.0,"physics":true}
+	var left_x := DESK.position.x+20
+	var right_x := DESK.end.x-20
+	following.update(DT,0.0,DESK,SIZE,Vector2i(left_x,450),follow_options,edges)
+	_expect(following.velocity.x<0 and following.velocity.x>-10.0,"First step jumped to full walking speed.")
+	for frame in 20:
+		following.update(DT,(frame+1)*DT,DESK,SIZE,Vector2i(left_x,450),follow_options,edges)
+	_expect(following.velocity.x<-40.0,"Walk ramp did not reach speed.")
+	var old_velocity := following.velocity.x
+	following.update(DT,.37,DESK,SIZE,Vector2i(right_x,450),follow_options,edges)
+	_expect(old_velocity<following.velocity.x and following.velocity.x<0.0,"Reversal skipped the deceleration phase.")
+	for frame in 35:
+		following.update(DT,.38+frame*DT,DESK,SIZE,Vector2i(right_x,450),follow_options,edges)
+	_expect(following.velocity.x>40.0,"Reversal did not finish toward the new destination.")
 	var perched := Motion.new()
 	perched.place(Vector2(-990,440))
 	options.mode="windows"

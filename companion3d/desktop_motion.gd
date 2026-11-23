@@ -3,6 +3,7 @@ extends RefCounted
 const STEP := 1.0 / 120.0
 const SEAT_RATIO := 0.61
 const CLIMB_SECONDS := 0.94
+const STAND_SECONDS := 0.42
 var position := Vector2.ZERO
 var velocity := Vector2.ZERO
 var held := false
@@ -147,14 +148,13 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		var departing_seat := seated or cloud_seated
 		if departing_seat and not held:
 			if stand_until==0.0:
-				stand_until=now+.34
+				stand_until=now+STAND_SECONDS
 			if now<stand_until:
 				return "stand_up"
 		mode=desired_mode
 		_clear_support()
 		climb_progress=0.0
-		cloud_since=-1.0
-		cloud_seated=false
+		_leave_cloud(size)
 		lock_until=0
 		roam_target=INF
 		roam_until=0.0
@@ -177,8 +177,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		_end_ferry()
 		cloud_trip=Vector2.INF
 		cloud_collision_until=0
-		cloud_since=-1
-		cloud_seated=false
+		_leave_cloud(size)
 	cloud_alpha=move_toward(cloud_alpha,1.0 if (cloud_since>=0 and now-cloud_since>0.57 or now<cloud_collision_until) else 0.0,dt*3.8)
 	if held:
 		if absf(position.x+size.x*0.5-cloud_x)>size.x*0.55:
@@ -326,21 +325,20 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		and now>=operator_until and now-cloud_since>12.0
 	if cloud_seated and (target.has_area() or roam_departure):
 		if stand_until==0.0:
-			stand_until=now+.38
+			stand_until=now+STAND_SECONDS
 		if now<stand_until:
 			return "stand_up"
 	else:
 		stand_until=0.0
 	if target.has_area():
 		if cloud_since>=0:cloud_deadline=now+1.25
-		cloud_since=-1
-		cloud_seated=false
+		_leave_cloud(size)
 		var center := position.x+size.x*0.5
 		var desired_x := clampf(center,maxf(min_x+size.x*0.5,target.position.x+40),minf(max_x+size.x*0.5,target.end.x-40))-size.x*0.5
 		if absf(desired_x-position.x)>3:
-			var old_x := position.x
-			position.x=move_toward(position.x,desired_x,float(options.get("walk_speed",58))*dt)
-			velocity=Vector2((position.x-old_x)/dt,0)
+			_walk_to(desired_x,float(options.get("walk_speed",58)),dt)
+			position.x=clampf(position.x,min_x,max_x)
+			velocity.y=0.0
 			return "run" if absf(velocity.x)>120 else "walk"
 		climb_edge=target
 		climb_id=_id(target,identities)
@@ -349,8 +347,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 
 	# Let Free Roam alternate a cloud rest with a short walk along the desk.
 	if roam_departure:
-		cloud_since=-1.0
-		cloud_seated=false
+		_leave_cloud(size)
 		cloud_was_seat=false
 		roam_until=now+6.0
 		var visitor := clampf(float(pointer.x)-size.x*0.5,min_x,max_x)
@@ -382,19 +379,39 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		velocity=Vector2.ZERO
 		return "cloud_sit"
 	if cloud_since>=0:
-		cloud_since=-1
-		cloud_seated=false
+		_leave_cloud(size)
 	var old := position
 	position.y=move_toward(position.y,bottom,150*dt)
-	position.x=clampf(position.x,min_x,max_x)
+	var walk_goal := position.x
 	if mode=="follow" and absf(pointer.x-position.x-size.x*0.5)>216:
 		var dx := pointer.x-position.x-size.x*0.5
-		var wanted := clampf(pointer.x-size.x*0.5-signf(dx)*165,min_x,max_x)
-		position.x=move_toward(position.x,wanted,float(options.get("walk_speed",58))*dt)
+		walk_goal=clampf(pointer.x-size.x*0.5-signf(dx)*165,min_x,max_x)
 	if mode=="roam" and now<roam_until and now>=operator_until and is_finite(roam_target):
-		position.x=move_toward(position.x,roam_target,float(options.get("walk_speed",58))*dt)
+		walk_goal=roam_target
+	if mode in ["follow","roam"]:
+		_walk_to(walk_goal,float(options.get("walk_speed",58)),dt)
+	position.x=clampf(position.x,min_x,max_x)
 	velocity=(position-old)/dt
 	return "walk" if absf(velocity.x)>5 else "sleepy" if now-rest_at>100 else "idle"
+
+func _leave_cloud(size: Vector2i) -> void:
+	if cloud_seated:
+		cloud_x=position.x+size.x*.5
+		cloud_edge=position.y+size.y*SEAT_RATIO
+	cloud_since=-1.0
+	cloud_seated=false
+
+func _walk_to(goal: float, speed: float, dt: float) -> void:
+	var distance := goal-position.x
+	var acceleration := maxf(160.0,speed*5.0)
+	var desired := signf(distance)*minf(speed,sqrt(2.0*acceleration*absf(distance)))
+	velocity.x=move_toward(velocity.x,desired,acceleration*dt)
+	var step := velocity.x*dt
+	if step*distance>0.0 and absf(step)>=absf(distance):
+		position.x=goal
+		velocity.x=0.0
+	else:
+		position.x+=step
 
 func _fly_to(goal: Vector2, dt: float, speed: float) -> void:
 	var offset := goal-position
@@ -476,7 +493,7 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 		impact_at=now
 		velocity=Vector2.ZERO
 		landing_at=now
-		supported=true
+		supported=landed.has_area()
 		support=landed
 		support_id=_id(landed,identities)
 		support_origin=_origin(landed,identities)

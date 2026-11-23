@@ -3,7 +3,7 @@ extends RefCounted
 const AtelierToon = preload("res://atelier_toon.gdshader")
 const ZxcLegwear = preload("res://zxc_legwear.gdshader")
 const LEGWEAR_COLORS := {
-	"dark": Color("#241b30"), "white": Color("#f0eef5"), "lilac": Color("#bc9de3"),
+	"dark": Color("#241b30"), "black": Color.BLACK, "white": Color("#f0eef5"), "lilac": Color("#bc9de3"),
 	"plum": Color("#673573"), "burgundy": Color("#642943")
 }
 const LEGWEAR_COVERAGE := {5: .24, 10: .36, 15: .48, 20: .59, 30: .76, 40: .93}
@@ -44,6 +44,8 @@ var refined := false
 var window_drape: Array = []
 var legwear_surfaces: Array = []
 var legwear_style := ""
+var grip_fingers := {}
+var curled_hands := {}
 var drape_weight := 0.0
 var zxc := false
 var nocturne := false
@@ -69,6 +71,8 @@ var face := Vector2.ZERO
 var last_expression: Dictionary = {}
 var gesture_weight := 0.0
 var gesture_state := ""
+var wrist_targets := {}
+var elbow_targets := {}
 var sit_elapsed := 0.0
 var leg_motion := 0.0
 const FAMILIES := {"petted":"pat","face_smile":"smile","happy":"happy","dragged":"drag",
@@ -220,6 +224,15 @@ func load_bytes(bytes: PackedByteArray) -> bool:
 		rotations[bone] = skeleton.get_bone_pose_rotation(bone)
 	for side in ["left","right"]:
 		_lower_arm(side)
+		var chain := []
+		for digit in ["index","middle","ring","little"]:
+			for joint in [1,2]:
+				var prefix: String = "jbip"+side.left(1)+digit
+				var bone := int(bone_name_ids.get(prefix+str(joint),-1))
+				var child := int(bone_name_ids.get(prefix+str(joint+1),-1))
+				if bone>=0 and child>=0:
+					chain.append([bone,child,skeleton.get_bone_pose_rotation(bone),.28 if joint==1 else .36])
+		grip_fingers[side]=chain
 	_find_seat_axes()
 	return true
 
@@ -411,6 +424,8 @@ func set_legwear(stocking_asset: bool, den: int, color: String) -> void:
 	var customized := stocking_asset and (den!=40 or color!="dark")
 	var fabric: Color = LEGWEAR_COLORS.get(color, LEGWEAR_COLORS.dark)
 	var coverage: float = LEGWEAR_COVERAGE.get(den, LEGWEAR_COVERAGE[40])
+	if color=="black" and den==40:
+		coverage=1.0
 	for record in legwear_surfaces:
 		var variant: ShaderMaterial = record[3]
 		if customized:
@@ -419,7 +434,7 @@ func set_legwear(stocking_asset: bool, den: int, color: String) -> void:
 				variant.set_shader_parameter("fiber_coverage", coverage)
 			else:
 				var skin := Color("#f7d8d2")
-				var shade := skin.srgb_to_linear().lerp(fabric.srgb_to_linear(), .94 if record[5] else coverage)
+				var shade := skin.srgb_to_linear().lerp(fabric.srgb_to_linear(), maxf(.94, coverage) if record[5] else coverage)
 				variant.set_shader_parameter("base_tint", shade.linear_to_srgb())
 		record[0].set_surface_override_material(record[1], variant if customized else record[2])
 
@@ -816,6 +831,10 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 	if active:
 		gesture_state="seated" if seated else state
 	if gesture_weight<0.02:
+		wrist_targets.clear()
+		elbow_targets.clear()
+		for side in ["left","right"]:
+			_curl_grip(side,Vector3.ZERO,0.0)
 		return
 	var torso := world_bone("chest" if roles.has("chest") else "spine")
 	var hips := world_bone("hips")
@@ -828,6 +847,9 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 		var outward := frame*seat_right*(-1.0 if side=="left" else 1.0)
 		var forward := frame*seat_forward
 		var gesture := Vector3(side_sign*0.135,-0.10,0.15)
+		var knee_grip := 0.0
+		var grip_direction := Vector3.ZERO
+		var grip_normal := Vector3.ZERO
 		match gesture_state:
 			"seated":
 				gesture=hips-torso+Vector3(side_sign*0.117,0.081,0.16)
@@ -844,12 +866,17 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					gesture=gesture.lerp(lap,.88)
 					if side=="right":
 						gesture=gesture.lerp(hips-torso+outward*.21-forward*.06,side_sit)
-				if hug_progress>0 and roles.has(side+"LowerLeg"):
-					var knee_target := world_bone(side+"LowerLeg")-torso+forward*.047+outward*.035
-					if roles.has(side+"Foot"):
-						knee_target+=(world_bone(side+"Foot")-world_bone(side+"LowerLeg"))*.22
-					gesture=gesture.lerp(knee_target,smoothstep(.27,.95,hug_progress))
-					gesture+=outward*.064*sin(PI*hug_progress)
+				if hug_progress>0 and roles.has(side+"LowerLeg") and roles.has(side+"Foot"):
+					var knee := world_bone(side+"LowerLeg")
+					var shin := (world_bone(side+"Foot")-knee).normalized()
+					var ahead := forward.slide(shin).normalized()
+					var pad := knee+shin*.04+ahead*.063+outward*.014
+					var wrist_target := pad+outward*.066-shin*.023
+					grip_direction=(pad-wrist_target).normalized()
+					grip_normal=(-ahead-outward*.22).normalized()
+					knee_grip=smoothstep(.22 if side=="left" else .32,.88 if side=="left" else .98,hug_progress)
+					gesture=gesture.lerp(wrist_target-torso,knee_grip)
+					gesture+=outward*.044*sin(PI*knee_grip)
 				if crossed>0 and side=="right":
 					gesture=gesture.lerp(hips-torso+outward*.265-forward*.045+Vector3.DOWN*.055,crossed)
 				if enabled and state=="happy":
@@ -906,23 +933,78 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			pole=outward*.38+Vector3.DOWN-forward*.2
 		elif atelier and (seated or gesture_state=="stand_up"):
 			pole=outward*.65+Vector3.DOWN-forward*.12
-		_solve_arm(side,torso+gesture,pole,gesture_weight)
-		if atelier and gesture_state!="":
+		if knee_grip>0.0:
+			pole=pole.lerp(outward*.95+Vector3.DOWN*.45-forward*.15,knee_grip)
+		# Keep targets in rig space, so turning the whole avatar carries both arms.
+		var wrist_goal := skeleton.to_local(torso+gesture)
+		var elbow_goal := frame.inverse()*pole
+		var follow := 1.0-exp(-lerpf(17.0,28.0,knee_grip)*dt)
+		var previous_wrist: Vector3 = wrist_targets.get(side,bone_position(side+"Hand"))
+		var elbow: Vector3 = elbow_targets.get(side,elbow_goal)
+		wrist_targets[side]=previous_wrist.lerp(wrist_goal,follow)
+		elbow_targets[side]=elbow.lerp(elbow_goal,follow)
+		_solve_arm(side,wrist_targets[side],elbow_targets[side],lerpf(gesture_weight,1.0,knee_grip))
+		if gesture_state!="":
 			var hand := int(roles[side+"Hand"])
 			var finger := int(bone_name_ids.get("jbip"+side.left(1)+"middle1",-1))
 			if finger >= 0:
 				var wrist := skeleton.get_bone_global_pose(hand).origin
 				var direction := skeleton.get_bone_global_pose(finger).origin-wrist
-				if gesture_state=="seated":
+				if gesture_state=="seated" and atelier:
 					var palm := seat_forward + Vector3.DOWN*(0.22 if nocturne else 0.38)
 					palm+=seat_right*(.36 if side=="left" else -.36)
 					_rotate_chain(hand,direction,palm,gesture_weight*0.77)
-				elif gesture_state in ["walk","run","cloud_summon","stand_up","hover"]:
+				elif atelier and gesture_state in ["walk","run","cloud_summon","stand_up","hover"]:
 					var forearm := wrist-skeleton.get_bone_global_pose(int(roles[side+"LowerArm"])).origin
 					_rotate_chain(hand,direction,forearm,gesture_weight*0.69)
 
+				if knee_grip>0.0:
+					_orient_knee_grip(side,hand,finger,frame.inverse()*grip_direction,frame.inverse()*grip_normal,knee_grip)
+		_curl_grip(side,frame.inverse()*grip_normal,knee_grip)
 
-func _solve_arm(side: String, target_world: Vector3, outward_world: Vector3, weight: float) -> void:
+
+func _curl_grip(side: String, normal: Vector3, amount: float) -> void:
+	var curling := amount>0.001
+	if not curling and not curled_hands.get(side,false):
+		return
+	curled_hands[side]=curling
+	for joint in grip_fingers[side]:
+		var bone: int = joint[0]
+		var child: int = joint[1]
+		skeleton.set_bone_pose_rotation(bone,joint[2])
+		if curling:
+			var segment := skeleton.get_bone_global_pose(child).origin-skeleton.get_bone_global_pose(bone).origin
+			var axis := segment.normalized()
+			var into_palm := normal.slide(axis).normalized()
+			var flex: float = joint[3]*amount
+			_rotate_chain(bone,axis,axis*cos(flex)+into_palm*sin(flex),1.0)
+
+
+func _orient_knee_grip(side: String, hand: int, finger: int, aim: Vector3, normal: Vector3, amount: float) -> void:
+	var thumb := int(bone_name_ids.get("jbip"+side.left(1)+"thumb1",-1))
+	if thumb<0:
+		return
+	var palm := skeleton.get_bone_global_pose(hand).origin
+	var fingers := (skeleton.get_bone_global_pose(finger).origin-palm).normalized()
+	var thumb_side := (skeleton.get_bone_global_pose(thumb).origin-palm).slide(fingers).normalized()
+	if thumb_side.length_squared()<0.5:
+		return
+	var rest := skeleton.get_bone_global_rest(hand).origin
+	var straight := skeleton.get_bone_global_rest(finger).origin-rest
+	var rest_thumb := skeleton.get_bone_global_rest(thumb).origin-rest
+	var handedness := signf(straight.cross(rest_thumb).dot(Vector3.DOWN))
+	var across := normal.cross(aim).normalized()*handedness
+	if across.length_squared()<0.5:
+		return
+	var from := Basis(fingers,thumb_side,fingers.cross(thumb_side))
+	var to := Basis(aim,across,aim.cross(across))
+	var parent := _parent_basis(hand)
+	var change := (parent.inverse()*to*from.transposed()*parent).get_rotation_quaternion()
+	var pose := skeleton.get_bone_pose_rotation(hand)
+	skeleton.set_bone_pose_rotation(hand,pose.slerp((change*pose).normalized(),amount))
+
+
+func _solve_arm(side: String, target: Vector3, outward: Vector3, weight: float) -> void:
 	var upper := int(roles[side+"UpperArm"])
 	var lower := int(roles[side+"LowerArm"])
 	var hand := int(roles[side+"Hand"])
@@ -931,14 +1013,16 @@ func _solve_arm(side: String, target_world: Vector3, outward_world: Vector3, wei
 	var wrist := skeleton.get_bone_global_pose(hand).origin
 	var a := shoulder.distance_to(elbow)
 	var b := elbow.distance_to(wrist)
-	var goal := skeleton.to_local(target_world)-shoulder
+	var goal := target-shoulder
 	if minf(a,b)<0.001 or goal.length_squared()<0.000001:
 		return
 	var axis := goal.normalized()
 	var reach := clampf(goal.length(),absf(a-b)+0.001,a+b-0.001)
 	var along := (a*a-b*b+reach*reach)/(2.0*reach)
-	var outward := skeleton.global_transform.basis.inverse()*outward_world
-	var pole := (outward-axis*outward.dot(axis)).normalized()
+	var pole := outward.slide(axis)
+	if pole.length_squared()<0.0001:
+		pole=(elbow-shoulder).slide(axis)
+	pole=pole.normalized()
 	var next_elbow := shoulder+axis*along+pole*sqrt(maxf(0,a*a-along*along))
 	_rotate_chain(upper,elbow-shoulder,next_elbow-shoulder,weight)
 	elbow=skeleton.get_bone_global_pose(lower).origin

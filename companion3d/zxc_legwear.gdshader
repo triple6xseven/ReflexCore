@@ -13,7 +13,7 @@ void fragment() {
 	float coverage = smoothstep(200.0, 203.0, atlas.y) * chart;
 	float band = (1.0 - smoothstep(204.0, 207.0, atlas.y)) * coverage;
 	float curved_shade = 0.96 + 0.04 * cos((atlas.x - 8.0) * TAU / 100.0);
-	vec3 fabric = mix(bare_skin.rgb, stocking_tint.rgb, mix(fiber_coverage, 0.95, band));
+	vec3 fabric = mix(bare_skin.rgb, stocking_tint.rgb, mix(fiber_coverage, max(fiber_coverage, 0.95), band));
 	ALBEDO = mix(painted, fabric * curved_shade, coverage);
 	ROUGHNESS = 0.9;
 }

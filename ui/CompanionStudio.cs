@@ -257,7 +257,7 @@ public sealed partial class StudioWindow
     }
 
     static readonly int[] legwearDensities = { 40, 30, 20, 15, 10, 5 };
-    static readonly string[] stockingColors = { "dark", "white", "lilac", "plum", "burgundy" };
+    static readonly string[] stockingColors = { "dark", "black", "white", "lilac", "plum", "burgundy" };
 
     Action BuildFittedLegwear(Panel parent, bool custom, out Action<bool> setStockingStyles)
     {
