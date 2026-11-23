@@ -449,7 +449,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	posture = lerpf(posture, float({"thinking": 0.16, "working": 0.08, "sleepy": 0.24, "falling": -0.13,
 		"dragged": -0.14, "thrown": -0.24, "landing": 0.28, "recovering": 0.12, "petted": 0.08,
 		"approach": 0.13, "reach": 0.16, "grip": 0.30, "pull_up": 0.38, "settle": 0.10,
-		"stand_up": 0.17, "soft_collision": 0.18, "hard_collision": 0.39, "cloud_summon": -0.11, "attentive": 0.10}.get(state, 0.0)) if enabled else 0.0, blend)
+		"hover": -0.06, "stand_up": 0.17, "soft_collision": 0.18, "hard_collision": 0.39, "cloud_summon": -0.11, "attentive": 0.10}.get(state, 0.0)) if enabled else 0.0, blend)
 	step_phase += dt * (10.0 if state == "run" else 6.8) * gait
 	if not enabled:
 		cursor = Vector2.ZERO
@@ -483,6 +483,8 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var tuck := 0.0
 		if enabled and state in ["dragged","thrown","falling","landing","hard_collision"]:
 			tuck=clampf(0.13+motion.length()/2100,0.13,0.64)
+		elif enabled and state=="hover":
+			tuck=.18+side_sign*.09+sin(now*3.0+side_sign)*.04
 		_seat_leg(side,side_sign,swing,tuck,sign,blend,cloudy,sit_style)
 	var hips := int(roles["hips"])
 	var hip_rest: Vector3 = starting_positions[hips]
@@ -645,7 +647,7 @@ func _blend_joint(bone: int, idle: Vector3, target: Quaternion, blend: float) ->
 
 func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String, motion: Vector2) -> void:
 	var active := seated or enabled and state in ["walk","run","dragged","thrown","falling","soft_collision","hard_collision",
-		"approach","reach","grip","pull_up","stand_up","cloud_summon","landing","recovering"]
+		"approach","reach","grip","pull_up","stand_up","cloud_summon","hover","landing","recovering"]
 	var target_weight := 0.94 if active else 0.0
 	gesture_weight=lerpf(gesture_weight,target_weight,1-exp(-9*dt))
 	if active:
@@ -692,6 +694,9 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				gesture+=Vector3.DOWN*(arm_length*(.96-.04*maxf(0,stride)))
 			"cloud_summon":
 				gesture=outward*.16+forward*.18+Vector3.DOWN*(.16+.027*sin(now*6))
+			"hover":
+				var sway := sin(now*2.4+side_sign*.65)*.035
+				gesture=outward*(.23+sway)+forward*.06+Vector3.DOWN*(.23-sway)
 			"stand_up":
 				gesture=hips-torso+outward*.20+forward*.075+Vector3.UP*.06
 			"soft_collision","hard_collision":
@@ -716,7 +721,7 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				if gesture_state=="seated":
 					var palm := seat_forward + Vector3.DOWN*(0.22 if nocturne else 0.38)
 					_rotate_chain(hand,direction,palm,gesture_weight*0.77)
-				elif gesture_state in ["walk","run","cloud_summon","stand_up"]:
+				elif gesture_state in ["walk","run","cloud_summon","stand_up","hover"]:
 					var forearm := wrist-skeleton.get_bone_global_pose(int(roles[side+"LowerArm"])).origin
 					_rotate_chain(hand,direction,forearm,gesture_weight*0.69)
 

@@ -135,7 +135,12 @@ func _initialize() -> void:
 	body.interrupt(clock, true)
 	_step(1.0)
 	_expect(body.cloud_seated,"A tap must preserve the current safe perch.")
-	_step(15.0)
+	var departure: Vector2 = body.position
+	_step(10.0)
+	_expect(poses.has("cloud_fly") and body.cloud_seated and body.position.x>departure.x+65,
+		"Free Roam must travel toward the distant cursor while staying seated.")
+	_expect(absf(body.cloud_x-body.position.x-SIZE.x*.5)<1,"Cloud lost its rider during flight.")
+	_step(13.0)
 	_expect(poses.has("stand_up"),"Free Roam skipped getting up from the cloud.")
 	_expect(poses.has("walk") and not body.cloud_seated,"Free Roam must leave the cloud for a short walk.")
 	var perched := Motion.new()
@@ -151,6 +156,15 @@ func _initialize() -> void:
 	_expect(perched.seated and not perched.falling,"Seat detached before getting up.")
 	perched.grab(2.1)
 	_expect(perched.update(DT,2.1,DESK,SIZE,Vector2i.ZERO,options,edges)=="dragged","Drag could not interrupt getting up.")
+	var hover := Motion.new()
+	options.mode="hover"
+	hover.place(Vector2(-980,420))
+	for frame in 130:
+		var state := hover.update(DT,float(frame)*DT,DESK,SIZE,Vector2i(-280,300),options,edges)
+		_expect(state=="hover","Hover mode exited without input.")
+	_expect(hover.position.x>-880 and hover.position.y<400 and not hover.falling,"Hover did not glide within the work area.")
+	hover.grab(clock)
+	_expect(hover.update(DT,clock,DESK,SIZE,Vector2i.ZERO,options,edges)=="dragged","Hover must yield to drag.")
 	var pending=Motion.new()
 	pending.climb_progress=0.7
 	pending.interrupt(clock,true)

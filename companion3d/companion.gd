@@ -13,8 +13,8 @@ const DEFAULTS := {
 	"animate": true, "bubble": true, "top": true, "fullscreen_overlay": false, "clickthrough": false, "fps": 30,
 	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "nocturne"
 }
-const MODE_NAMES := ["Stationary", "Taskbar Companion", "Window Companion", "Free Roam", "Follow Cursor"]
-const MODE_VALUES := ["stationary", "taskbar", "windows", "roam", "follow"]
+const MODE_NAMES := ["Stationary", "Taskbar Companion", "Window Companion", "Free Roam", "Follow Cursor", "Hover"]
+const MODE_VALUES := ["stationary", "taskbar", "windows", "roam", "follow", "hover"]
 const HIT_SEGMENTS := [
 	["head","chest",24.0],["chest","hips",32.0],["hips","leftUpperLeg",24.0],["hips","rightUpperLeg",24.0],
 	["leftUpperArm","leftLowerArm",12.0],["rightUpperArm","rightLowerArm",12.0],
@@ -582,10 +582,11 @@ func _process(delta: float) -> void:
 	var actual:=Vector2i(motion.position)-view_margin
 	if rig!=null:
 		var moving := physical in ["walk","run"]
+		var hovering := physical=="hover"
 		var cloud_pose: bool=motion.cloud_seated
 		var rising := physical=="stand_up"
 		var seated: bool=not rising and (physical in ["sit","settle","cloud_sit"] or cloud_pose)
-		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.77 if cloud_pose else -0.64 if seated or rising else 0.0
+		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else clampf(motion.velocity.x/160.0,-.78,.78) if hovering else -0.77 if cloud_pose else -0.64 if seated or rising else 0.0
 		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,minf(10*dt,1))
 		if physical=="dragged" and bool(options.animate):
 			pivot.rotation.x=lerpf(pivot.rotation.x,clampf(motion.velocity.y/4500.0,-0.19,0.19),1-exp(-9*dt))
@@ -606,9 +607,14 @@ func _process(delta: float) -> void:
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
 		var target_offset := (hip_y-(edge-actual.y))*camera.size/window.size.y if seated else 0.0
 		var contact_y := -1.0
-		if options.mode=="taskbar" and physical in ["idle","sleepy"] and not pressed:
+		var floor_pose := not pressed and not motion.supported and physical in ["walk","run"]
+		var collision_floor := area.end.y-3-(body_size.y-25.0*body_size.y/500.0)
+		floor_pose=floor_pose and motion.position.y>=collision_floor-4
+		if (options.mode=="taskbar" and physical in ["idle","sleepy"] and not pressed) or floor_pose:
 			contact_y=camera.unproject_position(rig.scene.to_global(Vector3(0,rig.sole_y,0))).y
 			target_offset=(contact_y-(area.end.y-1-actual.y))*camera.size/window.size.y
+		if hovering:
+			target_offset=.035*sin(now*3.0)
 		seat_offset=lerpf(seat_offset,target_offset,1-exp(-14*dt))
 		sole_contact_y=roundi(actual.y+contact_y-seat_offset*window.size.y/camera.size) if contact_y>=0.0 else -1
 		pivot.position.y+=seat_offset
@@ -627,7 +633,7 @@ func _process(delta: float) -> void:
 	shown=true
 	_update_window_region()
 	_track_input(Vector2(pointer-window.position),dt)
-	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","cloud_summon"] or _near_model(local,25)
+	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_fly","cloud_summon"] or _near_model(local,25)
 	Engine.max_fps=clampi(int(options.fps),15,60) if interactive else mini(24,int(options.fps))
 	if status_clock>=1.8 or avatar_state!=last_reported_pose:
 		last_reported_pose=avatar_state
@@ -666,7 +672,7 @@ func _update_contact_effect() -> void:
 func _choose_pose(physical: String, local: Vector2) -> String:
 	if physical in ["dragged","thrown","falling","hard_collision"]:
 		return physical
-	if physical in ["run","walk","approach","reach","grip","pull_up","settle","stand_up","look_around","cloud_summon","landing","recovering","soft_collision"]:
+	if physical in ["run","walk","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_fly","look_around","cloud_summon","landing","recovering","soft_collision"]:
 		return physical
 	if now-pet_at<1.6:
 		return "petted"

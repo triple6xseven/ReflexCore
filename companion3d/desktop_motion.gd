@@ -37,6 +37,8 @@ var cloud_x := 0.0
 var cloud_collision_until := 0.0
 var cloud_was_seat := false
 var stand_until := 0.0
+var cloud_trip := Vector2.INF
+var next_cloud_trip := 0.0
 var physics_time := 0.0
 var operator_until := 0.0
 var roam_until := 0.0
@@ -51,6 +53,8 @@ func place(p: Vector2) -> void:
 	cloud_seated=false
 	cloud_was_seat=false
 	stand_until=0.0
+	cloud_trip=Vector2.INF
+	next_cloud_trip=0.0
 	lock_until=0
 	cloud_deadline=0
 	velocity = Vector2.ZERO
@@ -71,6 +75,7 @@ func _clear_support() -> void:
 
 func interrupt(now: float, physics: bool) -> void:
 	stand_until=0.0
+	cloud_trip=Vector2.INF
 	operator_until=now+3.8
 	roam_until=0.0
 	roam_target=INF
@@ -84,6 +89,7 @@ func interrupt(now: float, physics: bool) -> void:
 func grab(now := 0.0, seat_y := 0.0) -> void:
 	held = true
 	stand_until=0.0
+	cloud_trip=Vector2.INF
 	falling = false
 	_clear_support()
 	climb_progress = 0.0
@@ -137,6 +143,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		roam_target=INF
 		roam_until=0.0
 		stand_until=0.0
+		cloud_trip=Vector2.INF
 		if departing_seat and not held:
 			release(Vector2.ZERO,bool(options.get("physics",true)),now,.65)
 	if seated:
@@ -151,6 +158,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 	var walk_windows := mode in ["windows","roam"]
 	var real_physics: bool = options.get("physics",true)
 	if not walk_windows or not options.get("magic",true):
+		cloud_trip=Vector2.INF
 		cloud_collision_until=0
 		cloud_since=-1
 		cloud_seated=false
@@ -207,6 +215,18 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		velocity=Vector2.ZERO
 		return "idle"
 
+	if mode=="hover":
+		var cursor_gap := Vector2(pointer)-position-Vector2(size)*Vector2(.5,.45)
+		var goal := position
+		if not occupied and now>=operator_until and cursor_gap.length()>145:
+			var advance := cursor_gap.limit_length(maxf(0,cursor_gap.length()-105))
+			goal=position+advance
+		var highest := maxf(top,bottom-size.y*.44)
+		var lowest := maxf(highest,bottom-36)
+		goal=goal.clamp(Vector2(min_x,highest),Vector2(max_x,lowest))
+		_fly_to(goal,dt,160)
+		return "hover"
+
 	var target := Rect2i()
 	if walk_windows and now>=maxf(lock_until,operator_until) and now>=roam_until:
 		target=_reachable(windows,foreground if mode=="windows" else Rect2i(),desk,size,foot,seat)
@@ -220,6 +240,25 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			release(Vector2.ZERO,real_physics,now)
 			return "falling" if falling else "recovering"
 		return _climb(dt,now,tracked,identities,seat,size)
+	if mode=="roam" and cloud_seated:
+		var roam_center := position.x+size.x*.5
+		var pointer_distance := pointer.x-roam_center
+		if not cloud_trip.is_finite() and not occupied and not target.has_area() and now>=maxf(operator_until,next_cloud_trip) \
+			and now-cloud_since>6.5 and absf(pointer_distance)>size.x*.66:
+			var travel := signf(pointer_distance)*minf(size.x*.83,absf(pointer_distance)-size.x*.38)
+			var end_x := clampf(position.x+travel,min_x,max_x)
+			if absf(end_x-position.x)>45:
+				cloud_trip=Vector2(end_x,clampf(position.y-size.y*.11,top,bottom))
+				next_cloud_trip=now+24.0
+		if cloud_trip.is_finite():
+			_fly_to(cloud_trip,dt,132)
+			cloud_x=position.x+size.x*.5
+			cloud_edge=position.y+seat
+			if position.distance_to(cloud_trip)<1.0:
+				cloud_trip=Vector2.INF
+				cloud_since=now-.93
+			return "cloud_fly"
+
 	var roam_departure := mode=="roam" and cloud_seated and not occupied and now>=operator_until and now-cloud_since>12.0
 	if cloud_seated and (target.has_area() or roam_departure):
 		if stand_until==0.0:
@@ -292,6 +331,16 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		position.x=move_toward(position.x,roam_target,float(options.get("walk_speed",58))*dt)
 	velocity=(position-old)/dt
 	return "walk" if absf(velocity.x)>5 else "sleepy" if now-rest_at>100 else "idle"
+
+func _fly_to(goal: Vector2, dt: float, speed: float) -> void:
+	var offset := goal-position
+	var desired := (offset*3.5).limit_length(speed)
+	velocity=velocity.lerp(desired,1.0-exp(-6.0*dt))
+	if offset.length()<1.0 and velocity.length()<5.0:
+		velocity=Vector2.ZERO
+		return
+	position+=velocity*dt
+	angle=lerpf(angle,clampf(velocity.x/1050.0,-.14,.14),1.0-exp(-7.0*dt))
 
 func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Array[Rect2i],
 		identities: Dictionary, foot: float, min_x: float, max_x: float, top: float, floor: float, gravity: float) -> void:

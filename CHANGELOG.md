@@ -1,7 +1,7 @@
 ## Lunar wardrobe and desktop motion update
 
 - Tailor the Lunar neckline, sleeves and side panels, add an opaque lavender liner and sculpt barefoot toes. The dark stocking variant has a higher scalloped hem.
-- Rework walking and cloud-summon arm movement. Blend out of window and cloud seats before leaving, with drag taking priority.
+- Align desktop walking with the work-area floor. Add cursor-aware Hover and short Free Roam cloud flights. Rework walking and cloud-summon arm movement. Blend out of window and cloud seats before leaving, with drag taking priority.
 - Add Show over fullscreen apps in Studio. Preserve capture suspension and cap MSAA on enlarged overlays to limit rendering cost.
 
 ## Lunar Temptation

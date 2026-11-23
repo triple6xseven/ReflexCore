@@ -207,3 +207,6 @@ In Studio, **Companion & Widgets > Advanced > Show over fullscreen apps** keeps 
 above borderless fullscreen apps. ReflexCore capture still pauses the overlay.
 **Maximum edge smoothing** sets the MSAA ceiling. The renderer limits MSAA to 2x at
 140% scale and disables it at 180% and above.
+
+**Hover** glides toward a distant cursor and holds position during interaction.
+Free Roam can make short cloud trips when the cursor is well clear and no reachable window is available.

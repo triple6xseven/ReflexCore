@@ -148,8 +148,8 @@ public sealed partial class StudioWindow
         WidgetNumber(desktop, "Status refresh", "poll_ms", 200, 2500, "ms");
 
         var behavior = movement;
-        WidgetChoice(behavior, "Mode", "mode", new[] { "Taskbar", "Window edges", "Free roam", "Stationary", "Follow cursor" },
-            new object[] { "taskbar", "windows", "roam", "stationary", "follow" });
+        WidgetChoice(behavior, "Mode", "mode", new[] { "Taskbar", "Window edges", "Free roam", "Stationary", "Follow cursor", "Hover" },
+            new object[] { "taskbar", "windows", "roam", "stationary", "follow", "hover" });
         WidgetToggle(behavior, "Physics", "physics");
         WidgetToggle(behavior, "Magic Platforms", "magic");
         WidgetNumber(behavior, "Gravity", "gravity", 120, 2400, "px/s²");
