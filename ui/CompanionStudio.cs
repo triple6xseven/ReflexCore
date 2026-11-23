@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Microsoft.Win32;
 
 namespace ReflexCore.Studio;
@@ -17,10 +18,13 @@ public sealed partial class StudioWindow
     Dictionary<string, object> widgetDraft;
     readonly HashSet<string> changedWidgetKeys = new(StringComparer.Ordinal);
     TextBlock classicStatus, companionStatus, widgetFeedback;
+    readonly DispatcherTimer widgetSave = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    int widgetSection;
 
     void BuildWidgets()
     {
         widgetDraft = WidgetSettings.Load();
+        widgetSave.Tick += (_, _) => ApplyWidgetChanges();
         new SmoothWheel(widgets, () => smooth, () => 210);
         LayoutWidgets();
     }
@@ -29,13 +33,35 @@ public sealed partial class StudioWindow
     {
         var page = new StackPanel { Margin = new Thickness(22, 18, 22, 26) };
         widgets.Content = page;
-        var introduction = WidgetHint("Show either widget or run them together.");
-        page.Children.Add(introduction);
-        WidgetButtons(page, ("Apply settings", () => ApplyWidgetChanges()));
-        widgetFeedback = WidgetHint("");
+        widgetFeedback = WidgetHint("Settings save automatically.");
         page.Children.Add(widgetFeedback);
+        var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        page.Children.Add(toolbar);
+        var panels = new[] { new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel() };
+        var names = new[] { "Character", "Movement", "Classic", "Advanced" };
+        var tabs = new List<Button>();
+        void Select(int index)
+        {
+            widgetSection=index;
+            for(int i=0;i<panels.Length;i++)
+            {
+                panels[i].Visibility=i==index ? Visibility.Visible : Visibility.Collapsed;
+                tabs[i].SetResourceReference(Control.BorderBrushProperty,i==index ? "Accent" : "PanelOutline");
+            }
+            widgets.ScrollToTop();
+        }
+        for(int i=0;i<names.Length;i++)
+        {
+            int index=i;
+            var tab=Command(names[i],()=>Select(index));
+            tab.Margin=new Thickness(0,0,8,5);
+            tabs.Add(tab);
+            toolbar.Children.Add(tab);
+            page.Children.Add(panels[i]);
+        }
+        Select(widgetSection);
 
-        var classic = Section(page, "Classic Live Status");
+        var classic = Section(panels[2], "Classic Live Status");
         classicStatus = WidgetHint("Waiting for tray status.");
         classic.Children.Add(classicStatus);
         WidgetButtons(classic,
@@ -46,15 +72,14 @@ public sealed partial class StudioWindow
         WidgetToggle(classic, "CPU & system memory", "classic_host");
         WidgetToggle(classic, "GPU & video memory", "classic_gpu");
         WidgetToggle(classic, "Ollama throughput", "classic_ollama");
-        classic.Children.Add(WidgetHint("Drag the visible Classic widget to move it. Show Classic previews the current settings."));
 
         var companionHost = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
-        page.Children.Add(companionHost);
+        panels[0].Children.Add(companionHost);
         var companion = Section(companionHost, "ReflexCompanion 3D");
         companionStatus = WidgetHint("Waiting for tray status.");
         companion.Children.Add(companionStatus);
         WidgetButtons(companion,
-            ("Preview 3D", () => SendWidgetCommand("start-3d")),
+            ("Show 3D", () => SendWidgetCommand("start-3d")),
             ("Stop", () => SendWidgetCommand("stop-3d", false)),
             ("Restart", () => SendWidgetCommand("restart-3d")));
 
@@ -94,24 +119,35 @@ public sealed partial class StudioWindow
         }
         modelRow.Children.Add(modelLabel);
         DescribeModel();
-        companion.Children.Add(modelRow);
-
-        var groups = new Flow { MinW = 255, MaxCols = 3, Gap = 12, Anim = false, Margin = new Thickness(0, 4, 0, 0) };
-        companion.Children.Add(groups);
-        var appearanceGroup = Section(groups, "Appearance");
-        WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Original", "Midnight Edition", "Midnight Atelier", "Midnight Atelier Refined" }, new object[] { "original", "midnight", "atelier", "atelier_refined" });
+        var appearanceGroup = Section(panels[0], "Model and outfit");
+        var movement = Section(panels[1], "Behavior and animation");
+        var desktop = Section(panels[3], "Window and performance");
+        desktop.Children.Add(modelRow);
+        var edition = WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Midnight Nocturne", "Midnight Atelier Refined", "Midnight Atelier", "Midnight Edition", "Original" }, new object[] { "nocturne", "atelier_refined", "atelier", "midnight", "original" });
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
-        WidgetChoice(appearanceGroup, "Original legs", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
-        WidgetChoice(appearanceGroup, "Midnight legs", "midnight_stockings", new[] { "Barefoot", "Dark stockings" }, new object[] { false, true });
-        WidgetChoice(appearanceGroup, "Midnight sitting", "sit_style", new[] { "Still", "Leg swing", "Relaxed stretch" }, new object[] { "still", "swing", "relaxed" });
-        WidgetNumber(appearanceGroup, "Sitting motion intensity", "intensity", 0, 100, "%", 100);
-        WidgetToggle(appearanceGroup, "Animations", "animate");
-        WidgetToggle(appearanceGroup, "Hair motion", "hair");
+        var originalLegs = new StackPanel();
+        var midnightLegs = new StackPanel();
+        appearanceGroup.Children.Add(originalLegs);
+        appearanceGroup.Children.Add(midnightLegs);
+        WidgetChoice(originalLegs, "Legwear", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
+        WidgetChoice(midnightLegs, "Legwear", "midnight_stockings", new[] { "Barefoot", "Dark stockings" }, new object[] { false, true });
+        void DisplayLegwear()
+        {
+            bool original = WidgetSettings.String(widgetDraft, "edition") == "original";
+            originalLegs.Visibility = original ? Visibility.Visible : Visibility.Collapsed;
+            midnightLegs.Visibility = original ? Visibility.Collapsed : Visibility.Visible;
+        }
+        edition.SelectionChanged += (_, _) => DisplayLegwear();
+        DisplayLegwear();
+        WidgetChoice(movement, "Sitting style", "sit_style", new[] { "Still", "Leg swing", "Relaxed stretch" }, new object[] { "still", "swing", "relaxed" });
+        WidgetNumber(movement, "Sitting motion intensity", "intensity", 0, 100, "%", 100);
+        WidgetToggle(movement, "Animations", "animate");
+        WidgetToggle(movement, "Hair motion", "hair");
         WidgetToggle(appearanceGroup, "Thought bubble", "bubble");
         WidgetChoice(appearanceGroup, "Bubble style", "bubble_style", new[] { "Glass", "Minimal" }, new object[] { "glass", "minimal" });
-        WidgetNumber(appearanceGroup, "Status refresh", "poll_ms", 200, 2500, "ms");
+        WidgetNumber(desktop, "Status refresh", "poll_ms", 200, 2500, "ms");
 
-        var behavior = Section(groups, "Behavior");
+        var behavior = movement;
         WidgetChoice(behavior, "Mode", "mode", new[] { "Taskbar", "Window edges", "Free roam", "Stationary", "Follow cursor" },
             new object[] { "taskbar", "windows", "roam", "stationary", "follow" });
         WidgetToggle(behavior, "Physics", "physics");
@@ -122,10 +158,9 @@ public sealed partial class StudioWindow
         {
             ChangeWidget("x", -1);
             ChangeWidget("y", -1);
-            ApplyWidgetChanges();
+            SendWidgetCommand("reset-3d-position");
         }));
 
-        var desktop = Section(groups, "Window & performance");
         WidgetToggle(desktop, "Always on top", "top");
         WidgetToggle(desktop, "Click-through", "clickthrough");
         WidgetToggle(desktop, "Start with ReflexCore", "app_start");
@@ -138,17 +173,17 @@ public sealed partial class StudioWindow
             ChangeWidget("hair", false);
             ChangeWidget("poll_ms", 900);
             LayoutWidgets();
-            widgetFeedback.Text = "Low-power preset selected. Apply settings to save it.";
+            ApplyWidgetChanges();
         }));
-        companion.Children.Add(WidgetHint("Midnight and Atelier share the legs and sitting settings. Use the default model to select an edition."));
+
 
         var footer = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
-        page.Children.Add(footer);
+        panels[3].Children.Add(footer);
         WidgetButtons(footer, ("Restore defaults", () =>
             {
                 foreach (var pair in widgetDefaults) ChangeWidget(pair.Key, pair.Value);
                 LayoutWidgets();
-                widgetFeedback.Text = "Defaults selected. Apply settings to save them.";
+                ApplyWidgetChanges();
             }));
         RefreshWidgetStatus();
     }
@@ -179,7 +214,7 @@ public sealed partial class StudioWindow
         AddSwitch(parent, label, new Sw(WidgetSettings.Bool(widgetDraft, key, defaultValue)), value => ChangeWidget(key, value));
     }
 
-    void WidgetChoice(Panel parent, string label, string key, string[] captions, object[] values)
+    ComboBox WidgetChoice(Panel parent, string label, string key, string[] captions, object[] values)
     {
         var choice = Choice(parent, label, captions);
         int index = Array.IndexOf(values, widgetDraft[key]);
@@ -188,6 +223,7 @@ public sealed partial class StudioWindow
         {
             if (choice.SelectedIndex >= 0) ChangeWidget(key, values[choice.SelectedIndex]);
         };
+        return choice;
     }
 
     void WidgetNumber(Panel parent, string label, string key, double min, double max, string unit, double factor = 1)
@@ -213,13 +249,17 @@ public sealed partial class StudioWindow
 
     void ChangeWidget(string key, object value)
     {
+        if (Equals(widgetDraft[key],value)) return;
         widgetDraft[key] = value;
         changedWidgetKeys.Add(key);
-        if (widgetFeedback != null) widgetFeedback.Text = "Unsaved widget settings.";
+        if (widgetFeedback != null) widgetFeedback.Text = "Saving settings…";
+        widgetSave.Stop();
+        widgetSave.Start();
     }
 
     bool ApplyWidgetChanges()
     {
+        widgetSave.Stop();
         try
         {
             if (changedWidgetKeys.Count > 0) WidgetSettings.Save(widgetDraft, changedWidgetKeys);

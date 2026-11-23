@@ -44,7 +44,7 @@ The renderer follows the actual support window while seated. A fast move, closed
 
 Enable **Magic Platforms** in Studio or the character menu. Window edges and Free roam look for a reachable edge before summoning a platform. The cloud supports the seated pose, bobs slightly and can catch a nearby drop during a short grace period after a grab. A reachable exposed edge lets the character leave the cloud. Disabling magic returns the character to the taskbar when no ledge is available.
 
-Under **Companion & Widgets**, select **Edition** and apply. **Edge smoothing** offers Off, 2× and 4× MSAA. Low-power mode selects 2×. The companion has a Windows taskbar entry with the ReflexCore R icon. Start, stop and restart are available in Studio and the ReflexCore tray.
+Under **Companion & Widgets**, select **Edition** and apply. **Edge smoothing** offers Off, 2× and 4× MSAA. Low-power mode selects 2×. The companion uses a Windows tool window. The ReflexCore launcher owns the Studio taskbar entry. Start, stop and restart are available in Studio and the ReflexCore tray.
 
 Windows validation used a temporary native text-editor fixture and the real Godot renderer. A 27 px horizontal and 13 px vertical window move preserved the seated pose. The settled seat contact was 766 px on a 768 px edge. A larger move released the avatar into a throw reaction. An overlapping editor window hid the original edge, causing cloud summoning. Removing the cover let the avatar leave the cloud and perch again. A clothing and edition change kept the same renderer PID, and the renderer exited cleanly on its stop flag. The tray geometry check covers full and partial occlusion. The deterministic motion test covers the climb phases, unreachable edges, moving and removed supports, cloud landing, drag smoothing and five screen boundary impulses.
 
@@ -144,8 +144,7 @@ and drag renders.
 Studio defaults to **Midnight Atelier Refined** and **Barefoot**. When the
 local Refined files are unavailable, the renderer tries the corresponding
 Atelier asset and then Original. The user can select an older edition at
-any time. On Windows the 3D companion exposes a taskbar entry with the
-bundled ReflexCore icon. The overlay remains click-through away from the
+any time. On Windows Studio uses the ReflexCore launcher icon. The renderer is a tool window. The overlay remains click-through away from the
 avatar, and the tray can restore interaction if the user enables full
 click-through.
 
@@ -171,3 +170,29 @@ asset. Refined adds separate window, cloud and cursor-attentive posing.
 The fabric remains the fitted geometry inherited from Atelier. Loose
 garment panels, detailed toe topology and a hand-keyed VRoid animation
 set remain art tasks.
+
+## Midnight Nocturne
+
+Choose **Character → Edition → Midnight Nocturne**. Settings save and
+apply to an open overlay with a short debounce. Use **Show 3D** when
+opening an overlay that is stopped. Movement, Classic and Advanced
+settings have their own sections.
+
+Build the optional private files from the verified Atelier Refined VRMs.
+
+```powershell
+$models = Join-Path $env:LOCALAPPDATA 'ReflexCore/companion3d'
+py -3 examples/build_companion_nocturne.py "$models/avatar-atelier-refined.vrm" "$models/avatar-nocturne.vrm"
+py -3 examples/build_companion_nocturne.py "$models/avatar-atelier-refined-stockings.vrm" "$models/avatar-nocturne-stockings.vrm"
+```
+
+Nocturne reuses the humanoid rig and expressions. It has skinned ear
+shells, a longer hair silhouette, shortened shorts with new hem and
+strap surfaces, belt details and a satin panel. Window seating places
+an arm beside each hip and extends one shin farther. Cloud sitting
+uses smaller independent swings. Staying near the character triggers
+a more attentive seat and reduces leg motion. Free Roam stays on a
+cloud during active work or visible cursor attention. The taskbar
+pose aligns to the lowest referenced mesh vertex once the feet settle.
+The Godot process starts offscreen and the overlay is excluded from
+the taskbar. Pin the ReflexCore application shortcut for Studio.

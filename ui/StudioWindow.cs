@@ -46,6 +46,7 @@ public sealed partial class StudioWindow : Window
     readonly WrapPanel gallery = new();
     readonly ComboBox category = new();
     readonly Sw motionSwitch = new(false);
+    readonly Sw captionSwitch = new(false);
     readonly Sw wallpaperSwitch = new(true);
 
     public StudioWindow(Forms.TabControl pages, string initialTheme, Action<string> save, Action stop, Func<string> readStage)
@@ -61,6 +62,10 @@ public sealed partial class StudioWindow : Window
         Width=1180; Height=790; MinWidth=820; MinHeight=590;
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         current=Theme.All.FirstOrDefault(t=>t.Name==initialTheme) ?? Theme.All[0];
+        var appearanceSettings = WidgetSettings.Read(Path.Combine(WidgetSettings.Folder, "studio-appearance.json"));
+        animate = Fx.Fun = WidgetSettings.Bool(appearanceSettings, "theme_animations");
+        motionSwitch.Put(animate);
+        captionSwitch.Put(WidgetSettings.Bool(appearanceSettings, "themed_title_bar"));
         InitStudioButtons(); InitSurfaceStyles();
         BuildShell(); ApplyTheme(current,false);
         native.Child=pages;
@@ -76,7 +81,7 @@ public sealed partial class StudioWindow : Window
             }
         };
         Closing+=(_,e)=>{if(changedWidgetKeys.Count>0 && !ApplyWidgetChanges())e.Cancel=true;};
-        Closed+=(_,_)=>{hostedWheel.Dispose();pulse.Stop();rain.SetRunning(false);native.Child=null;native.Dispose();};
+        Closed+=(_,_)=>{hostedWheel.Dispose();widgetSave.Stop();pulse.Stop();rain.SetRunning(false);native.Child=null;native.Dispose();};
     }
     static Color Col(string hex)=>(Color)ColorConverter.ConvertFromString(hex);
     static SolidColorBrush Brush(string hex) { var b=new SolidColorBrush(Col(hex));b.Freeze();return b; }
@@ -175,7 +180,7 @@ public sealed partial class StudioWindow : Window
         Resources["MaterialButtonTemplate"]=Resources[k==3?"AlienButtonTemplate":k==4?"FantasyButtonTemplate":k==5?"ZxcButtonTemplate":k==6?"OverdriveButtonTemplate":"ModernButtonTemplate"];
         FontFamily=new FontFamily(typeface??theme.Font);Background=background.Background=Brush(theme.Bg);
         sidebar.Background=Brush(theme.Card);pageHead.Background=Brush(theme.Card);
-        motionSwitch.RefreshSkin();wallpaperSwitch.RefreshSkin();
+        motionSwitch.RefreshSkin();captionSwitch.RefreshSkin();wallpaperSwitch.RefreshSkin();
         PaintPages(pages,theme);PaintTiles();RefreshBackground();
         if(persist)save(theme.Name);
     }

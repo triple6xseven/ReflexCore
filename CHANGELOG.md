@@ -1,3 +1,9 @@
+## Studio widget controls and Midnight Nocturne
+
+- Persist the themed title bar and theme animations. Organize widget settings into four sections and save edits automatically for the live renderer.
+- Keep Godot outside the taskbar. Start its transparent surface offscreen, retain the ReflexCore launcher as the visible app, and align standing feet with the taskbar.
+- Add Midnight Nocturne with new ear and outfit geometry, longer hair and three refinements to the seated motion. Free Roam waits for attention before leaving a cloud.
+
 ## ReflexCompanion seated motion and interaction
 
 - Install Midnight Atelier Refined as the default barefoot edition when its local assets are present.

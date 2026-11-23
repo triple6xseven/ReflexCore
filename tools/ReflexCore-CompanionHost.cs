@@ -194,6 +194,10 @@ namespace ReflexCore.Bridge
                 case "show-classic":classicVisibility(true);break;
                 case "hide-classic":classicVisibility(false);break;
                 case "reset-classic-position":hud.ResetWidgetPosition();break;
+                case "reset-3d-position":
+                    if(Running)WriteText("reset-position.flag","1");
+                    else if(File.Exists(InBridge("position.json")))File.Delete(InBridge("position.json"));
+                    break;
             }
         }
 
@@ -246,7 +250,7 @@ namespace ReflexCore.Bridge
                 !File.Exists(executable)){message="Godot executable is unavailable.";return;}
             foreach(string name in new[]{"stop.flag","status.json"})if(File.Exists(InBridge(name)))File.Delete(InBridge(name));
             var start=new ProcessStartInfo {
-                FileName=executable,Arguments="--path \""+project+"\" -- \""+DirectoryPath+"\"",
+                FileName=executable,Arguments="--position -32000,-32000 --path \""+project+"\" -- \""+DirectoryPath+"\"",
                 WorkingDirectory=project,UseShellExecute=false,CreateNoWindow=true
             };
             child=Process.Start(start);
@@ -414,7 +418,7 @@ namespace ReflexCore.Bridge
         private void StyleOverlay(IntPtr hwnd)
         {
             int current=GetWindowLong(hwnd,ExStyle);
-            int desired=(current|AppWindow|NoActivate)&~ToolWindow;
+            int desired=(current|ToolWindow|NoActivate)&~AppWindow;
             if(desired!=current)
             {
                 SetWindowLong(hwnd,ExStyle,desired);
@@ -425,7 +429,7 @@ namespace ReflexCore.Bridge
                 try
                 {
                     var shell=(ITaskbarList)new ShellTaskbar();
-                    try {shell.HrInit();shell.AddTab(hwnd);styled=hwnd;}
+                    try {shell.HrInit();shell.DeleteTab(hwnd);styled=hwnd;}
                     finally {Marshal.ReleaseComObject(shell);}
                 }
                 catch(COMException){}

@@ -34,6 +34,8 @@ var bottom := 0.0
 var legacy := false
 var atelier := false
 var refined := false
+var nocturne := false
+var sole_y := 0.0
 var attentive := 0.0
 var surprise := 0.0
 var error := ""
@@ -129,7 +131,9 @@ func load_file(path: String) -> bool:
 			return false
 	license_data = vrm0.get("meta", {}) if legacy else vrm1.get("meta", {})
 	var title := str(license_data.get("title",""))
-	refined=legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
+	nocturne=legacy and title=="Lumen - ReflexCompanion Midnight Nocturne"
+	refined=nocturne or legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
+	sole_y=_measure_sole()
 	atelier=refined or legacy and title=="Lumen - ReflexCompanion Midnight Atelier"
 	if atelier:
 		_apply_atelier_materials()
@@ -259,6 +263,23 @@ func _setup_secondary(source: Dictionary, vrm0: Dictionary, extensions: Dictiona
 		if bone >= 0 and not roles.values().has(bone) and bone not in secondary:
 			secondary.append(bone)
 
+func _measure_sole() -> float:
+	var low := INF
+	for mesh in meshes:
+		if not (String(mesh.name)+" "+mesh.mesh.resource_name).to_lower().contains("body"):
+			continue
+		for surface in mesh.mesh.get_surface_count():
+			var arrays := mesh.mesh.surface_get_arrays(surface)
+			var points: PackedVector3Array=arrays[Mesh.ARRAY_VERTEX]
+			var indices: Variant=arrays[Mesh.ARRAY_INDEX]
+			if indices is PackedInt32Array and not indices.is_empty():
+				for index in indices:
+					low=minf(low,points[index].y)
+			else:
+				for point in points:
+					low=minf(low,point.y)
+	return low if is_finite(low) else bottom
+
 func _apply_atelier_materials() -> void:
 	var converted := {}
 	for mesh in meshes:
@@ -270,7 +291,7 @@ func _apply_atelier_materials() -> void:
 			var profile := -1.0
 			if "hairback" in name:
 				continue
-			elif "_hair_" in name:
+			elif "_hair_" in name or "nocturne ear" in name:
 				profile = 1.0
 			elif "_skin" in name or "midnight barefoot" in name:
 				profile = 0.0
@@ -278,7 +299,7 @@ func _apply_atelier_materials() -> void:
 				profile = 3.0
 			elif name in ["fitted top","tailored shorts","violet piping","graphite belt","corset panel",
 					"woven harness","harness piping","high collar","shorts side panel","stocking cuff",
-					"stocking knit","midnight stocking feet"]:
+					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap"]:
 				profile = 2.0
 			if profile < 0.0:
 				continue
@@ -396,6 +417,16 @@ func bone_position(role: String, fallback := Vector3.ZERO) -> Vector3:
 
 func world_bone(role: String) -> Vector3:
 	return skeleton.to_global(bone_position(role))
+
+func ear_anchors() -> PackedVector3Array:
+	if not nocturne:
+		return PackedVector3Array()
+	var bone := int(roles["head"])
+	var transform := skeleton.get_bone_global_pose(bone)*skeleton.get_bone_global_rest(bone).affine_inverse()
+	return PackedVector3Array([
+		skeleton.to_global(transform*Vector3(-.145,1.885,.006)),
+		skeleton.to_global(transform*Vector3(.145,1.885,.006))
+	])
 
 func _morph(key: String, value: float) -> void:
 	if absf(float(last_expression.get(key, -1)) - value) < 0.02:
@@ -556,6 +587,10 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	if refined:
 		spread=lerpf(0.085 if cloudy else 0.142,0.19,attentive)
 		knee_drop+=0.045*attentive
+	if nocturne:
+		var relaxed_asymmetry := (0.048 if side_sign>0 else -0.02)*(1.0-attentive)
+		knee_drop += relaxed_asymmetry if not cloudy else relaxed_asymmetry*0.38
+		spread=lerpf(spread,0.106,0.3)
 	var thigh := seat_forward-seat_right*side_sign*spread-Vector3.UP*knee_drop
 	var phase := sit_elapsed*1.9 + side_sign*0.95
 	var stretch := pow(maxf(0.0,sin(sit_elapsed*0.58+side_sign*1.57)),12)*0.32 if sit_style=="relaxed" else 0.0
@@ -563,7 +598,11 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	if refined:
 		rhythm=sin(phase)*(.095 if cloudy else .14)+sin(phase*.43+side_sign*1.5)*.045+stretch
 		rhythm*=lerpf(1.0,0.4,attentive)
-	var shin := Vector3.DOWN+seat_forward*(0.09+side_sign*0.02+leg_motion*rhythm)
+	var reach := 0.09+side_sign*0.02
+	if nocturne:
+		reach += (0.15 if side_sign>0 else 0.04)*leg_motion*(1.0-attentive) if not cloudy else -0.055
+		rhythm += sin(phase*.28+side_sign)*0.036
+	var shin := Vector3.DOWN+seat_forward*(reach+leg_motion*rhythm)
 	_orient_segment(upper,lower,thigh,standing_thigh,blend)
 	_orient_segment(lower,foot,shin,standing_shin,blend)
 	var ankle := int(roles[foot])
@@ -625,7 +664,7 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					var local_side := signf((shoulder-torso).dot(frame*seat_right))
 					gesture=hips-torso+frame*seat_right*local_side*0.18 + Vector3.UP*0.012
 					if refined:
-						var palm_side := .195 if state!="cloud_sit" else .143
+						var palm_side := .215 if nocturne and state!="cloud_sit" else .195 if state!="cloud_sit" else .143
 						gesture=hips-torso+frame*(seat_right*local_side*lerpf(palm_side,.11,attentive) 							+seat_forward*lerpf(-.025,.15,attentive))+Vector3.UP*lerpf(.012,.068,attentive)
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
@@ -650,7 +689,7 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			if finger >= 0:
 				var wrist := skeleton.get_bone_global_pose(hand).origin
 				var direction := skeleton.get_bone_global_pose(finger).origin-wrist
-				var palm := seat_forward + Vector3.DOWN*0.38
+				var palm := seat_forward + Vector3.DOWN*(0.22 if nocturne else 0.38)
 				_rotate_chain(hand,direction,palm,gesture_weight*0.77)
 
 

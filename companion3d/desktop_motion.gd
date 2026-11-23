@@ -113,7 +113,7 @@ func release(push: Vector2, physics: bool, now: float, recovery_delay := 1.4) ->
 	rest_at = now
 
 func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector2i,
-		options: Dictionary, windows: Array[Rect2i], foreground := Rect2i(), identities := {}) -> String:
+		options: Dictionary, windows: Array[Rect2i], foreground := Rect2i(), identities := {}, occupied := false) -> String:
 	var desired_mode: String = options.get("mode","taskbar")
 	if mode!=desired_mode:
 		mode=desired_mode
@@ -220,7 +220,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		return _climb(dt,now,target,identities,seat,size)
 
 	# Let Free Roam alternate a cloud rest with a short walk along the desk.
-	if mode=="roam" and cloud_seated and now>=operator_until and now-cloud_since>12.0:
+	if mode=="roam" and cloud_seated and not occupied and now>=operator_until and now-cloud_since>12.0:
 		cloud_since=-1.0
 		cloud_seated=false
 		cloud_was_seat=false

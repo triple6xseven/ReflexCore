@@ -23,7 +23,7 @@ public sealed partial class StudioWindow
             DockPanel.SetDock(button,Dock.Right);caption.Children.Add(button);
         }
         var name=Label("ReflexCore Studio",13);name.Margin=new Thickness(12,0,0,0);caption.Children.Add(name);
-        ApplyCaption(false);
+        ApplyCaption(captionSwitch.On);
     }
     void ApplyCaption(bool custom)
     {

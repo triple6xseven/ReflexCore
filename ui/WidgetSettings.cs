@@ -17,7 +17,7 @@ static class WidgetSettings
     internal static Dictionary<string, object> Defaults() => new()
     {
         ["model"] = "", ["mode"] = "taskbar", ["x"] = -1, ["y"] = -1, ["zoom"] = 1.0,
-        ["edition"] = "atelier_refined", ["midnight_stockings"] = false, ["sit_style"] = "swing", ["intensity"] = 1.0, ["magic"] = true, ["msaa"] = 2,
+        ["edition"] = "nocturne", ["midnight_stockings"] = false, ["sit_style"] = "swing", ["intensity"] = 1.0, ["magic"] = true, ["msaa"] = 2,
         ["physics"] = true, ["gravity"] = 900, ["walk_speed"] = 58, ["hair"] = true,
         ["stockings"] = true, ["animate"] = true, ["bubble"] = true, ["bubble_style"] = "glass",
         ["top"] = true, ["clickthrough"] = false, ["fps"] = 30, ["poll_ms"] = 450, ["app_start"] = false,
@@ -76,9 +76,9 @@ static class WidgetSettings
         return Double.IsNaN(result) || Double.IsInfinity(result) ? fallback : result;
     }
 
-    internal static void Save(IDictionary<string, object> values, IEnumerable<string> changed)
+    internal static void Save(IDictionary<string, object> values, IEnumerable<string> changed, string filename = "settings.json")
     {
-        string path = Path.Combine(Folder, "settings.json");
+        string path = Path.Combine(Folder, filename);
         var merged = Read(path);
         foreach (string key in changed) merged[key] = values[key];
         Write(path, new JavaScriptSerializer { MaxJsonLength = MaxBytes, RecursionLimit = 12 }.Serialize(merged));

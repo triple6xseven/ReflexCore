@@ -11,7 +11,7 @@ const DEFAULTS := {
 	"gravity": 900.0, "walk_speed": 58.0, "hair": true, "stockings": true,
 	"midnight_stockings": false, "sit_style": "swing", "intensity": 1.0,
 	"animate": true, "bubble": true, "top": true, "clickthrough": false, "fps": 30,
-	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "atelier_refined"
+	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "nocturne"
 }
 const MODE_NAMES := ["Stationary", "Taskbar Companion", "Window Companion", "Free Roam", "Follow Cursor"]
 const MODE_VALUES := ["stationary", "taskbar", "windows", "roam", "follow"]
@@ -44,6 +44,8 @@ var cached_mtime := 0
 var cached_rig: RefCounted
 var cloud: Node3D
 var seat_contact_y := -1
+var sole_contact_y := -1
+var projected_ears := PackedVector2Array()
 var seat_offset := 0.0
 var body_size := BASE_SIZE
 var view_margin := VIEW_MARGIN
@@ -277,7 +279,7 @@ func _read_options() -> Dictionary:
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
 	next.fps = clampi(int(next.fps),15,60)
 	next.msaa=clampi(int(next.msaa),0,2)
-	if next.edition not in ["original","midnight","atelier","atelier_refined"]:next.edition="atelier_refined"
+	if next.edition not in ["original","midnight","atelier","atelier_refined","nocturne"]:next.edition="nocturne"
 	if next.sit_style not in ["still","swing","relaxed"]:next.sit_style="swing"
 	next.intensity=clampf(float(next.intensity),0.0,1.0)
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
@@ -286,16 +288,18 @@ func _read_options() -> Dictionary:
 	return next
 
 func _stocking_key() -> String:
-	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined"] and str(options.model).is_empty() else "stockings"
+	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined","nocturne"] and str(options.model).is_empty() else "stockings"
 
 func _pick_model() -> String:
 	var desired: String = options.model
 	dress_model=false
 	if desired.is_empty():
-		if options.edition in ["midnight","atelier","atelier_refined"]:
+		if options.edition in ["midnight","atelier","atelier_refined","nocturne"]:
 			var suffix := "-stockings.vrm" if options.midnight_stockings else ".vrm"
 			var prefixes := [str(options.edition).replace("_","-")]
-			if options.edition=="atelier_refined":
+			if options.edition=="nocturne":
+				prefixes.append("atelier-refined")
+			if options.edition in ["nocturne","atelier_refined"]:
 				prefixes.append("atelier")
 			for edition in prefixes:
 				var prefix := "avatar-"+String(edition)
@@ -389,11 +393,11 @@ func _screen_rect() -> Rect2i:
 	var rect := DisplayServer.screen_get_usable_rect(screen)
 	return rect if rect.has_area() else Rect2i(Vector2i.ZERO,Vector2i(1920,1080))
 
-func _restore_position() -> void:
+func _restore_position(reset := false) -> void:
 	var area := _screen_rect()
 	var size := body_size
 	var fallback := Vector2i(area.end.x-size.x-18, area.end.y-size.y+20)
-	var saved := _read_json(bridge.path_join("position.json"),1024)
+	var saved := {} if reset else _read_json(bridge.path_join("position.json"),1024)
 	var x := int(options.x)
 	var y := int(options.y)
 	if x==-1 and y==-1:
@@ -424,6 +428,11 @@ func _poll() -> void:
 		_apply_options()
 		if pos_changed:
 			_restore_position()
+	var reset := bridge.path_join("reset-position.flag")
+	if FileAccess.file_exists(reset):
+		DirAccess.remove_absolute(reset)
+		_restore_position(true)
+		_write_position()
 	_load_avatar()
 	var live := _read_json(bridge.path_join("live.json"),32*1024)
 	var timestamp := float(live.get("at_unix_ms",0))
@@ -527,15 +536,14 @@ func _process(delta: float) -> void:
 	if paused:
 		if menu.visible:_hide_menu()
 		if pressed:_release(false)
-		window.visible=false
+		if shown:
+			window.position=Vector2i(-32000,-32000)
+			last_window_position=window.position
 		shown=false
 		Engine.max_fps=10
 		if status_clock>=1.8:
 			_publish()
 		return
-	if not shown:
-		window.visible=true
-		shown=true
 	var dt := clampf(delta,0.001,0.05)
 	sample_ms=lerpf(sample_ms,1000.0*delta,0.09)
 	var pointer := DisplayServer.mouse_get_position()
@@ -554,7 +562,7 @@ func _process(delta: float) -> void:
 		if distance<focus_distance:
 			focus=edge
 			focus_distance=distance
-	var physical: String = motion.update(dt,now,area,body_size,pointer,options,windows,focus,identities)
+	var physical: String = motion.update(dt,now,area,body_size,pointer,options,windows,focus,identities,stage in ["working","thinking","observing"] or _near_model(local,42))
 	if had_motion and not motion.falling and not motion.held:
 		_write_position()
 	had_motion=motion.falling or motion.held
@@ -580,17 +588,26 @@ func _process(delta: float) -> void:
 		var hip_pad := 11*float(options.zoom)
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
 		var target_offset := (hip_y-(edge-actual.y))*camera.size/window.size.y if seated else 0.0
+		var contact_y := -1.0
+		if options.mode=="taskbar" and physical in ["idle","sleepy"] and not pressed:
+			contact_y=camera.unproject_position(rig.scene.to_global(Vector3(0,rig.sole_y,0))).y
+			target_offset=(contact_y-(area.end.y-1-actual.y))*camera.size/window.size.y
 		seat_offset=lerpf(seat_offset,target_offset,1-exp(-14*dt))
+		sole_contact_y=roundi(actual.y+contact_y-seat_offset*window.size.y/camera.size) if contact_y>=0.0 else -1
 		pivot.position.y+=seat_offset
 		seat_contact_y=roundi(actual.y+camera.unproject_position(rig.world_bone("hips")).y+hip_pad) if seated else -1
 		for role in rig.roles:
 			projected_bones[role]=camera.unproject_position(rig.world_bone(role))
 		head=projected_bones["head"]
+		projected_ears.clear()
+		for ear in rig.ear_anchors():
+			projected_ears.append(camera.unproject_position(ear))
 	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now,window.size.y)
 	if actual!=last_window_position:
 		window.position=actual
 		last_window_position=actual
 	_update_bubble()
+	shown=true
 	_update_window_region()
 	_track_input(Vector2(pointer-window.position),dt)
 	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","cloud_summon"] or _near_model(local,25)
@@ -686,6 +703,9 @@ func _near_model(local: Vector2,padding: float) -> bool:
 	return false
 
 func _pointer_on_character(local: Vector2) -> bool:
+	for ear in projected_ears:
+		if local.distance_to(ear)<24*float(options.zoom):
+			return true
 	if _near_model(local,12):
 		return true
 	var zoom := float(options.zoom)
@@ -762,6 +782,9 @@ func _update_window_region() -> void:
 		for i in 8:
 			var radial := Vector2.from_angle(i*TAU/8.0)*radius*zoom
 			points.append((center+radial).snapped(Vector2(3,3)))
+	for ear in projected_ears:
+		for i in 8:
+			points.append((ear+Vector2.from_angle(i*TAU/8.0)*31*zoom).snapped(Vector2(3,3)))
 	var outline := Geometry2D.convex_hull(points)
 	if bubble.visible:
 		outline=_add_region_rect(outline,bubble.get_rect().grow(2))
@@ -897,6 +920,8 @@ func _loaded_edition() -> String:
 	if not str(options.model).is_empty():
 		return "original"
 	match model_file.get_file():
+		"avatar-nocturne.vrm","avatar-nocturne-stockings.vrm":
+			return "nocturne"
 		"avatar-atelier-refined.vrm","avatar-atelier-refined-stockings.vrm":
 			return "atelier_refined"
 		"avatar-atelier.vrm","avatar-atelier-stockings.vrm":
@@ -917,9 +942,9 @@ func _runtime_status() -> Dictionary:
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"mouse_interaction":not bool(options.clickthrough),
-		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm"],"bubble_visible":bubble.visible,
+		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm","avatar-nocturne.vrm"],"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
-		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
+		"seat_contact_y":seat_contact_y,"sole_contact_y":sole_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,
 		"msaa":get_window().msaa_3d,"edition":_loaded_edition(),
 		"interactions":interaction_count,"drags":drag_count,"held":motion.held,"releases":release_count,"body_size":[body_size.x,body_size.y]
