@@ -1,3 +1,7 @@
+## Companion seat visibility and reactions
+
+- Keep seated click and hover gestures in the avatar frame, separate the knees, and recover the intended overlay position after Windows moves it. Exclude the desktop shell and maximized captioned windows from fullscreen suspension.
+
 ## Studio widget controls and Midnight Nocturne
 
 - Persist the themed title bar and theme animations. Organize widget settings into four sections and save edits automatically for the live renderer.

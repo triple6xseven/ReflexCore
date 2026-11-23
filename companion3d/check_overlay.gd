@@ -20,6 +20,10 @@ func _verify() -> void:
 	avatar.click_at=-5.0
 	avatar.options.mode="stationary"
 	avatar._process(1.0/60)
+	var expected_position := root.position
+	root.position+=Vector2i(36,0)
+	avatar._process(1.0/60)
+	_expect(root.position==expected_position,"A stationary overlay did not recover its desktop position.")
 	for tilt in [-0.74,0.74]:
 		for frame in 24:
 			avatar.motion.angle=tilt

@@ -470,11 +470,11 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_pose("chest", Vector3(breathe, 0.04 * sin(step_phase) * gait, look.x * 0.025), blend)
 	var arm_lift := 0.0
 	if enabled and not seated:
-		arm_lift = float({"happy": 0.65, "working": 0.32, "thinking": 0.48}.get(state, 0.0))
+		arm_lift = float({"happy": 0.18, "working": 0.32, "thinking": 0.48}.get(state, 0.0))
 	for side in ["left", "right"]:
 		var side_sign := -1.0 if side == "left" else 1.0
 		var swing := sin(step_phase) * gait * side_sign
-		var wave := sin(now*14)*0.22 if state=="happy" and side=="right" and enabled and not seated else 0.0
+		var wave := sin(now*8)*0.075 if state=="happy" and side=="right" and enabled and not seated else 0.0
 		var relax := 0.16 if state=="petted" and enabled else 0.0
 		_pose(side + "UpperArm", Vector3(swing * -0.24 - relax, 0, (arm_lift+wave) * side_sign * sign), blend)
 		_pose(side + "LowerArm", Vector3(-swing * 0.12 - 0.13 - absf(wave)*1.7, side_sign * arm_lift * 0.24, 0), blend)
@@ -591,7 +591,7 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 		var relaxed_asymmetry := (0.048 if side_sign>0 else -0.02)*(1.0-attentive)
 		knee_drop += relaxed_asymmetry if not cloudy else relaxed_asymmetry*0.38
 		spread=lerpf(spread,0.106,0.3)
-	var thigh := seat_forward-seat_right*side_sign*spread-Vector3.UP*knee_drop
+	var thigh := seat_forward+seat_right*side_sign*spread-Vector3.UP*knee_drop
 	var phase := sit_elapsed*1.9 + side_sign*0.95
 	var stretch := pow(maxf(0.0,sin(sit_elapsed*0.58+side_sign*1.57)),12)*0.32 if sit_style=="relaxed" else 0.0
 	var rhythm := sin(phase)*0.13+stretch
@@ -658,14 +658,14 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 		match gesture_state:
 			"seated":
 				gesture=hips-torso+Vector3(side_sign*0.117,0.081,0.16)
-				if atelier and state!="happy" and state!="petted":
+				if atelier:
 					# Aim the wrist beside the hip in the actual rig frame as the avatar turns.
 					var frame := skeleton.global_basis.orthonormalized()
 					var local_side := signf((shoulder-torso).dot(frame*seat_right))
 					gesture=hips-torso+frame*seat_right*local_side*0.18 + Vector3.UP*0.012
 					if refined:
 						var palm_side := .215 if nocturne and state!="cloud_sit" else .195 if state!="cloud_sit" else .143
-						gesture=hips-torso+frame*(seat_right*local_side*lerpf(palm_side,.11,attentive) 							+seat_forward*lerpf(-.025,.15,attentive))+Vector3.UP*lerpf(.012,.068,attentive)
+						gesture=hips-torso+frame*(seat_right*local_side*lerpf(palm_side,.17,attentive) 							+seat_forward*lerpf(.035,.095,attentive))+Vector3.UP*lerpf(.012,.068,attentive)
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
 			"dragged","thrown","falling":
@@ -682,8 +682,13 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				gesture=Vector3(side_sign*0.08+toward*0.07,0.16 if "top" in impact else 0.05,0.16)
 			"landing","recovering":
 				gesture=Vector3(side_sign*0.27,-0.22,0.19)
-		_solve_arm(side,torso+gesture,Vector3(side_sign*0.65,-1.0,0.05),gesture_weight)
-		if atelier and gesture_state=="seated" and state!="happy" and state!="petted":
+		var pole := Vector3(side_sign*0.65,-1.0,0.05)
+		if atelier and seated:
+			var frame := skeleton.global_basis.orthonormalized()
+			var lateral := frame*seat_right*(-1.0 if side=="left" else 1.0)
+			pole=lateral*0.65+Vector3.DOWN-frame*seat_forward*0.12
+		_solve_arm(side,torso+gesture,pole,gesture_weight)
+		if atelier and gesture_state=="seated":
 			var hand := int(roles[side+"Hand"])
 			var finger := int(bone_name_ids.get("jbip"+side.left(1)+"middle1",-1))
 			if finger >= 0:

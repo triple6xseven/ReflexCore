@@ -102,7 +102,6 @@ var host_seen := false
 var had_motion := false
 var projected_bones := {}
 var last_bubble_scale := 0.0
-var last_window_position := Vector2i.ZERO
 var interaction_count := 0
 var drag_count := 0
 
@@ -415,7 +414,6 @@ func _restore_position(reset := false) -> void:
 		y=fallback.y
 	motion.place(Vector2(x,y))
 	get_window().position=Vector2i(motion.position)-view_margin
-	last_window_position=get_window().position
 	initial=false
 
 func _poll() -> void:
@@ -539,7 +537,6 @@ func _process(delta: float) -> void:
 		if pressed:_release(false)
 		if shown:
 			window.position=Vector2i(-32000,-32000)
-			last_window_position=window.position
 		shown=false
 		Engine.max_fps=10
 		if status_clock>=1.8:
@@ -604,9 +601,8 @@ func _process(delta: float) -> void:
 		for ear in rig.ear_anchors():
 			projected_ears.append(camera.unproject_position(ear))
 	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now,window.size.y)
-	if actual!=last_window_position:
+	if actual!=window.position:
 		window.position=actual
-		last_window_position=actual
 	_update_bubble()
 	shown=true
 	_update_window_region()

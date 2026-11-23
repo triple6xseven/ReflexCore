@@ -339,7 +339,8 @@ namespace ReflexCore.Bridge
         {
             var active=GetForegroundWindow();
             uint pid;Rect frame;
-            if(GetWindowThreadProcessId(active,out pid)==0 || pid==excludedPid ||
+            if(active==GetShellWindow() || (IsZoomed(active) && (GetWindowLong(active,-16)&0x00C00000)!=0) ||
+                GetWindowThreadProcessId(active,out pid)==0 || pid==excludedPid ||
                 GetWindowTextLength(active)==0 || DwmRect(active,9,out frame,16)!=0)return false;
             var bounds=System.Drawing.Rectangle.FromLTRB(frame.Left,frame.Top,frame.Right,frame.Bottom);
             var screen=Screen.FromRectangle(bounds).Bounds;
@@ -352,6 +353,7 @@ namespace ReflexCore.Bridge
         private delegate void WinEvent(IntPtr hook,uint kind,IntPtr hwnd,int objectId,int childId,uint thread,uint time);
         [DllImport("user32.dll")] private static extern IntPtr SetWinEventHook(uint first,uint last,IntPtr module,WinEvent callback,uint process,uint thread,uint flags);
         [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr hook);
+        [DllImport("user32.dll")] private static extern IntPtr GetShellWindow();
         [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr hwnd);
         [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd,int index);
         [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd,int index,int value);
