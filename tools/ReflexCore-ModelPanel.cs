@@ -40,40 +40,40 @@ namespace ReflexCore.Control
             Controls.Add(outer);
             var top=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1};
             top.RowStyles.Add(new RowStyle(SizeType.Absolute,31));top.RowStyles.Add(new RowStyle(SizeType.Percent,100));outer.Controls.Add(top,0,0);
-            top.Controls.Add(new Label{Text="OLLAMA  /  ЛОКАЛЬНЫЕ МОДЕЛИ",Dock=DockStyle.Fill,ForeColor=green,Font=new Font("Consolas",16,FontStyle.Bold)},0,0);
-            top.Controls.Add(new Label{Text="Запуск по времени, остановка и реальные параметры Qwen. Никаких запросов без твоего действия.",Dock=DockStyle.Fill,ForeColor=muted},0,1);
+            top.Controls.Add(new Label{Text="OLLAMA  /  LOCAL MODELS",Dock=DockStyle.Fill,ForeColor=green,Font=new Font("Consolas",16,FontStyle.Bold)},0,0);
+            top.Controls.Add(new Label{Text="Load or unload a local model and tune Qwen. Model actions run on request.",Dock=DockStyle.Fill,ForeColor=muted},0,1);
             var commands=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=true,BackColor=panel,Padding=new Padding(8,7,8,5)};
             outer.Controls.Add(commands,0,1);
-            commands.Controls.Add(new Label{Text="Модель",ForeColor=fg,Width=65,Height=30,TextAlign=ContentAlignment.MiddleLeft});
+            commands.Controls.Add(new Label{Text="Model",ForeColor=fg,Width=65,Height=30,TextAlign=ContentAlignment.MiddleLeft});
             models=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=240,Height=31,BackColor=panel,ForeColor=fg};commands.Controls.Add(models);
-            commands.Controls.Add(new Label{Text="Минут",ForeColor=fg,Width=61,Height=30,TextAlign=ContentAlignment.MiddleRight});
+            commands.Controls.Add(new Label{Text="Minutes",ForeColor=fg,Width=61,Height=30,TextAlign=ContentAlignment.MiddleRight});
             minutes=new NumericUpDown{Minimum=1,Maximum=240,Value=15,Width=62,BackColor=panel,ForeColor=fg};commands.Controls.Add(minutes);
-            loadButton=MakeModelButton("▶  ЗАПУСТИТЬ",147,()=>Call("Load",true));commands.Controls.Add(loadButton);
-            stopButton=MakeModelButton("■  СТОП МОДЕЛЬ",161,()=>Call("Stop",true));commands.Controls.Add(stopButton);
-            refreshButton=MakeModelButton("↻  ОБНОВИТЬ",145,()=>Call("List",false));commands.Controls.Add(refreshButton);
+            loadButton=MakeModelButton("▶  LOAD MODEL",147,()=>Call("Load",true));commands.Controls.Add(loadButton);
+            stopButton=MakeModelButton("■  UNLOAD MODEL",161,()=>Call("Stop",true));commands.Controls.Add(stopButton);
+            refreshButton=MakeModelButton("↻  REFRESH",145,()=>Call("List",false));commands.Controls.Add(refreshButton);
             benchmarkButton=MakeModelButton("TEST QWEN ×3",150,()=>Call("Benchmark",false));commands.Controls.Add(benchmarkButton);
-            allButton=MakeModelButton("■  СТОП ВСЁ",155,()=>{
-                if(MessageBox.Show("Остановить задания ReflexCore и выгрузить ВСЕ загруженные локальные модели Ollama?\nДругие программы, использующие Ollama, тоже потеряют загруженные модели. Процессы Windows не завершаются.","ReflexCore — подтверждение",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)==DialogResult.Yes)EmergencyStop();
+            allButton=MakeModelButton("■  STOP ALL",155,()=>{
+                if(MessageBox.Show("Stop ReflexCore tasks and unload all local Ollama models?\nThis also unloads models in use by other Ollama clients.","ReflexCore — Confirm Stop All",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)==DialogResult.Yes)EmergencyStop();
             });allButton.BackColor=Color.FromArgb(105,43,47);commands.Controls.Add(allButton);
             var tabs=new TabControl{Dock=DockStyle.Fill};outer.Controls.Add(tabs,0,2);
-            var basic=new TabPage("Основные настройки"){BackColor=bg};var advanced=new TabPage("Дополнительные параметры"){BackColor=bg};tabs.TabPages.AddRange(new TabPage[]{basic,advanced});
+            var basic=new TabPage("Basic settings"){BackColor=bg};var advanced=new TabPage("Advanced settings"){BackColor=bg};tabs.TabPages.AddRange(new TabPage[]{basic,advanced});
             var basicFlow=SettingsFlow(basic);var advancedFlow=SettingsFlow(advanced);
-            temp=Field(basicFlow,"Temperature",0m,2m,0.05m,2,"0 = стабильные решения; больше = разнообразие, но меньше повторяемость.");
-            context=Field(basicFlow,"Context (num_ctx)",512m,8192m,256m,0,"Контекст модели. 2048 по умолчанию; 4096+ требует больше RAM/VRAM.");
-            predict=Field(basicFlow,"Output tokens (num_predict)",1m,512m,1m,0,"Длина ответа. Меньше часто быстрее, но может обрезать JSON или логику.");
-            topP=Field(basicFlow,"Top-p",0.05m,1m,0.05m,2,"Порог вероятностного отбора; влияет на разнообразие ответа.");
-            keepAlive=Field(basicFlow,"Keep alive (мин)",1m,240m,1m,0,"Время удержания модели после запроса; это НЕ лимит вычислений.");
-            topK=Field(advancedFlow,"Top-k",1m,100m,1m,0,"Ограничивает число кандидатов следующего токена.");
-            penalty=Field(advancedFlow,"Repeat penalty",0.8m,2m,0.05m,2,"Штраф повторений. Значение 1 = без штрафа.");
-            threads=Field(advancedFlow,"CPU threads (0 = auto)",0m,32m,1m,0,"Число CPU-потоков для инференса, если отличается от автоматического.");
-            gpu=Field(advancedFlow,"GPU layers (-1 = auto)",-1m,99m,1m,0,"Количество слоёв для GPU. На 4 ГБ VRAM высокие значения могут вызвать OOM.");
-            seed=Field(advancedFlow,"Seed (-1 = auto)",-1m,2147483647m,1m,0,"Фиксированное зерно улучшает повторяемость; -1 оставляет выбор модели.");
-            advancedFlow.Controls.Add(new Label{Text="Параметры здесь применяются только к локальному Qwen в Shared Control. OpenAI API и Citadel имеют отдельные настройки.",ForeColor=muted,AutoSize=false,Width=760,Height=52,Margin=new Padding(8,12,8,8)});
+            temp=Field(basicFlow,"Temperature",0m,2m,0.05m,2,"Use 0 for repeatable decisions. Higher values increase variety.");
+            context=Field(basicFlow,"Context (num_ctx)",512m,8192m,256m,0,"Context size defaults to 2048. At 4096 or more, expect higher RAM and VRAM use.");
+            predict=Field(basicFlow,"Output tokens (num_predict)",1m,512m,1m,0,"Maximum response length. A shorter limit may speed up inference or cut off JSON.");
+            topP=Field(basicFlow,"Top-p",0.05m,1m,0.05m,2,"Probability cutoff for selecting tokens. It controls response variety.");
+            keepAlive=Field(basicFlow,"Keep alive (min)",1m,240m,1m,0,"How long the model stays loaded after a request.");
+            topK=Field(advancedFlow,"Top-k",1m,100m,1m,0,"Maximum number of candidates for the next token.");
+            penalty=Field(advancedFlow,"Repeat penalty",0.8m,2m,0.05m,2,"Controls how strongly the model avoids repeating tokens. Use 1 to disable.");
+            threads=Field(advancedFlow,"CPU threads (0 = auto)",0m,32m,1m,0,"CPU threads for inference. Use 0 for automatic selection.");
+            gpu=Field(advancedFlow,"GPU layers (-1 = auto)",-1m,99m,1m,0,"Layers assigned to the GPU. High values may exhaust 4 GB of VRAM.");
+            seed=Field(advancedFlow,"Seed (-1 = auto)",-1m,2147483647m,1m,0,"A fixed seed improves repeatability. Use -1 for the default.");
+            advancedFlow.Controls.Add(new Label{Text="These settings apply to local Qwen in Shared Control. OpenAI API and Citadel use their own settings.",ForeColor=muted,AutoSize=false,Width=760,Height=52,Margin=new Padding(8,12,8,8)});
             var footer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=2};footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,240));
             footer.RowStyles.Add(new RowStyle(SizeType.Absolute,30));footer.RowStyles.Add(new RowStyle(SizeType.Absolute,29));outer.Controls.Add(footer,0,3);
-            stage=new Label{Text="Ollama: получение статуса…",Dock=DockStyle.Fill,ForeColor=muted,TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};footer.Controls.Add(stage,0,0);
-            leaseStatus=new Label{Text="Фактическая загрузка: проверяется через Ollama /api/ps",Dock=DockStyle.Fill,ForeColor=green,TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};footer.Controls.Add(leaseStatus,0,1);
-            saveButton=MakeModelButton("СОХРАНИТЬ ПАРАМЕТРЫ",230,Save);saveButton.Dock=DockStyle.Fill;footer.Controls.Add(saveButton,1,0);footer.SetRowSpan(saveButton,2);
+            stage=new Label{Text="Checking Ollama status…",Dock=DockStyle.Fill,ForeColor=muted,TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};footer.Controls.Add(stage,0,0);
+            leaseStatus=new Label{Text="Checking loaded models through Ollama /api/ps",Dock=DockStyle.Fill,ForeColor=green,TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};footer.Controls.Add(leaseStatus,0,1);
+            saveButton=MakeModelButton("SAVE SETTINGS",230,Save);saveButton.Dock=DockStyle.Fill;footer.Controls.Add(saveButton,1,0);footer.SetRowSpan(saveButton,2);
             LoadSettings();
             leasePollTimer=new System.Windows.Forms.Timer{Interval=4000};
             leasePollTimer.Tick+=delegate{PollLease();};leasePollTimer.Start();
@@ -98,7 +98,7 @@ namespace ReflexCore.Control
         Button MakeModelButton(string name,int width,Action click)
         {
             var b=new Button{Text=name,Width=width,Height=34,FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(29,74,52),ForeColor=green,Margin=new Padding(4,0,4,4),Font=new Font("Segoe UI",9,FontStyle.Bold)};
-            b.Click+=delegate{try{click();}catch(Exception){stage.Text="Операция отклонена; проверь локальный сервис.";}};return b;
+            b.Click+=delegate{try{click();}catch(Exception){stage.Text="Model action failed. Check the local Ollama service.";}};return b;
         }
         static decimal Get(Dictionary<string,object> raw,string key,decimal fallback,decimal min,decimal max)
         {
@@ -118,7 +118,7 @@ namespace ReflexCore.Control
         }
         void Save()
         {
-            string name=SelectedModel();if(name.Length==0)throw new InvalidOperationException("Сначала выбери установленную модель через ОБНОВИТЬ.");
+            string name=SelectedModel();if(name.Length==0)throw new InvalidOperationException("Refresh the list, then select an installed model.");
             var data=new Dictionary<string,object>{{"schema","reflexcore.ollama.settings.v1"},{"model",name},
                 {"temperature",(double)temp.Value},{"num_ctx",(int)context.Value},{"num_predict",(int)predict.Value},
                 {"top_p",(double)topP.Value},{"top_k",(int)topK.Value},{"repeat_penalty",(double)penalty.Value},
@@ -133,7 +133,7 @@ namespace ReflexCore.Control
                     try{File.Replace(tmp,settings,bak);}finally{if(File.Exists(bak))File.Delete(bak);}
                 }else File.Move(tmp,settings);
             }finally{if(File.Exists(tmp))File.Delete(tmp);}
-            savedModel=name;stage.Text="Настройки сохранены; Shared Control применит их при следующем запросе Qwen.";
+            savedModel=name;stage.Text="Settings saved. Shared Control will use them on its next Qwen request.";
         }
         string SelectedModel()
         {
@@ -156,10 +156,10 @@ namespace ReflexCore.Control
         void Call(string action,bool requiresModel)
         {
             if(busy)return;
-            string model=SelectedModel();if(requiresModel&&model.Length==0){stage.Text="Выбери локально установленную модель.";return;}
+            string model=SelectedModel();if(requiresModel&&model.Length==0){stage.Text="Select an installed local model.";return;}
             int span=(int)minutes.Value;
             Busy(true);int myOperation=++operation;
-            stage.Text=action=="Load"?"Загрузка модели (может занять время)…":action=="StopAll"?"Останавливаю задачи Reflex и выгружаю модели…":action=="Benchmark"?"Фиксированный Qwen-тест: 1 прогрев + 3 проверки JSON…":"Проверяю Ollama…";
+            stage.Text=action=="Load"?"Loading the model…":action=="StopAll"?"Stopping ReflexCore tasks and unloading models…":action=="Benchmark"?"Running the Qwen benchmark with one warmup and three JSON checks…":"Checking Ollama…";
             Task.Run(delegate{
                 string response="";string error="";
                 try{
@@ -187,7 +187,7 @@ namespace ReflexCore.Control
                 try{BeginInvoke((Action)(()=>{
                     if(myOperation!=operation)return;
                     activeTool=null;Busy(false);
-                    if(error.Length>0){stage.Text="Ollama / "+error+" — смотри, запущен ли локальный сервер.";return;}
+                    if(error.Length>0){stage.Text="Ollama / "+error+" — check that the local server is running.";return;}
                     if(action=="List"||action=="Stop"||action=="Load"||action=="StopAll"||action=="Benchmark"){
                         if(action=="Benchmark"){
                             try{
@@ -206,10 +206,10 @@ namespace ReflexCore.Control
                                 else if(models.Items.Count>0)models.SelectedIndex=0;
                                 var loaded=obj["loaded"] as System.Collections.IEnumerable;int count=0;
                                 if(loaded!=null)foreach(object v in loaded)count++;
-                                stage.Text="Ollama: установлено "+models.Items.Count+" · загружено "+count+" · модель выбирается из локального списка";
-                            }catch{stage.Text="Неверный ответ локального Ollama.";}
+                                stage.Text="Ollama · Installed "+models.Items.Count+" · Loaded "+count;
+                            }catch{stage.Text="Invalid response from local Ollama.";}
                         }else{
-                            stage.Text=action=="Load"?"Загрузка подтверждена Ollama; контроль сеанса "+span+" мин.":action=="Stop"?"Модель выгружена.":"Запрошен STOP всех управляемых задач и выгрузка моделей.";
+                            stage.Text=action=="Load"?"Model loaded. Unload timer set for "+span+" min.":action=="Stop"?"Model unloaded.":"Requested a stop for supervised tasks and model unloading.";
                             PollLease(); // Live, read-only status; no additional model generation.
                         }
                     }
@@ -223,7 +223,7 @@ namespace ReflexCore.Control
             if(leasePollBusy||busy||IsDisposed||!IsHandleCreated)return;
             leasePollBusy=true;
             Task.Run(delegate{
-                string result="Загрузка: состояние неизвестно";
+                string result="Model load status unknown";
                 try{
                     var request=(System.Net.HttpWebRequest)System.Net.WebRequest.Create("http://127.0.0.1:11434/api/ps");
                     request.Proxy=null;request.Method="GET";request.Timeout=1800;request.ReadWriteTimeout=1800;
@@ -253,13 +253,13 @@ namespace ReflexCore.Control
                             DateTimeOffset deadline;
                             if(DateTimeOffset.TryParse(until,System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out deadline)){
                                 int left=(int)Math.Max(0,Math.Ceiling((deadline-DateTimeOffset.UtcNow).TotalSeconds));
-                                if(loaded.Contains(name)&&left>0)result="ЗАГРУЖЕНА: "+name+" · осталось "+(left/60)+"м "+(left%60)+"с · до "+deadline.ToLocalTime().ToString("HH:mm:ss");
-                                else if(left>0)result="ВНИМАНИЕ: сеанс ещё "+left+"с, но "+name+" отсутствует в Ollama /api/ps";
-                                else result="Срок сеанса истёк; загружено моделей: "+loaded.Count;
-                            }else result="Неверный срок сеанса; загружено моделей: "+loaded.Count;
-                        }else result="Загружено моделей: "+loaded.Count+" · активный сеанс не указан";
-                    }else result="Загружено моделей: "+loaded.Count+" · таймер запуска не активен";
-                }catch(Exception){result="Не удалось прочитать /api/ps — состояние загрузки не подтверждено";}
+                                if(loaded.Contains(name)&&left>0)result="LOADED · "+name+" · "+(left/60)+"m "+(left%60)+"s remaining · until "+deadline.ToLocalTime().ToString("HH:mm:ss");
+                                else if(left>0)result="Timer has "+left+"s left. "+name+" is absent from Ollama /api/ps.";
+                                else result="Unload timer expired. Loaded models: "+loaded.Count;
+                            }else result="Invalid unload time. Loaded models: "+loaded.Count;
+                        }else result="Loaded models: "+loaded.Count+" · No active session recorded";
+                    }else result="Loaded models: "+loaded.Count+" · Unload timer inactive";
+                }catch(Exception){result="Unable to verify loaded models through Ollama /api/ps";}
                 try{if(!IsDisposed&&IsHandleCreated)BeginInvoke((Action)(()=>{leaseStatus.Text=result;leasePollBusy=false;}));
                     else leasePollBusy=false;
                 }catch{leasePollBusy=false;}

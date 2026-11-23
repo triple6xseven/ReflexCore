@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### ReflexVision v0.1
+
+* Add a Windows preview with low-copy capture, classical HUD and scene cues, confirmed track IDs, bounding boxes, adaptive cadence and an independent stop signal.
+* Expose fresh typed observations through the existing CS16 command. Validate blank, lost and stale observations.
+* Add the separate offline Plant Drill and display the controlled player's real route and progress. Verify planting inside the isolated GoldSrc fixture using the server event.
+* Translate Studio, Shared Control, the tray and browser Citadel to English. Display live CPU, RAM, GPU, VRAM and recent model throughput in the tray HUD.
+
 * Add a Counter-Strike 1.6 benchmark that measures one actor's rounds using GoldSrc server events. Report plant evidence, spawn and freeze-end timing, failures and optional easy-bot results.
 * Add loopback listen-server discovery, GoldSrc demo pose parsing and bounded waypoint drafting and validation. See [CS 1.6 offline benchmark](docs/CS16-BENCHMARK.md).
 * Generate walking routes from an installed GoldSrc BSP and validate the standing hull and target volume. Static checks passed for both Dust II plant volumes.

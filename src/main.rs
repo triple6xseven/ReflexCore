@@ -25,7 +25,11 @@ mod cs16_demo;
 #[cfg(windows)]
 mod cs16_probe;
 #[cfg(windows)]
+mod cs16_practice;
+#[cfg(windows)]
 mod cs16_route;
+#[cfg(windows)]
+mod vision;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -366,7 +370,7 @@ COMMANDS:
 
 EXAMPLE:
 
-  reflexcore new "Включи темную тему"
+  reflexcore new "Enable dark mode"
   reflexcore step
   reflexcore run
   reflexcore status

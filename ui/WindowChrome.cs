@@ -16,8 +16,8 @@ public sealed partial class StudioWindow
         Content=chromeRoot;DockPanel.SetDock(caption,Dock.Top);chromeRoot.Children.Add(caption);chromeRoot.Children.Add(background);
         caption.SetResourceReference(Panel.BackgroundProperty,"Card");
         foreach(var item in new (string symbol,string name,Action click)[]{
-            ("×","Закрыть",Close),("□","Развернуть или восстановить",()=>WindowState=WindowState==WindowState.Maximized?WindowState.Normal:WindowState.Maximized),
-            ("−","Свернуть",()=>WindowState=WindowState.Minimized)}){
+            ("×","Close",Close),("□","Maximize or restore",()=>WindowState=WindowState==WindowState.Maximized?WindowState.Normal:WindowState.Maximized),
+            ("−","Minimize",()=>WindowState=WindowState.Minimized)}){
             var button=Command(item.symbol,item.click);button.ToolTip=item.name;button.Width=42;button.Padding=new Thickness(0);
             System.Windows.Automation.AutomationProperties.SetName(button,item.name);WindowChrome.SetIsHitTestVisibleInChrome(button,true);
             DockPanel.SetDock(button,Dock.Right);caption.Children.Add(button);

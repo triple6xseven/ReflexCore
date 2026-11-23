@@ -38,3 +38,5 @@ py examples/plan_cs16_bsp_route.py <de_dust2.bsp> --start -736 -704 164.03125 --
 ~~~
 
 The official Dust II BSP yielded a 28-waypoint route to its eastern plant volume and a 24-waypoint route to its western volume from the measured spawn. A second Terrorist spawn also produced a collision-checked east route. These are planning measurements. Verify movement, plant and match outcome separately in the engine.
+
+The isolated Plant Drill was verified on the original de_reflex_lab fixture. On Dust II, a live C4 spawn led to a valid static route. The trial restarted the round and got a different spawn, 96 map units away. The controller rejected the spawn anchor before dispatching movement. The next milestone is choosing the route from the post-restart spawn. See [measured fixture results](BENCHMARKS.md).

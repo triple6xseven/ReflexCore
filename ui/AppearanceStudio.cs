@@ -16,31 +16,31 @@ public sealed partial class StudioWindow
         var page=new StackPanel{Margin=new Thickness(22,18,22,26)};
         appearance.Content=page;new SmoothWheel(appearance,()=>smooth,()=>210);
         var filters=new WrapPanel{Margin=new Thickness(0,0,0,12)};
-        var filterLabel=Label("Поиск тем",13);filterLabel.Margin=new Thickness(0,0,8,0);filters.Children.Add(filterLabel);
+        var filterLabel=Label("Search themes",13);filterLabel.Margin=new Thickness(0,0,8,0);filters.Children.Add(filterLabel);
         search.Width=170;search.Padding=new Thickness(7,4,7,4);search.Margin=new Thickness(0,0,12,0);
         search.SetResourceReference(Control.BackgroundProperty,"Card");search.SetResourceReference(Control.ForegroundProperty,"Text");
-        System.Windows.Automation.AutomationProperties.SetName(search,"Поиск тем");
+        System.Windows.Automation.AutomationProperties.SetName(search,"Search themes");
         filters.Children.Add(search);
-        category.ItemsSource=new[]{"Все темы","Studio","Retro","Тёмные","Светлые","С иллюстрацией"};
-        category.SelectedIndex=0;category.MinWidth=140;System.Windows.Automation.AutomationProperties.SetName(category,"Категория тем");
+        category.ItemsSource=new[]{"All themes","Studio","Retro","Dark","Light","With artwork"};
+        category.SelectedIndex=0;category.MinWidth=140;System.Windows.Automation.AutomationProperties.SetName(category,"Theme category");
         filters.Children.Add(category);page.Children.Add(filters);
         page.Children.Add(gallery);search.TextChanged+=(_,_)=>FillGallery();category.SelectionChanged+=(_,_)=>FillGallery();
         var detail=new Flow{MinW=310,MaxCols=2,Gap=14,Anim=false,Margin=new Thickness(0,16,0,0)};
         page.Children.Add(detail);
-        var material=Section(detail,"Материал и фон");
-        AddSwitch(material,"Показывать иллюстрацию темы",wallpaperSwitch,v=>{showWallpaper=v;RefreshBackground();});
-        var wall=Choice(material,"Фон",new[]{"Из темы","Alienwave","Dark Fantasy","zxc 2003","Overdrive"});
+        var material=Section(detail,"Material and background");
+        AddSwitch(material,"Show theme artwork",wallpaperSwitch,v=>{showWallpaper=v;RefreshBackground();});
+        var wall=Choice(material,"Background",new[]{"Use theme default","Alienwave","Dark Fantasy","zxc 2003","Overdrive"});
         wall.SelectionChanged+=(_,_)=>{chosenWall=new[]{null,"alien-studio.png","gothic-studio.png","zxc-2003-studio.png","zxc-overdrive-rain.png"}[wall.SelectedIndex];RefreshBackground();};
         var tintLabel=Label("",12,"Sub");material.Children.Add(tintLabel);
         var slider=new Sld(0,100,tint);material.Children.Add(slider);
-        System.Windows.Automation.AutomationProperties.SetName(slider,"Плотность материала");
-        void PaintTint(){tintLabel.Text="Плотность материала · "+tint.ToString("0")+"%";}
+        System.Windows.Automation.AutomationProperties.SetName(slider,"Material opacity");
+        void PaintTint(){tintLabel.Text="Material opacity · "+tint.ToString("0")+"%";}
         slider.Changed+=v=>{tint=v;PaintTint();RefreshBackground();};PaintTint();
-        var behaviour=Section(detail,"Движение и шрифт");
-        AddSwitch(behaviour,"Плавная прокрутка",new Sw(true),v=>smooth=v);
-        AddSwitch(behaviour,"Анимации оформления",motionSwitch,v=>{animate=Fx.Fun=v;detail.Anim=v;RefreshBackground();});
-        AddSwitch(behaviour,"Тематический заголовок",new Sw(false),ApplyCaption);
-        var fonts=Choice(behaviour,"Шрифт оболочки",new[]{"Из темы","Segoe UI","Consolas","Cambria","Tahoma"});
+        var behaviour=Section(detail,"Motion and type");
+        AddSwitch(behaviour,"Smooth scrolling",new Sw(true),v=>smooth=v);
+        AddSwitch(behaviour,"Theme animations",motionSwitch,v=>{animate=Fx.Fun=v;detail.Anim=v;RefreshBackground();});
+        AddSwitch(behaviour,"Themed title bar",new Sw(false),ApplyCaption);
+        var fonts=Choice(behaviour,"Studio font",new[]{"Use theme default","Segoe UI","Consolas","Cambria","Tahoma"});
         fonts.SelectionChanged+=(_,_)=>{typeface=fonts.SelectedIndex==0?null:(string)fonts.SelectedItem;FontFamily=new FontFamily(typeface??current.Font);};
         FillGallery();
     }

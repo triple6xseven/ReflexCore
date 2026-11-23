@@ -90,9 +90,9 @@ namespace ReflexCore.Control
             var title=new Label{Text="◈  REFLEXCORE",Font=new Font("Consolas",26,FontStyle.Bold),ForeColor=accent,Location=new Point(26,17),AutoSize=true};header.Controls.Add(title);
             header.Controls.Add(new Label{Text="LOCAL AGENT · DEV BRIDGE · GAME LAB",Font=new Font("Consolas",10),ForeColor=muted,Location=new Point(30,66),AutoSize=true});
             var tabs=pages=new ReflexTabHost{Dock=DockStyle.Fill};Controls.Add(tabs);tabs.BringToFront();
-            var agent=Page("АГЕНТ",tabs);
-            var modelsTab=Page("МОДЕЛИ",tabs);
-            var diagnosticsTab=Page("ДИАГНОСТИКА",tabs);
+            var agent=Page("AGENT",tabs);
+            var modelsTab=Page("MODELS",tabs);
+            var diagnosticsTab=Page("DIAGNOSTICS",tabs);
             var shared=Page("SHARED CONTROL",tabs);
             var game=Page("CITADEL LAB",tabs);
             var ai=Page("OPENAI API",tabs);
@@ -110,26 +110,26 @@ namespace ReflexCore.Control
             if(tabs.SelectedTab==diagnosticsTab)diagnosticView.Show();
             agent.Controls.Add(Header("AGENT SUPERVISOR",18,22));
             bridgeText=Info("BRIDGE: waiting...",18,62,680);agent.Controls.Add(bridgeText);
-            agent.Controls.Add(Header("Панель управления проверенными локальными заданиями",18,102));
-            AddButton(agent,"ОСТАНОВИТЬ ЗАДАНИЕ  ·  CTRL+ALT+P",18,150,365,44,()=>WriteControl("stop"),true);
-            AddButton(agent,"ОТКРЫТЬ ПАПКУ ПРОЕКТА",401,150,365,44,()=>Process.Start("explorer.exe",root),false);
-            AddButton(agent,"ЗАПУСТИТЬ AGENT DEMO",18,219,365,44,()=>RunTask("agent-demo"),false);
-            AddButton(agent,"ПРОВЕРИТЬ STATUS",401,219,365,44,()=>UpdateStatus(),false);
-            AddButton(agent,"БЛОКНОТ · СОЗДАТЬ ФАЙЛ",18,279,365,43,()=>RunTask("notepad-save"),false);
-            AddButton(agent,"БЛОКНОТ · С ПРОВЕРКОЙ МОДЕЛЬЮ",401,279,365,43,()=>RunTask("notepad-visual"),false);
+            agent.Controls.Add(Header("Verified local tasks",18,102));
+            AddButton(agent,"STOP TASK  ·  CTRL+ALT+P",18,150,365,44,()=>WriteControl("stop"),true);
+            AddButton(agent,"OPEN PROJECT FOLDER",401,150,365,44,()=>Process.Start("explorer.exe",root),false);
+            AddButton(agent,"RUN AGENT DEMO",18,219,365,44,()=>RunTask("agent-demo"),false);
+            AddButton(agent,"REFRESH STATUS",401,219,365,44,()=>UpdateStatus(),false);
+            AddButton(agent,"NOTEPAD · CREATE FILE",18,279,365,43,()=>RunTask("notepad-save"),false);
+            AddButton(agent,"NOTEPAD · CHECK WITH MODEL",401,279,365,43,()=>RunTask("notepad-visual"),false);
             var jobs=new ListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
-                Location=new Point(18,337),Size=new Size(748,164),AccessibleName="Очередь заданий"};
-            jobs.Columns.Add("Время (местное)",180);jobs.Columns.Add("Задание",235);jobs.Columns.Add("Состояние",290);
+                Location=new Point(18,337),Size=new Size(748,164),AccessibleName="Task queue"};
+            jobs.Columns.Add("Local time",180);jobs.Columns.Add("Task",235);jobs.Columns.Add("Status",290);
             agent.Controls.Add(jobs);
-            var notice=Info("После перезапуска подтвердите ожидающее задание. Прерванные задания видны в истории.",18,560,748);
+            var notice=Info("Approve a pending task after restart. Interrupted tasks appear in the history.",18,560,748);
             agent.Controls.Add(notice);
             Action<string> command=delegate(string action){
-                if(jobs.SelectedItems.Count==0){notice.Text="Выберите задание в очереди.";return;}
+                if(jobs.SelectedItems.Count==0){notice.Text="Select a task in the queue.";return;}
                 string id=(string)jobs.SelectedItems[0].Tag;
-                notice.Text=queue.Request(id,action)?"Запрос передан диспетчеру.":"Состояние задания уже изменилось.";
+                notice.Text=queue.Request(id,action)?"Request sent to the task supervisor.":"The task status has changed.";
             };
-            AddButton(agent,"ОТМЕНИТЬ ВЫБРАННОЕ",18,511,365,40,()=>command("cancel"),false);
-            AddButton(agent,"РАЗРЕШИТЬ ЗАПУСК",401,511,365,40,()=>command("approve"),false);
+            AddButton(agent,"CANCEL SELECTED",18,511,365,40,()=>command("cancel"),false);
+            AddButton(agent,"APPROVE SELECTED",401,511,365,40,()=>command("approve"),false);
             string lastSnapshot=null;
             var taskTimer=new System.Windows.Forms.Timer{Interval=900};
             refreshQueue=delegate {
@@ -147,62 +147,65 @@ namespace ReflexCore.Control
                             string hour=DateTime.TryParseExact(row.Id.Substring(0,17),"yyyyMMddHHmmssfff",
                                 System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AssumeUniversal|System.Globalization.DateTimeStyles.AdjustToUniversal,out created)
                                 ?created.ToLocalTime().ToString("dd.MM HH:mm:ss"):"—";
-                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Блокнот":row.Task=="visual"?"Блокнот + модель":"Локальное задание";
-                            string state=row.State=="pending"?"Ожидает":row.State=="running"?"Выполняется":
-                                row.State=="completed"?"Завершено":row.State=="cancelled"?"Отменено":row.State=="interrupted"?"Прервано":"Ошибка";
+                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":"Local task";
+                            string state=row.State=="pending"?"Pending":row.State=="running"?"Running":
+                                row.State=="completed"?"Completed":row.State=="cancelled"?"Cancelled":row.State=="interrupted"?"Interrupted":"Failed";
                             var entry=new ListViewItem(new[]{hour,task,state});entry.Tag=row.Id;jobs.Items.Add(entry);
                             if(row.Id==selected)entry.Selected=true;
                         }
                         lastSnapshot=signature;
                     }finally{jobs.EndUpdate();}
-                }catch(IOException){notice.Text="Очередь обновляется.";}
+                }catch(IOException){notice.Text="Refreshing the task queue.";}
             };
             taskTimer.Tick+=delegate{refreshQueue();};
             taskTimer.Start();Disposed+=delegate{taskTimer.Dispose();};
 
             game.Controls.Add(Header("REFLEX CITADEL // AKVARIUM 3D ARENA",18,22));
             serverText=Info("SERVER: checking",18,63,725);game.Controls.Add(serverText);
-            AddButton(game,"▶ ОТКРЫТЬ AI ARENA В CHROME",18,125,420,53,()=>OpenGame(),true);
-            AddButton(game,"ЗАПУСТИТЬ СЕРВЕР",462,125,305,53,()=>StartServer(),false);
-            AddButton(game,"ОСТАНОВИТЬ СЕРВЕР",18,199,420,47,()=>StopServer(),false);
-            AddButton(game,"ОТКРЫТЬ ИСХОДНИКИ ИГРЫ",462,199,305,47,()=>Process.Start("explorer.exe",Path.Combine(root,"Sandbox for intelegent test","citadel-zero")),false);
-            game.Controls.Add(Info("AKVARIUM 3D  ·  3 миссии  ·  VISIBLE: действия агента в Chrome  ·  HEADLESS: автономный Node.js процесс",18,285,755));
-            game.Controls.Add(Info("В игре выбирай режим агента, камеру 3D/2D и нажимай ЗАПУСТИТЬ АГЕНТА. API вызывается отдельно по твоему клику.",18,360,755));
+            AddButton(game,"▶ OPEN AI ARENA IN CHROME",18,125,420,53,()=>OpenGame(),true);
+            AddButton(game,"START SERVER",462,125,305,53,()=>StartServer(),false);
+            AddButton(game,"STOP SERVER",18,199,420,47,()=>StopServer(),false);
+            AddButton(game,"OPEN GAME SOURCE",462,199,305,47,()=>Process.Start("explorer.exe",Path.Combine(root,"Sandbox for intelegent test","citadel-zero")),false);
+            game.Controls.Add(Info("Akvarium 3D offers three missions. Run the agent in Chrome or as a headless Node.js process.",18,285,755));
+            game.Controls.Add(Info("Choose an agent mode and the 3D or 2D camera in the game, then start the agent. API calls require a separate action.",18,360,755));
 
             // DPI-aware API tab. Controls flow vertically and scroll; no absolute Y positions.
             shared.Controls.Add(Header("SHARED CONTROL // CS 1.6 OFFLINE",18,23));
-            shared.Controls.Add(Info("THIRD MODE: управляет твоими реальными мышью и клавиатурой. При любом физическом вводе — 3-секундная пауза. Только локальный приватный сервер.",18,73,750));
-            AddButton(shared,"▶ ОТКРЫТЬ CS 1.6 SHARED CONTROL LAB",18,160,746,54,()=>OpenSharedControl(),true);
-            shared.Controls.Add(Info("1. Запусти CS 1.6 и создай New Game без других игроков.  2. Выбери T и получи C4.  3. Нажми Plant Drill на bombsite или запиши свою демонстрацию.",18,244,750));
-            shared.Controls.Add(Info("F12 или Ctrl+Alt+P: STOP. Контроллер не читает память игры, не работает с серверами и не записывает текстовые поля. Запись: только локальные WASD и другие игровые кнопки.",18,336,750));
+            shared.Controls.Add(Info("Shared Control sends mouse and keyboard input to the local game. Physical input pauses the agent for three seconds. Use a private local server.",18,73,750));
+            AddButton(shared,"▶ OPEN CS 1.6 SHARED CONTROL LAB",18,160,746,54,()=>OpenSharedControl(),true);
+            AddButton(shared,"START REFLEXVISION",18,385,365,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1",""),true);
+            AddButton(shared,"START OFFLINE PLANT DRILL",401,385,363,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart"),false);
+            shared.Controls.Add(Info("ReflexVision shows live boxes next to a windowed local match. The plant drill runs the ReflexCore player in the isolated lab and shows its measured progress.",18,452,748));
+            shared.Controls.Add(Info("Start a local CS 1.6 game, join the Terrorists and obtain C4. Use the Plant C4 drill at a bombsite or record a demonstration.",18,244,750));
+            shared.Controls.Add(Info("Press F12 or Ctrl+Alt+P to stop. The controller uses public game signals and a limited set of inputs. Recordings capture local game controls.",18,336,750));
             var apiFlow=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,
                 WrapContents=false,BackColor=bg,Padding=new Padding(18,18,18,20)};
             ai.Controls.Add(apiFlow);
             apiFlow.Controls.Add(ApiLabel("OPENAI RESPONSES API",34,true));
             modelText=ApiLabel("API KEY: checking...",36,false);apiFlow.Controls.Add(modelText);
-            apiFlow.Controls.Add(ApiLabel("API-ключ (ввод скрыт; хранится только через Windows DPAPI)",29,false));
+            apiFlow.Controls.Add(ApiLabel("API key (hidden input, protected by Windows DPAPI)",29,false));
             keyInput=new TextBox{Height=29,Width=710,PasswordChar='●',BackColor=Color.FromArgb(24,40,42),
                 ForeColor=text,BorderStyle=BorderStyle.FixedSingle,Margin=new Padding(0,0,0,15)};
             apiFlow.Controls.Add(keyInput);
             var keyButtons=new FlowLayoutPanel{Height=55,Width=740,FlowDirection=FlowDirection.LeftToRight,WrapContents=false,Margin=new Padding(0,0,0,16)};
             apiFlow.Controls.Add(keyButtons);
-            AddButton(keyButtons,"СОХРАНИТЬ API КЛЮЧ",0,0,350,44,SaveKey,true);
-            AddButton(keyButtons,"УДАЛИТЬ КЛЮЧ",362,0,335,44,DeleteKey,false);
-            apiFlow.Controls.Add(ApiLabel("Model ID (например: gpt-4.1-mini)",29,false));
+            AddButton(keyButtons,"SAVE API KEY",0,0,350,44,SaveKey,true);
+            AddButton(keyButtons,"DELETE KEY",362,0,335,44,DeleteKey,false);
+            apiFlow.Controls.Add(ApiLabel("Model ID (for example, gpt-4.1-mini)",29,false));
             var modelRow=new FlowLayoutPanel{Height=55,Width=740,FlowDirection=FlowDirection.LeftToRight,WrapContents=false,Margin=new Padding(0,0,0,15)};
             apiFlow.Controls.Add(modelRow);
             modelInput=new TextBox{Width=465,Height=31,Text=LoadModel(),BackColor=Color.FromArgb(24,40,42),
                 ForeColor=text,BorderStyle=BorderStyle.FixedSingle,Margin=new Padding(0,7,10,0)};
             modelRow.Controls.Add(modelInput);
-            AddButton(modelRow,"СОХРАНИТЬ МОДЕЛЬ",0,0,225,43,SaveModel,false);
-            apiFlow.Controls.Add(ApiLabel("Тест проверяет настоящий вызов OpenAI. Он может тарифицироваться отдельно от ChatGPT.",43,false));
+            AddButton(modelRow,"SAVE MODEL",0,0,225,43,SaveModel,false);
+            apiFlow.Controls.Add(ApiLabel("The test makes one OpenAI API request and may incur a separate charge.",43,false));
             var testRow=new FlowLayoutPanel{Height=52,Width=740,Margin=new Padding(0,0,0,4)};
             apiFlow.Controls.Add(testRow);
-            AddButton(testRow,"ПРОВЕРИТЬ API СОЕДИНЕНИЕ",0,0,350,44,TestApiConnection,true);
-            apiTestText=ApiLabel("API ещё не проверен. Сохранённый ключ ≠ проверенное соединение.",57,false);
+            AddButton(testRow,"TEST API CONNECTION",0,0,350,44,TestApiConnection,true);
+            apiTestText=ApiLabel("API connection untested.",57,false);
             apiFlow.Controls.Add(apiTestText);
-            apiFlow.Controls.Add(ApiLabel("Ключ остаётся локально в data/secrets/*.dpapi. Отправляется только напрямую OpenAI по HTTPS с сервера, а не в браузерную игру.",70,false));
-            apiFlow.Controls.Add(ApiLabel("Для автономных боёв выбери в Chrome: VISIBLE → OPENAI. При сбое API будет явно показан локальный fallback.",64,false));
+            apiFlow.Controls.Add(ApiLabel("The key is stored locally in data/secrets/*.dpapi. The server sends it directly to OpenAI over HTTPS.",70,false));
+            apiFlow.Controls.Add(ApiLabel("For autonomous arena matches in Chrome, choose Visible, then OpenAI. The arena shows when it switches to the local fallback.",64,false));
             // Keep scroll area flexible on compact / high-DPI Windows screens.
             apiFlow.Resize+=(sender,args)=>{
                 int w=Math.Max(300,apiFlow.ClientSize.Width-48);
@@ -239,16 +242,16 @@ namespace ReflexCore.Control
         void TestApiConnection()
         {
             if(!File.Exists(Path.Combine(root,"data","secrets","openai_key.dpapi")))
-                throw new Exception("Сначала сохрани API-ключ.");
-            if(MessageBox.Show("Выполнить один реальный платный API-запрос с небольшой игровой картой?\n\nКлюч не будет показан или записан в журнал.",
+                throw new Exception("Save an API key first.");
+            if(MessageBox.Show("Send one billable API request containing a small game map?\n\nThe API key stays out of the display and log.",
                 "ReflexCore / API test",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
             if(Interlocked.CompareExchange(ref apiTestBusy,1,0)!=0)return;
-            apiTestText.Text="Проверяю OpenAI: отправляется один тестовый запрос...";
+            apiTestText.Text="Sending one OpenAI API test request…";
             ThreadPool.QueueUserWorkItem(delegate(object unused){
                 string result;
                 try
                 {
-                    if(!IsServerUp())throw new Exception("Локальный Citadel Server недоступен: запусти сервер на вкладке CITADEL LAB.");
+                    if(!IsServerUp())throw new Exception("The local Citadel server is unavailable. Start it from Citadel Lab.");
                     var req=(HttpWebRequest)WebRequest.Create("http://127.0.0.1:39771/api/plan");
                     req.Method="POST";req.ContentType="application/json";req.Timeout=45000;req.ReadWriteTimeout=45000;
                     req.Headers["Origin"]="http://127.0.0.1:39771";
@@ -259,10 +262,10 @@ namespace ReflexCore.Control
                     using(var response=(HttpWebResponse)req.GetResponse())
                     using(var rd=new StreamReader(response.GetResponseStream()))reply=rd.ReadToEnd();
                     if(!Regex.IsMatch(reply,"\"ok\"\\s*:\\s*true") || !Regex.IsMatch(reply,"\"plan\"\\s*:"))
-                        throw new Exception("Сервер ответил, но OpenAI не подтвердил план. Проверь модель, ключ и биллинг.");
-                    result="API OK — реальный запрос завершён, текст плана получен. Теперь проверяй план в Citadel.";
+                        throw new Exception("The server received a response without a confirmed OpenAI plan. Check the model, API key, and billing.");
+                    result="API request succeeded. Review the returned plan in Citadel.";
                 }
-                catch(WebException ex){result="API ERROR — "+(ex.Response is HttpWebResponse ? "HTTP "+(int)((HttpWebResponse)ex.Response).StatusCode : "сетевая ошибка")+". Проверь ключ, модель и оплату API.";}
+                catch(WebException ex){result="API ERROR — "+(ex.Response is HttpWebResponse ? "HTTP "+(int)((HttpWebResponse)ex.Response).StatusCode : "network error")+". Check the API key, model, and billing.";}
                 catch(Exception ex){result="API ERROR — "+ex.Message;}
                 finally{Interlocked.Exchange(ref apiTestBusy,0);}
                 try{if(!IsDisposed&&IsHandleCreated)BeginInvoke((Action)(()=>{apiTestText.Text=result;}));}catch{}
@@ -291,6 +294,34 @@ namespace ReflexCore.Control
             }catch{}
         }
         string PowerShellExe(){return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");}
+        void OpenOfflineTool(string file,string arguments)
+        {
+            string path=Path.Combine(root,"tools",file);
+            if(!File.Exists(path))throw new IOException("The selected offline tool is unavailable.");
+            var settings=new ProcessStartInfo {
+                FileName=PowerShellExe(),
+                Arguments="-NoProfile -STA -ExecutionPolicy Bypass -File \""+path+"\" "+arguments,
+                WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true,
+                RedirectStandardError=true,RedirectStandardOutput=true
+            };
+            ThreadPool.QueueUserWorkItem(delegate {
+                bool failed;
+                try{
+                    using(var child=Process.Start(settings)){
+                        child.BeginErrorReadLine();
+                        child.BeginOutputReadLine();
+                        child.WaitForExit();
+                        failed=child.ExitCode!=0;
+                    }
+                }catch{failed=true;}
+                if(failed && !IsDisposed && IsHandleCreated){
+                    try{BeginInvoke((Action)delegate {
+                        MessageBox.Show("Could not start the offline tool. Open a windowed local CS 1.6 match for ReflexVision, or check the local practice setup.",
+                            "ReflexCore",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                    });}catch(InvalidOperationException){}
+                }
+            });
+        }
         void StartServer()
         {
             if(IsServerUp())return;
@@ -344,17 +375,17 @@ namespace ReflexCore.Control
         {
             var page=pages.TabPages[0];
             var buttons=page.Controls.OfType<Button>().ToDictionary(button=>button.Text);
-            buttons["ЗАПУСТИТЬ AGENT DEMO"].PerformClick();
-            buttons["БЛОКНОТ · СОЗДАТЬ ФАЙЛ"].PerformClick();
-            buttons["БЛОКНОТ · С ПРОВЕРКОЙ МОДЕЛЬЮ"].PerformClick();
+            buttons["RUN AGENT DEMO"].PerformClick();
+            buttons["NOTEPAD · CREATE FILE"].PerformClick();
+            buttons["NOTEPAD · CHECK WITH MODEL"].PerformClick();
             refreshQueue();
             var jobs=page.Controls.OfType<ListView>().Single();
             if(jobs.Items.Count!=3 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=3)
                 throw new InvalidOperationException("Queued tasks missing from Studio");
             jobs.Items[0].Selected=true;
             string id=(string)jobs.Items[0].Tag;
-            buttons["РАЗРЕШИТЬ ЗАПУСК"].PerformClick();
-            buttons["ОТМЕНИТЬ ВЫБРАННОЕ"].PerformClick();
+            buttons["APPROVE SELECTED"].PerformClick();
+            buttons["CANCEL SELECTED"].PerformClick();
             if(!File.Exists(queue.Marker(id,"approve")) || !File.Exists(queue.Marker(id,"cancel")))
                 throw new InvalidOperationException("Selected queue item commands failed");
         }

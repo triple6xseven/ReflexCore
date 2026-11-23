@@ -1,6 +1,6 @@
 # ReflexCore Studio
 
-The primary launcher opens one WPF window hosting all six existing control panels in the same Windows PowerShell process. The original single-instance mutex and tab requests still select an existing window. **Оформление** is a seventh, native WPF page. The .NET Framework 4.8 host shares a CLR with the existing WinForms controls. The build uses the .NET SDK's C# compiler.
+The primary launcher opens one WPF window hosting all six existing control panels in the same Windows PowerShell process. The original single-instance mutex and tab requests still select an existing window. **Appearance** is a seventh, native WPF page. The .NET Framework 4.8 host shares a CLR with the existing WinForms controls. The build uses the .NET SDK's C# compiler.
 
 | Source component in zxcLagLab | ReflexCore integration |
 |---|---|
@@ -16,7 +16,7 @@ Selecting a theme updates both WPF resources and the hosted page colors. Only an
 
 ### Verification
 
-The Agent page submits its three built-in tasks to the tray. Select an entry to approve or cancel it. The WPF smoke submits all three using an isolated queue and checks that the selected entry receives the requested commands. See [queue and recovery](QUEUE.md).
+The **Agent** page submits **RUN AGENT DEMO**, **NOTEPAD · CREATE FILE**, and **NOTEPAD · CHECK WITH MODEL** to the tray. Select an entry, then use **APPROVE SELECTED** or **CANCEL SELECTED**. The WPF smoke checks those commands using an isolated queue. See [queue and recovery](QUEUE.md).
 
 Build with `dotnet build ui/ReflexCore.Studio.csproj -c Release`. The launcher builds the assembly when it is missing. After editing UI sources run the build again. The Windows UI smoke shows the real window, navigates six hosted pages, opens Appearance, switches all 45 themes in memory, filters the gallery, checks compact navigation and both caption modes, and checks history. It does not write the operator's theme preference.
 

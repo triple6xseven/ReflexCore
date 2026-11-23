@@ -41,9 +41,9 @@ function hudAbilities(){
   const b=$('skill-'+key);if(!b)continue;
   const left=Math.max(0,abilityReady[key]-elapsed);
   b.disabled=!['battle','deploy'].includes(phase)||units.length===0||left>0;
-  b.querySelector?.('.cooldown')?.replaceChildren?.(document.createTextNode(left>0?Math.ceil(left)+'с':'ГОТОВО'));
+  b.querySelector?.('.cooldown')?.replaceChildren?.(document.createTextNode(left>0?Math.ceil(left)+'s':'READY'));
  }
- const indicator=$('target-indicator');if(indicator){const b=buildings.find(x=>x.id===focusTargetId&&x.hp>0);indicator.textContent=b?'ЦЕЛЬ: '+b.type.toUpperCase()+' · '+Math.ceil(b.hp)+' HP':'ЦЕЛЬ: АВТО';}
+ const indicator=$('target-indicator');if(indicator){const b=buildings.find(x=>x.id===focusTargetId&&x.hp>0);indicator.textContent=b?'TARGET · '+b.type.toUpperCase()+' · '+Math.ceil(b.hp)+' HP':'TARGET · AUTO';}
 }
 function activateSkill(which){
  if(!ABILITIES[which]||!['deploy','battle'].includes(phase)||!units.some(u=>u.hp>0)||elapsed<abilityReady[which])return false;
@@ -51,15 +51,15 @@ function activateSkill(which){
  if(which==='sonar'){
    sonarUntil=elapsed+2.8;
    for(const b of buildings)if(b.hp>0&&b.dmg>0)b.disabledUntil=Math.max(b.disabledUntil||0,sonarUntil);
-   fx(490,310,'sonar','#67f9ff',1.5);eventLog('SONAR EMP: башни подавлены на 2.8 с','skill');
+   fx(490,310,'sonar','#67f9ff',1.5);eventLog('SONAR EMP · Towers stunned for 2.8 s','skill');
  }else if(which==='heal'){
    let amount=0;
    for(const u of units){if(u.hp<=0)continue;const heal=Math.min(u.max-u.hp,Math.max(24,Math.round(u.max*.17)));u.hp+=heal;amount+=heal;fx(u.x,u.y,'heal','#90ffe3',.8);floating(u.x,u.y-25,'+'+Math.round(heal),'#96ffe7');}
-   stats.healed+=amount;eventLog('TIDAL REPAIR: восстановлено '+Math.round(amount)+' HP','skill');
+   stats.healed+=amount;eventLog('TIDAL REPAIR · Restored '+Math.round(amount)+' HP','skill');
  }else{
    overdriveUntil=elapsed+8;
    for(const u of units)fx(u.x,u.y,'buff','#ffd36f',.75);
-   eventLog('OVERDRIVE: усиление атаки на 8 с','skill');
+   eventLog('OVERDRIVE · Attack boosted for eight seconds','skill');
  }
  hudAbilities();return true;
 }
@@ -67,7 +67,7 @@ function focusAt(x,y){
  let candidate=null,distanceMin=65;
  for(const b of buildings)if(b.hp>0){const dist=Math.hypot(b.x-x,b.y-y);if(dist<distanceMin){distanceMin=dist;candidate=b;}}
  if(!candidate)return false;
- focusTargetId=candidate.id;fx(candidate.x,candidate.y,'target','#ffe88c');eventLog('ПРИКАЗ: фокус огня по '+candidate.type.toUpperCase(),'order');return true;
+ focusTargetId=candidate.id;fx(candidate.x,candidate.y,'target','#ffe88c');eventLog('FOCUS FIRE · '+candidate.type.toUpperCase(),'order');return true;
 }
 
 function initialBuildings(){return[
@@ -95,7 +95,7 @@ function portrait(type){
  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
 }
 const side=$('roster');Object.keys(T).forEach((k,i)=>{
- const b=document.createElement('button');b.className='troop';b.dataset.type=k;b.setAttribute('aria-label',T[k].label+' — '+T[k].cost+' энергии');
+ const b=document.createElement('button');b.className='troop';b.dataset.type=k;b.setAttribute('aria-label',T[k].label+' — '+T[k].cost+' energy');
  b.innerHTML=`<img class="portrait" draggable="false" src="${portrait(k)}" alt=""><span class="troop-meta"><span class="name">${T[k].label}</span><span class="type">${T[k].role}</span><span class="troop-stats">❤ ${T[k].hp}　⚔ ${T[k].dmg}</span></span><span class="count">0</span><span class="cost">◈ ${T[k].cost}</span>`;
  b.addEventListener('click',()=>selectCard(k));side.appendChild(b);
 });
@@ -105,9 +105,9 @@ function eventLog(text,kind='note'){
 }
 function selectCard(type){
  if(!['planning','deploy','battle'].includes(phase))return false;
- if(mission==='no-giants'&&type==='giant'){message('Гиганты запрещены этой миссией');return false;}
- if(spent+T[type].cost>budget){message('Недостаточно энергии');return false;}
- if(planRemaining&&(!planRemaining[type]||planRemaining[type]<=0)){message('Этого типа нет в плане или карточки закончились');return false;}
+ if(mission==='no-giants'&&type==='giant'){message('This mission excludes giants.');return false;}
+ if(spent+T[type].cost>budget){message('Insufficient energy.');return false;}
+ if(planRemaining&&(!planRemaining[type]||planRemaining[type]<=0)){message('No cards of this unit type remain in the plan.');return false;}
  selectedType=type;drawPlan('DEPLOY');return true;
 }
 function boardPoint(clientX,clientY){
@@ -122,7 +122,7 @@ function deployAt(type,x,y,source='PLAYER'){
  const t=T[type];spent+=t.cost;if(planRemaining)planRemaining[type]--;
  const u={id:++nextUnitId,type,x,y,hp:t.hp,max:t.hp,attack:.12,deployDelay:.15,selected:false,anim:'deploy',attackPose:.6,hurt:0,walk:0,heading:0};
  units.push(u);spawned=true;phase='battle';
- if($('launch'))$('launch').textContent='ВЫСАДКА ИДЁТ · ПЕРЕТАСКИВАЙ КАРТОЧКИ';
+ if($('launch'))$('launch').textContent='DEPLOYING · DRAG CARDS';
  $('ai-status').textContent='● LIVE COMBAT';
  stats.deployed++;fx(x,y,'deploy',t.color);eventLog(source+' → '+t.label+' ['+Math.round(x)+','+Math.round(y)+']','deploy');
  hit(x,y,t.color,12);drawPlan('DEPLOY');return true;
@@ -144,7 +144,7 @@ function endDrag(e){
  if(!pointerDrag)return;
  const type=pointerDrag.type;pointerDrag=null;document.body.classList.remove('dragging-troop');const ghost=$('drag-ghost');if(ghost)ghost.hidden=true;
  const p=boardPoint(e.clientX,e.clientY);dropPreview=null;
- if(!p||!deployAt(type,p.x,p.y,'MOUSE'))message('Высаживать войска можно в левой зоне карты.');
+ if(!p||!deployAt(type,p.x,p.y,'MOUSE'))message('Deploy units on the left side of the map.');
 }
 for(const b of side.children){b.addEventListener('pointerdown',e=>beginDrag(b.dataset.type,e));}
 window.addEventListener('pointermove',pointerMove);
@@ -154,12 +154,12 @@ zone?.addEventListener('click',e=>{
  const p=boardPoint(e.clientX,e.clientY);if(!p)return;
  if(p.x>370){if(['battle','deploy'].includes(phase))focusAt(p.x,p.y);return;}
  if(!selectedType)return;if(phase==='planning')startDeployment();
- if(!deployAt(selectedType,p.x,p.y,'CLICK'))message('Размещай юнитов в светящейся зоне слева.');
+ if(!deployAt(selectedType,p.x,p.y,'CLICK'))message('Place units in the highlighted zone on the left.');
 });
 function startDeployment(){
- if(phase!=='planning')return false;phase='deploy';$('ai-status').textContent='● SELECT A CARD / DRAG TO DEPLOY';$('launch').textContent='ПЕРЕТАСКИВАЙ КАРТОЧКИ НА ПОЛЕ';
+ if(phase!=='planning')return false;phase='deploy';$('ai-status').textContent='● SELECT A CARD / DRAG TO DEPLOY';$('launch').textContent='DRAG CARDS TO DEPLOY';
  $('mission').disabled=true;$('local-plan').disabled=true;$('api-plan').disabled=true;
- eventLog('Фаза высадки: перетащи карточку на левую часть карты');return true;
+ eventLog('Deployment started. Drag a card to the left side of the map.');return true;
 }
 function initTerrain(){const c=$('terrain');const gl=c.getContext('webgl2',{alpha:false,antialias:false});if(!gl){const d=c.getContext('2d');if(d){d.fillStyle='#1a3430';d.fillRect(0,0,W,H);for(let i=0;i<950;i++){d.fillStyle=i%2?'#26483a':'#18362d';d.fillRect((i*91)%W,(i*127)%H,3,3);}}return;}
 const vs=`#version 300 es\nin vec2 p;out vec2 v;void main(){v=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
@@ -193,49 +193,49 @@ function drawPlan(origin){
   b.disabled=(phase==='done'||phase==='paused'||available<=0||(mission==='no-giants'&&type==='giant'));
  });
  $('energy').textContent=String(budget-spent);
- $('plan').textContent=plan?`${origin} · запланировано ${plan.spent} энергии · высажено ${spent}\n${plan.units.map(x=>`${x.type.toUpperCase()} ×${counts[x.type]||0} осталось`).join(' · ')}\n${plan.reason}`:
-  `Энергия: ${budget-spent}. Выбери карточку и перетащи в область высадки слева.`;
+ $('plan').textContent=plan?`${origin} · ${plan.spent} energy planned · ${spent} deployed\n${plan.units.map(x=>`${x.type.toUpperCase()} ×${counts[x.type]||0} remaining`).join(' · ')}\n${plan.reason}`:
+  `${budget-spent} energy. Drag a card into the deployment zone on the left.`;
 }
 function message(text){$('plan').textContent=String(text).slice(0,400);}
-function setMission(){if(phase!=='planning')return;mission=S.safeMission($('mission').value);$('objective-text').textContent=mission==='no-giants'?'Уничтожить ядро без гигантов':mission==='disable-defenses'?'Разрушить оборонительные башни':'Разрушить вражеское ядро';plan=null;planRemaining=null;manual=[];selectedType=null;drawPlan('');}
+function setMission(){if(phase!=='planning')return;mission=S.safeMission($('mission').value);$('objective-text').textContent=mission==='no-giants'?'Destroy the core without giants':mission==='disable-defenses'?'Destroy the defense towers':'Destroy the enemy core';plan=null;planRemaining=null;manual=[];selectedType=null;drawPlan('');}
 $('mission').addEventListener('change',setMission);
 document.querySelectorAll('.lane').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.lane').forEach(x=>x.classList.remove('active'));b.classList.add('active');}));
 $('local-plan').addEventListener('click',()=>{if(phase!=='planning')return;setPlan(S.localPlan({mission,budget,buildings}), 'LOCAL TACTICIAN');$('ai-status').textContent='● LOCAL TACTICIAN';});
 async function requestAPIPlan(){
   if(phase!=='planning')return {ok:false,provider:'none',error:'Battle not in planning phase'};
   const button=$('api-plan');button.disabled=true;
-  $('ai-status').textContent='◌ OPENAI THINKING';message('В OpenAI отправляется только игровое состояние. Ключ остаётся на ПК...');
+  $('ai-status').textContent='◌ OPENAI THINKING';message('Sending the game state to OpenAI. The API key stays on the server.');
   const controller=new AbortController();apiRequestController=controller;
   const timeout=setTimeout(()=>controller.abort(),45000);
   try{
     const body=JSON.stringify({mission,instructions:$('instructions').value.slice(0,400),state:S.stateDigest({mission,budget,buildings})});
     const res=await fetch('/api/plan',{method:'POST',headers:{'Content-Type':'application/json'},body,signal:controller.signal});
-    const answer=await res.json();if(!res.ok||!answer.ok)throw Error(answer.error||'OpenAI недоступен');
+    const answer=await res.json();if(!res.ok||!answer.ok)throw Error(answer.error||'OpenAI is unavailable');
     setPlan(S.extractPlanText(answer.plan),'OPENAI AGENT');$('ai-status').textContent='✧ OPENAI STRATEGIST';
     return {ok:true,provider:'openai',model:answer.model||'configured'};
   }catch(e){
     setPlan(S.localPlan({mission,budget,buildings}),'OFFLINE FALLBACK');
-    $('ai-status').textContent='● LOCAL FALLBACK';message('API ERROR: '+e.message+'\nИспользован локальный стратег.');
+    $('ai-status').textContent='● LOCAL FALLBACK';message('API ERROR: '+e.message+'\nSwitched to the local planner.');
     return {ok:false,provider:'local-fallback',error:String(e.message).slice(0,200)};
   }finally{clearTimeout(timeout);if(apiRequestController===controller)apiRequestController=null;button.disabled=false;}
 }
 $('api-plan').addEventListener('click',requestAPIPlan);
 $('launch').addEventListener('click',()=>{startDeployment();});
-$('reset').addEventListener('click',reset);$('again').addEventListener('click',reset);$('pause').addEventListener('click',()=>{if(phase==='battle'){phase='paused';$('pause').textContent='▶ ПРОДОЛЖИТЬ';}else if(phase==='paused'){phase='battle';$('pause').textContent='Ⅱ ПАУЗА';}});
+$('reset').addEventListener('click',reset);$('again').addEventListener('click',reset);$('pause').addEventListener('click',()=>{if(phase==='battle'){phase='paused';$('pause').textContent='▶ RESUME';}else if(phase==='paused'){phase='battle';$('pause').textContent='Ⅱ PAUSE';}});
 window.addEventListener('keydown',e=>{
  if(e.target&&['TEXTAREA','INPUT','SELECT'].includes(e.target.tagName))return;
  if(e.key==='Escape')$('pause').click();if(e.key.toLowerCase()==='r')reset();
  if(e.key.toLowerCase()==='q')activateSkill('sonar');
  if(e.key.toLowerCase()==='e')activateSkill('heal');
  if(e.key.toLowerCase()==='f')activateSkill('rage');
- if(e.key.toLowerCase()==='x'){focusTargetId=null;eventLog('Режим целей: AUTO','order');}
+ if(e.key.toLowerCase()==='x'){focusTargetId=null;eventLog('Targeting set to auto','order');}
  if(phase==='planning'&&!['TEXTAREA','INPUT','SELECT'].includes(document.activeElement?.tagName)&&/^[1-5]$/.test(e.key))addManual(Object.keys(T)[Number(e.key)-1]);});
 function reset(){
  buildings=initialBuildings();units=[];particles=[];sparks=[];projectiles=[];combatEvents=[];plan=null;planRemaining=null;manual=[];selectedType=null;dropPreview=null;spent=0;phase='planning';elapsed=0;spawned=false;nextUnitId=0;
- $('result').hidden=true;$('launch').disabled=false;$('launch').textContent='НАЧАТЬ ВЫСАДКУ →';$('mission').disabled=false;$('local-plan').disabled=false;$('api-plan').disabled=false;$('pause').textContent='Ⅱ ПАУЗА';$('ai-status').textContent='● AWAITING DEPLOYMENT';
+ $('result').hidden=true;$('launch').disabled=false;$('launch').textContent='START DEPLOYMENT →';$('mission').disabled=false;$('local-plan').disabled=false;$('api-plan').disabled=false;$('pause').textContent='Ⅱ PAUSE';$('ai-status').textContent='● AWAITING DEPLOYMENT';
  effects=[];floaters=[];focusTargetId=null;overdriveUntil=0;sonarUntil=0;battleSpeed=1;if($('speed-control'))$('speed-control').value='1';abilityReady={sonar:0,heal:0,rage:0};stats={deployed:0,lost:0,damage:0,healed:0,shots:0,destroyed:0};
- const report=$('battle-summary');if(report)report.textContent='Размести войска, чтобы увидеть статистику.';
- const feed=$('combat-feed');if(feed)feed.textContent='Ожидание размещения войск.';
+ const report=$('battle-summary');if(report)report.textContent='Deploy troops to see battle statistics.';
+ const feed=$('combat-feed');if(feed)feed.textContent='Awaiting deployment.';
  drawPlan('');setMission();
 }
 // The visible UI never spawns troops automatically on launch.
@@ -263,7 +263,7 @@ function applyImpact(p){
  hit(target.x,target.y,p.color,p.kind==='bomb'?16:7);
  fx(target.x,target.y,p.kind==='bomb'||p.kind==='cannon'?'explosion':'impact',p.color,p.kind==='bomb'?1.6:1);
  floating(target.x,target.y-27,'−'+Math.round(actual),p.color);
- if(target.hp===0){hit(target.x,target.y,p.color,32);fx(target.x,target.y,'explosion',p.color,2.4);stats.destroyed+=T[target.type]?0:1;eventLog((target.type||'UNIT').toUpperCase()+' разрушен / погиб','destroy');}
+ if(target.hp===0){hit(target.x,target.y,p.color,32);fx(target.x,target.y,'explosion',p.color,2.4);stats.destroyed+=T[target.type]?0:1;eventLog((target.type||'UNIT').toUpperCase()+' destroyed','destroy');}
  else eventLog((p.source?.type||'DEFENSE').toUpperCase()+' → '+(target.type||'UNIT').toUpperCase()+' −'+Math.round(actual)+' HP','hit');
 }
 function fire(from,target,damage,kind,color,speed=420,heal=false){
@@ -316,7 +316,7 @@ function update(dt){
  }
  projectiles=projectiles.filter(p=>!p.done);
  const fallen=units.filter(u=>u.hp<=0);
- for(const u of fallen){fx(u.x,u.y,'fall',T[u.type].color,1.25);stats.lost++;eventLog(T[u.type].label+' потерян','loss');}
+ for(const u of fallen){fx(u.x,u.y,'fall',T[u.type].color,1.25);stats.lost++;eventLog(T[u.type].label+' lost','loss');}
  units=units.filter(u=>u.hp>0);
  particles.forEach(p=>{p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.97;p.vy*=.97;});particles=particles.filter(p=>p.life>0);
  sparks.forEach(s=>s.life-=dt);sparks=sparks.filter(s=>s.life>0);
@@ -328,8 +328,8 @@ function update(dt){
  if(elapsed>150||(spawned&&units.length===0&&remaining<=0))return finish(false);
 }
 function finish(win){phase='done';$('result').hidden=false;
- const summary=$('battle-summary');if(summary)summary.textContent=`Высажено: ${stats.deployed}  ·  Потери: ${stats.lost}  ·  Урон: ${Math.round(stats.damage)} HP  ·  Лечение: ${Math.round(stats.healed)} HP  ·  Разрушено: ${stats.destroyed}`;
- eventLog(win?'ЦЕЛЬ ОБЪЕКТИВНО ПОДТВЕРЖДЕНА':'ОПЕРАЦИЯ ПРОВАЛЕНА','result');$('result-title').textContent=win?'VICTORY':'DEFEAT';$('result-title').style.color=win?'#b6ff63':'#ff786b';$('result-message').textContent=win?`Цель подтверждена · ${elapsed.toFixed(1)} с · затрачено ${spent} энергии`:'Отряд потерян, цель не достигнута. Измени состав войск.';$('ai-status').textContent=win?'● OBJECTIVE VERIFIED':'● MISSION FAILED';}
+ const summary=$('battle-summary');if(summary)summary.textContent=`Deployed: ${stats.deployed}  ·  Lost: ${stats.lost}  ·  Damage: ${Math.round(stats.damage)} HP  ·  Healing: ${Math.round(stats.healed)} HP  ·  Destroyed: ${stats.destroyed}`;
+ eventLog(win?'OBJECTIVE VERIFIED':'MISSION FAILED','result');$('result-title').textContent=win?'VICTORY':'DEFEAT';$('result-title').style.color=win?'#b6ff63':'#ff786b';$('result-message').textContent=win?`Objective verified · ${elapsed.toFixed(1)} s · ${spent} energy spent`:'Squad lost. Change the unit mix and try again.';$('ai-status').textContent=win?'● OBJECTIVE VERIFIED':'● MISSION FAILED';}
 function line(x1,y1,x2,y2){ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);}
 function poly(x,y,r,n,phase=0){ctx.beginPath();for(let i=0;i<n;i++){let a=i*Math.PI*2/n+phase,xx=x+Math.cos(a)*r,yy=y+Math.sin(a)*r;if(i===0)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy);}ctx.closePath();}
 function hpBar(x,y,w,ratio,color,label){
@@ -393,7 +393,7 @@ function updateReadout(){
  if(str)str.textContent=buildings.map(b=>`${(names[b.type]||b.type).padEnd(7,' ')} ${String(Math.ceil(b.hp)).padStart(3,' ')}/${b.max}`).join('\n');
  if(squad){
   const byType={};for(const u of units){const v=byType[u.type]||(byType[u.type]={n:0,hp:0,max:0});v.n++;v.hp+=u.hp;v.max+=u.max;}
-  squad.textContent=Object.entries(byType).map(([k,v])=>`${k.toUpperCase()} ×${v.n}  ${Math.ceil(v.hp)}/${v.max}`).join('\n')||'ОЖИДАНИЕ ВЫСАДКИ';
+  squad.textContent=Object.entries(byType).map(([k,v])=>`${k.toUpperCase()} ×${v.n}  ${Math.ceil(v.hp)}/${v.max}`).join('\n')||'AWAITING DEPLOYMENT';
  }
 }
 function loop(now){let dt=clamp((now-last)/1000,0,.07);last=now;
@@ -425,7 +425,7 @@ window.ReflexCitadel=Object.freeze({
  resume:()=>{if(phase==='paused')$('pause').click();}
 });
 for(const key of Object.keys(ABILITIES))$('skill-'+key)?.addEventListener('click',()=>activateSkill(key));
-$('target-clear')?.addEventListener('click',()=>{focusTargetId=null;eventLog('Фокус отменён — AUTO','order');});
+$('target-clear')?.addEventListener('click',()=>{focusTargetId=null;eventLog('Target priority cleared','order');});
 $('sound-enabled')?.addEventListener('change',()=>{soundEnabled=Boolean($('sound-enabled').checked);if(soundEnabled)sound('sonar');});
 $('export-report')?.addEventListener('click',()=>{
  const report={schema:'reflexcore.citadel.combat-report.v1',mission,result:phase,elapsed_seconds:Number(elapsed.toFixed(2)),
@@ -435,11 +435,11 @@ $('export-report')?.addEventListener('click',()=>{
  const url=URL.createObjectURL(blob);
  const a=document.createElement('a');a.href=url;a.download='citadel-combat-'+Date.now()+'.json';
  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
- eventLog('Экспорт отчёта выполнен локально','control');
+ eventLog('Battle report exported locally','control');
 });
 $('target-list')?.querySelectorAll?.('[data-target]')?.forEach(button=>{
  button.addEventListener('click',()=>{const b=buildings.find(x=>x.id===button.dataset.target&&x.hp>0);if(b)focusAt(b.x,b.y);});
 });
-$('speed-control')?.addEventListener('change',()=>{const value=Number($('speed-control').value);if([.5,1,1.5,2].includes(value)){battleSpeed=value;eventLog('Скорость симуляции '+value+'×','control');}});
+$('speed-control')?.addEventListener('change',()=>{const value=Number($('speed-control').value);if([.5,1,1.5,2].includes(value)){battleSpeed=value;eventLog('Simulation speed '+value+'×','control');}});
 if(!document.getElementById('ocean-world'))initTerrain();reset();requestAnimationFrame(loop);
 })();

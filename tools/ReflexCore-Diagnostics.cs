@@ -130,7 +130,7 @@ namespace ReflexCore.Diagnostics
             runs.Columns[0].FillWeight=195;
             runs.Columns[1].ValueType=typeof(int);runs.Columns[1].FillWeight=67;
             foreach(int k in new[]{3,4,5,6}){runs.Columns[k].ValueType=typeof(double);runs.Columns[k].DefaultCellStyle.Format="F1";}
-            runs.Columns[0].ToolTipText="Системное местное время; данные хранятся в UTC";
+            runs.Columns[0].ToolTipText="Shown in local time. Stored in UTC.";
             runs.SelectionChanged+=delegate{ShowSelected();};
             TabPage details=new TabPage("Evidence / decisions"){BackColor=bg};tabs.TabPages.Add(details);
             evidence=new TextBox{Dock=DockStyle.Top,Height=135,ReadOnly=true,Multiline=true,BackColor=panel,ForeColor=fg,BorderStyle=BorderStyle.None,

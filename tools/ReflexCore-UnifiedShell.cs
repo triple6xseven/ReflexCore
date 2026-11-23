@@ -211,12 +211,12 @@ namespace ReflexCore.Control
                 collapseButton.Click += delegate(object sender, EventArgs e) { ToggleSidebar(); };
                 sidebar.Controls.Add(collapseButton); collapseButton.BringToFront();
 
-                AddLink(nav, tabs.TabPages[0], "01   АГЕНТ", "Задачи и управление");
-                AddLink(nav, tabs.TabPages[1], "02   МОДЕЛИ", "Локальный Ollama");
-                AddLink(nav, tabs.TabPages[2], "03   ДИАГНОСТИКА", "CPU / GPU / задержки");
+                AddLink(nav, tabs.TabPages[0], "01   AGENT", "Task queue and controls");
+                AddLink(nav, tabs.TabPages[1], "02   MODELS", "Local Ollama");
+                AddLink(nav, tabs.TabPages[2], "03   DIAGNOSTICS", "CPU, GPU and latency");
                 AddLink(nav, tabs.TabPages[3], "04   SHARED CONTROL", "Windows / CS16");
-                AddLink(nav, tabs.TabPages[4], "05   CITADEL LAB", "Игровой полигон");
-                AddLink(nav, tabs.TabPages[5], "06   OPENAI API", "Внешний backend");
+                AddLink(nav, tabs.TabPages[4], "05   CITADEL LAB", "Game benchmark");
+                AddLink(nav, tabs.TabPages[5], "06   OPENAI API", "Cloud API");
                 separator = new Panel { Width = 198, Height = 1, BackColor = Color.FromArgb(52, 75, 77), Margin = new Padding(5, 18, 3, 15) };
                 nav.Controls.Add(separator);
                 safeNote = Text("LOCAL FIRST  /  STOP: CTRL+ALT+P", 8, false, dim);

@@ -606,20 +606,20 @@ Return only action and at_bombsite as strict JSON.";
             Panel header=new Panel{Dock=DockStyle.Fill,Height=93,BackColor=Color.FromArgb(17,30,33),Padding=new Padding(22,14,22,10)};
             var brand=new Label{Text="REFLEXCORE    /    OPERATOR",Dock=DockStyle.Top,Height=35,
                 ForeColor=green,Font=new Font("Consolas",17,FontStyle.Bold)};
-            var description=new Label{Text="Shared Control · CS 1.6  |  Твоя мышь и клавиатура · Перехват ввода → пауза 3 секунды",
+            var description=new Label{Text="Shared Control · CS 1.6  |  Physical mouse or keyboard input pauses the agent for 3 seconds",
                 Dock=DockStyle.Fill,Font=new Font("Segoe UI",9.5f),ForeColor=Color.FromArgb(168,192,182)};
             header.Controls.Add(description);header.Controls.Add(brand);
 
             // Status and STOP remain visible on every tab, including when detailed logs are hidden.
             Panel statusPanel=new Panel{Dock=DockStyle.Fill,Height=173,BackColor=Color.FromArgb(20,34,35),Padding=new Padding(22,10,22,10)};
-            stopButton=MakeButton("■  ОСТАНОВИТЬ / СОХРАНИТЬ ЗАПИСЬ",delegate{StopCurrent(true);},false);
+            stopButton=MakeButton("■  STOP / SAVE RECORDING",delegate{StopCurrent(true);},false);
             stopButton.BackColor=Color.FromArgb(93,37,44);
             stopButton.FlatAppearance.BorderColor=Color.FromArgb(156,77,79);
             stopButton.Dock=DockStyle.Bottom;stopButton.Height=49;
-            summary=new Label{Dock=DockStyle.Top,Height=36,Text="ГОТОВ К РАБОТЕ",ForeColor=green,
+            summary=new Label{Dock=DockStyle.Top,Height=36,Text="READY",ForeColor=green,
                 Font=new Font("Consolas",15,FontStyle.Bold),AutoEllipsis=true};
             details=new Label{Dock=DockStyle.Fill,
-                Text="Выбери режим сверху. Переключись в CS, когда попросит агент. F12 или Ctrl+Alt+P — остановка.",
+                Text="Choose a mode and switch to CS 1.6 when prompted. Press F12 or Ctrl+Alt+P to stop.",
                 ForeColor=Color.FromArgb(191,211,199),Font=new Font("Segoe UI",9.5f),AutoEllipsis=true};
             statusPanel.Controls.Add(details);statusPanel.Controls.Add(summary);statusPanel.Controls.Add(stopButton);
             
@@ -635,10 +635,10 @@ Return only action and at_bombsite as strict JSON.";
             shell.Controls.Add(header,0,0);
             shell.Controls.Add(tabs,0,1);
             shell.Controls.Add(statusPanel,0,2);
-            TabPage pilot=MakePage("Управление");
-            TabPage planting=MakePage("Бомба C4");
-            TabPage recording=MakePage("Обучение");
-            TabPage journal=MakePage("Диагностика");
+            TabPage pilot=MakePage("Navigation");
+            TabPage planting=MakePage("Plant C4");
+            TabPage recording=MakePage("Demonstrations");
+            TabPage journal=MakePage("Diagnostics");
             tabs.TabPages.AddRange(new TabPage[]{pilot,planting,recording,journal});
 
             TableLayoutPanel pilotGrid=PageGrid(7);
@@ -649,12 +649,12 @@ Return only action and at_bombsite as strict JSON.";
             pilotGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,50));
             pilotGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,76));
             pilotGrid.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-            pilotGrid.Controls.Add(PageTitle("Навигация по экрану"),0,0);
-            navButton=MakeButton("▶   ЗАПУСТИТЬ AI-НАВИГАЦИЮ",delegate{StartNavigation();},true);
+            pilotGrid.Controls.Add(PageTitle("Screen navigation"),0,0);
+            navButton=MakeButton("▶   START AI NAVIGATION",delegate{StartNavigation();},true);
             pilotGrid.Controls.Add(navButton,0,1);
-            visibleTestButton=MakeButton("ТЕСТ ВИДИМОГО ВВОДА: W НА 1.2 С (НЕ AI)",delegate{StartVisibleInputTest();},false);
+            visibleTestButton=MakeButton("TEST KEYBOARD INPUT · HOLD W FOR 1.2 S",delegate{StartVisibleInputTest();},false);
             pilotGrid.Controls.Add(visibleTestButton,0,2);
-            pilotGrid.Controls.Add(PageNote("Qwen смотрит на кадр, выбирает короткое действие, затем делает новый снимок. До 8 шагов. После каждого шага проверяется изменение кадра. Это не доказывает координаты или наличие противника."),0,3);
+            pilotGrid.Controls.Add(PageNote("Qwen selects a short action from a screen capture. The agent checks how the image changes after each action, up to eight steps."),0,3);
             Panel modePanel=new Panel{Dock=DockStyle.Fill};
             var modeLabel=new Label{Text="THINKING MODE",Dock=DockStyle.Left,Width=180,TextAlign=ContentAlignment.MiddleLeft,ForeColor=green,
                 Font=new Font("Consolas",11,FontStyle.Bold)};
@@ -663,8 +663,8 @@ Return only action and at_bombsite as strict JSON.";
             navMode.Items.AddRange(new object[]{"Auto","Reflex","Focused","Deep"});navMode.SelectedIndex=0;
             modePanel.Controls.Add(navMode);modePanel.Controls.Add(modeLabel);
             pilotGrid.Controls.Add(modePanel,0,4);
-            pilotGrid.Controls.Add(PageNote("1. Нажми старт.    2. Переключись в CS.    3. Смотри за действиями.\nПриоритет физического ввода: пауза 3 секунды; F12 / Ctrl+Alt+P — стоп."),0,5);
-            CheckBox hudToggle=new CheckBox{Text="Показывать компактный статус поверх игры",Dock=DockStyle.Top,Height=30,
+            pilotGrid.Controls.Add(PageNote("Start navigation, then switch to CS 1.6 to observe.\nPhysical input pauses the agent for three seconds. Press F12 or Ctrl+Alt+P to stop."),0,5);
+            CheckBox hudToggle=new CheckBox{Text="Show a compact status overlay in the game",Dock=DockStyle.Top,Height=30,
                 ForeColor=Color.FromArgb(192,217,198),Checked=true,Margin=new Padding(4,12,4,4)};
             hudToggle.CheckedChanged+=delegate{
                 if(hudToggle.Checked){hud.Show(this);hud.Set("REFLEXCORE | "+summary.Text);}else hud.Hide();
@@ -680,14 +680,14 @@ Return only action and at_bombsite as strict JSON.";
             plantGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,66));
             plantGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,64));
             plantGrid.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-            plantGrid.Controls.Add(PageTitle("Установка C4 с разрешением"),0,0);
-            visionButton=MakeButton("1   QWEN: ПРОВЕРИТЬ C4 И ТОЧКУ",delegate{StartVisionPlan();},true);
+            plantGrid.Controls.Add(PageTitle("Plant C4 with approval"),0,0);
+            visionButton=MakeButton("1   CHECK C4 AND BOMBSITE WITH QWEN",delegate{StartVisionPlan();},true);
             plantGrid.Controls.Add(visionButton,0,1);
-            plantGrid.Controls.Add(PageNote("Вернись в игру. Если агент видит C4 и место установки, активируется кнопка подтверждения. Если нет — ввода не будет."),0,2);
-            approveButton=MakeButton("2   ПОДТВЕРДИТЬ УСТАНОВКУ",delegate{ApproveVisionPlant();},true);
+            plantGrid.Controls.Add(PageNote("Return to the game. The approval button becomes available when Qwen reports both C4 and a bombsite."),0,2);
+            approveButton=MakeButton("2   APPROVE PLANTING",delegate{ApproveVisionPlant();},true);
             approveButton.Enabled=false;plantGrid.Controls.Add(approveButton,0,3);
-            plantGrid.Controls.Add(PageNote("Для подтверждения есть 30 секунд после ответа модели. Это фиксированный ввод, а не самостоятельный поиск bombsite."),0,4);
-            plantButton=MakeButton("ТЕСТ: ПОПРОБОВАТЬ ПОСТАВИТЬ C4 БЕЗ QWEN",delegate{StartReplay(true);},false);
+            plantGrid.Controls.Add(PageNote("You have 30 seconds to approve. The drill sends the plant inputs at your current position."),0,4);
+            plantButton=MakeButton("RUN PLANT C4 DRILL",delegate{StartReplay(true);},false);
             plantGrid.Controls.Add(plantButton,0,5);planting.Controls.Add(plantGrid);
 
             TableLayoutPanel recordGrid=PageGrid(6);
@@ -697,20 +697,20 @@ Return only action and at_bombsite as strict JSON.";
             recordGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,68));
             recordGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,55));
             recordGrid.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-            recordGrid.Controls.Add(PageTitle("Покажи агенту движение"),0,0);
-            recordButton=MakeButton("●   НАЧАТЬ ЗАПИСЬ ДЕМОНСТРАЦИИ",delegate{StartRecord();},true);
+            recordGrid.Controls.Add(PageTitle("Record a demonstration"),0,0);
+            recordButton=MakeButton("●   START RECORDING",delegate{StartRecord();},true);
             recordGrid.Controls.Add(recordButton,0,1);
-            recordGrid.Controls.Add(PageNote("После начала переключись в CS, покажи движения и нажми кнопку «Остановить» внизу окна, чтобы сохранить запись локально."),0,2);
-            replayButton=MakeButton("▶   ВОСПРОИЗВЕСТИ ДЕМОНСТРАЦИЮ",delegate{StartReplay(false);},false);
+            recordGrid.Controls.Add(PageNote("Start recording and switch to CS 1.6. Demonstrate the movements, then press Stop to save locally."),0,2);
+            replayButton=MakeButton("▶   REPLAY DEMONSTRATION",delegate{StartReplay(false);},false);
             recordGrid.Controls.Add(replayButton,0,3);
             trackMouse=new CheckBox{Dock=DockStyle.Top,Height=44,ForeColor=Color.FromArgb(190,210,194),
-                Text="Также записывать движения мыши (экспериментально)",Checked=false};
+                Text="Include mouse movements (experimental)",Checked=false};
             recordGrid.Controls.Add(trackMouse,0,4);
-            recordGrid.Controls.Add(PageNote("Только игровые клавиши и действия мыши, пока CS активна. Без записи текста из других приложений. Данные остаются локально."),0,5);
+            recordGrid.Controls.Add(PageNote("Recording captures selected game controls while CS 1.6 is in the foreground. The recording stays on this computer."),0,5);
             recording.Controls.Add(recordGrid);
 
             var journalPanel=new Panel{Dock=DockStyle.Fill,Padding=new Padding(3,10,3,3)};
-            var journalTitle=PageTitle("События агента · только в памяти");
+            var journalTitle=PageTitle("Agent events · In memory");
             journalTitle.Dock=DockStyle.Top;journalTitle.Height=41;
             activity=new TextBox{Dock=DockStyle.Fill,ReadOnly=true,Multiline=true,ScrollBars=ScrollBars.Both,
                 BackColor=Color.FromArgb(6,17,20),ForeColor=green,Font=new Font("Consolas",9),WordWrap=false,TabStop=false};
@@ -933,7 +933,7 @@ Return only action and at_bombsite as strict JSON.";
             visionProcess=Process.Start(psi);
             if(visionProcess==null)throw new Exception("Failed to start local Qwen observer.");
             state="AI_PLAN";visionStarted=Now;
-            ShowState("QWEN VISION · ANALYZING","Переключись в CS 1.6 в течение 5 секунд. Снимок останется в RAM. До отдельного подтверждения программа НЕ отправит ввод. Анализ может занять 20–150 секунд.");
+            ShowState("QWEN VISION · ANALYZING","Switch to CS 1.6 within five seconds. The screenshot stays in memory. Input requires separate approval. Analysis may take 20–150 seconds.");
         }
         void FinishVisionPlan()
         {
@@ -959,12 +959,12 @@ Return only action and at_bombsite as strict JSON.";
             if(approved)
             {
                 state="AI_READY";visionReadyAt=Now;approveButton.Enabled=true;
-                ShowState("QWEN: C4 + BOMBSITE VISIBLE","Qwen предложила установку. Проверь, что ты всё ещё T с C4 внутри точки A/B, и нажми ПОДТВЕРДИТЬ AI PLANT в течение 30 секунд. После этого будет 3 секунды на возврат в игру. Иначе ввод НЕ произойдёт.");
+                ShowState("QWEN: C4 + BOMBSITE VISIBLE","Qwen proposed planting. Confirm that you are a Terrorist carrying C4 inside a bombsite, then approve within 30 seconds. Switch back to the game within three seconds of approval.");
             }
             else
             {
                 state="IDLE";
-                ShowState("QWEN: NO AUTHORIZED ACTION",exit==0?"Модель не подтвердила одновременно C4 и точку установки (или результат устарел). Клавиши НЕ отправлены.":"Local Vision не ответил успешно. Проверь Ollama и повтори тест. Клавиши НЕ отправлены.");
+                ShowState("QWEN: NO AUTHORIZED ACTION",exit==0?"The check did not produce current evidence of both C4 and a bombsite. No input was sent.":"The local vision check failed. Check Ollama and try again. No input was sent.");
             }
         }
         void ApproveVisionPlant()
@@ -1267,7 +1267,7 @@ Return only action and at_bombsite as strict JSON.";
         {
             StopCurrent(false);frames.Clear();recordedDown.Clear();mouseWasKnown=false;
             state="RECORD";recordPending=true;recordAt=Now+3000;
-            ShowState("RECORD IN 3s","Вернись в CS 1.6. Только разрешённые игровые кнопки записываются, если игра на переднем плане. Закончи запись кнопкой STOP.");
+            ShowState("RECORD IN 3s","Switch to CS 1.6. Recording captures selected game controls while the game is in the foreground. Press Stop when done.");
         }
         List<Frame> PlantFrames()
         {
@@ -1286,7 +1286,7 @@ Return only action and at_bombsite as strict JSON.";
             state="PLAY";activeScript=builtIn?"PLANT C4 DRILL":"DEMONSTRATION";
             playAt=Now+3000;lastTick=Now;elapsedPlaying=0;next=0;pauseUntil=0;
             logicalDown.Clear();injectedDown.Clear();logicalLeft=logicalRight=injectedLeft=injectedRight=false;
-            ShowState("ARMED / 3s","Вернись в CS 1.6 и не трогай управление. Если ты вмешаешься, агент отпустит кнопки и сделает 3-секундную паузу.");
+            ShowState("ARMED / 3s","Switch to CS 1.6. Physical input releases agent-held controls and pauses replay for three seconds.");
         }
         void StopCurrent(bool save)
         {
@@ -1298,7 +1298,7 @@ Return only action and at_bombsite as strict JSON.";
             unifiedSession="";unifiedPending=false; // invalidates future use of this session in the GUI
             navBeforeFrame=null;navUserIntervened=false;
             ReleaseInjected();logicalDown.Clear();logicalLeft=logicalRight=false;
-            if(!IsDisposed&&summary!=null)ShowState("STOPPED / READY","Обучающая запись хранится только в data/private и не содержит текстов окон или произвольных клавиш.\nПовтор — это записанная последовательность действий, ещё не самостоятельное распознавание карты.");
+            if(!IsDisposed&&summary!=null)ShowState("STOPPED / READY","The demonstration stays in data/private and contains selected game controls.\nReplay follows the recorded sequence.");
         }
         void ReleaseInjected()
         {
@@ -1609,8 +1609,8 @@ Return only action and at_bombsite as strict JSON.";
                 {
                     if(recordPending&&now>=recordAt)
                     {
-                        if(GameForeground()){recordBeginning=now;recordPending=false;mouseWasKnown=false;ShowState("RECORDING","Игра активна — выполняй установку C4 или движение. Затем вернись и нажми STOP для сохранения.");}
-                        else ShowState("WAITING FOR CS 1.6","Перейди в открытую локальную игру CS 1.6, чтобы началась запись.");
+                        if(GameForeground()){recordBeginning=now;recordPending=false;mouseWasKnown=false;ShowState("RECORDING","Game in foreground. Demonstrate the movement or plant C4, then press Stop to save.");}
+                        else ShowState("WAITING FOR CS 1.6","Switch to a local CS 1.6 game to start recording.");
                     }
                     else if(!recordPending){summary.Text="RECORDING · "+frames.Count+" events";if(now-recordBeginning>Guard.MaxDurationMs)StopCurrent(true);}
                 }

@@ -1,0 +1,395 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Web.Script.Serialization;
+using System.Windows.Forms;
+
+namespace ReflexCore.Vision
+{
+    public static class Preview
+    {
+        private const string StopName = @"Local\ReflexVisionStop";
+        public static bool Stop()
+        {
+            try { using (var signal = EventWaitHandle.OpenExisting(StopName)) return signal.Set(); }
+            catch (WaitHandleCannotBeOpenedException) { return false; }
+        }
+
+        public static string Run(string project, int pid, long window, int width, bool cpu, int samples, bool fixture)
+        {
+            using (var mutex = new Mutex(false, @"Local\ReflexVisionPreview"))
+            {
+                bool acquired;
+                try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
+                if (!acquired) throw new InvalidOperationException("ReflexVision is already running.");
+                try
+                {
+                    using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, StopName))
+                    using (var fixtureWindow = fixture ? new BenchmarkScene() : null)
+                    {
+                        stop.Reset();
+                        if (fixture)
+                        {
+                            fixtureWindow.Show();
+                            fixtureWindow.Activate();
+                            Application.DoEvents();
+                            pid = Process.GetCurrentProcess().Id;
+                            window = fixtureWindow.Handle.ToInt64();
+                        }
+                        string relay = fixture ? null : Path.Combine(project, "data", "bridge", "reflexvision.json");
+                        using (var form = new PreviewWindow(pid, new IntPtr(window), width, cpu, samples, stop, relay, fixtureWindow))
+                        {
+                            Application.Run(form);
+                            return form.Report();
+                        }
+                    }
+                }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        public static string SelfTest()
+        {
+            using (var surface = new Surface(320, 200))
+            using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, StopName + "_SelfTest"))
+            {
+                var detector = new ColorRegions();
+                var tracker = new Tracker();
+                var observations = new List<Detection>();
+                var results = new List<Track>();
+                using (var g = Graphics.FromImage(surface.Image))
+                {
+                    g.Clear(Color.Navy);
+                    detector.Detect(surface, observations);
+                    if (observations.Count != 0) throw new InvalidOperationException("Detected a blank fixture.");
+                    g.FillRectangle(Brushes.Firebrick, 45, 28, 42, 30);
+                    detector.Detect(surface, observations);
+                    if (observations.Count != 1 || observations[0].Kind != "red_cue") throw new InvalidOperationException("Fixture cue not detected.");
+                    if (!new Rectangle(42, 26, 48, 34).Contains(observations[0].Box))
+                        throw new InvalidOperationException("Fixture cue bounds are inaccurate.");
+                    tracker.Update(observations, 0, results);
+                    if (results.Count != 0) throw new InvalidOperationException("Unconfirmed cue emitted.");
+                    g.Clear(Color.Navy);
+                    g.FillRectangle(Brushes.Firebrick, 49, 30, 42, 30);
+                    detector.Detect(surface, observations);
+                    tracker.Update(observations, 70, results);
+                    if (results.Count != 1) throw new InvalidOperationException("Moving cue lost.");
+                    using (var renderer = new Overlay { Size = new Size(320, 200), Frame = surface })
+                    using (var rendered = new Bitmap(320, 200))
+                    {
+                        renderer.Visible.Add(results[0]);
+                        renderer.DrawToBitmap(rendered, new Rectangle(0, 0, 320, 200));
+                        Rectangle bounds = results[0].Object.Box;
+                        if (rendered.GetPixel(bounds.Left, bounds.Top + 4).G < 210)
+                            throw new InvalidOperationException("Preview did not draw a track border.");
+                    }
+                    int id = results[0].Id;
+                    g.Clear(Color.Navy);
+                    detector.Detect(surface, observations);
+                    tracker.Update(observations, 120, results);
+                    if (results.Count != 0) throw new InvalidOperationException("Missing cue still visible.");
+                    g.FillRectangle(Brushes.Firebrick, 54, 30, 42, 30);
+                    detector.Detect(surface, observations);
+                    tracker.Update(observations, 180, results);
+                    if (results.Count != 1 || results[0].Id != id) throw new InvalidOperationException("Track ID did not survive short occlusion.");
+                    tracker.Update(observations, 600, results);
+                    if (results.Count != 0) throw new InvalidOperationException("Stale track was accepted.");
+                    tracker.Update(observations, 670, results);
+                    if (results.Count != 1 || results[0].Id == id) throw new InvalidOperationException("Expired ID was reused.");
+                }
+                using (var independent = EventWaitHandle.OpenExisting(StopName + "_SelfTest")) independent.Set();
+                if (!stop.WaitOne(0)) throw new InvalidOperationException("Independent stop signal was not delivered.");
+            }
+            return "ReflexVision self-test passed: empty scene, bounds, motion, confirmation, loss, expiry and independent stop.";
+        }
+    }
+
+    internal sealed class BenchmarkScene : Form
+    {
+        private int frame;
+        internal BenchmarkScene()
+        {
+            Text = "ReflexVision benchmark scene";
+            ClientSize = new Size(800, 540);
+            StartPosition = FormStartPosition.Manual;
+            Location = new Point(40, 60);
+            BackColor = Color.FromArgb(28, 41, 56);
+            TopMost = true;
+            DoubleBuffered = true;
+        }
+        internal void Advance() { frame++; Refresh(); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (frame % 80 < 66) e.Graphics.FillRectangle(Brushes.Firebrick, 110 + frame % 80 * 2, 140, 82, 58);
+            e.Graphics.DrawString("100", Font, Brushes.Gold, 40, Height * .91f);
+        }
+    }
+
+    internal sealed class Overlay : Control
+    {
+        internal Surface Frame;
+        internal readonly List<Track> Visible = new List<Track>();
+        internal Overlay() { DoubleBuffered = true; BackColor = Color.FromArgb(14, 20, 27); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (Frame == null) return;
+            float scale = Math.Min(ClientSize.Width / (float)Frame.Width, ClientSize.Height / (float)Frame.Height);
+            var target = new RectangleF((ClientSize.Width - Frame.Width * scale) / 2,
+                (ClientSize.Height - Frame.Height * scale) / 2, Frame.Width * scale, Frame.Height * scale);
+            e.Graphics.DrawImage(Frame.Image, target);
+            foreach (var detection in Visible)
+            {
+                Rectangle bounds = detection.Object.Box;
+                float x = target.X + bounds.X * scale, y = target.Y + bounds.Y * scale;
+                e.Graphics.DrawRectangle(Pens.Lime, x, y, bounds.Width * scale, bounds.Height * scale);
+                string text = detection.Object.Kind + " #" + detection.Id + " " + detection.Object.Score.ToString("0.00");
+                SizeF size = e.Graphics.MeasureString(text, Font);
+                float labelY = Math.Max(target.Top, y - size.Height);
+                e.Graphics.FillRectangle(Brushes.Black, x, labelY, Math.Min(size.Width, target.Right - x), size.Height);
+                e.Graphics.DrawString(text, Font, Brushes.LightGreen, x, labelY);
+            }
+        }
+    }
+
+    internal sealed class PreviewWindow : Form
+    {
+        [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr handle, int id, uint modifiers, uint key);
+        [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr handle, int id);
+        private const int StopHotkey = 6801;
+
+        private readonly Overlay overlay = new Overlay();
+        private readonly Label status = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+        private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 65 };
+        private readonly GameCapture capture;
+        private readonly IDetector detector = new ColorRegions();
+        private readonly Tracker tracker = new Tracker();
+        private readonly List<Detection> detections = new List<Detection>(24);
+        private readonly EventWaitHandle stop;
+        private readonly string relay;
+        private readonly bool cpu;
+        private readonly int samples;
+        private readonly BenchmarkScene fixture;
+        private readonly Stopwatch clock = Stopwatch.StartNew();
+        private readonly JavaScriptSerializer json = new JavaScriptSerializer();
+        private readonly Process process = Process.GetCurrentProcess();
+        private readonly List<double> latency = new List<double>();
+        private double startedAt, finishedAt, startedCpu, finishedCpu;
+        private long peakWorkingSet, workingSet;
+        private int frames, framesWithTracks;
+        private long sequence, lastPublish;
+        private bool finalized, hotkey;
+        private Rectangle placed;
+
+        protected override bool ShowWithoutActivation { get { return true; } }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var parameters = base.CreateParams;
+                parameters.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE keeps the game in the foreground.
+                return parameters;
+            }
+        }
+
+        internal PreviewWindow(int pid, IntPtr hwnd, int width, bool cpuScale, int count, EventWaitHandle signal, string relayPath, BenchmarkScene synthetic)
+        {
+            capture = new GameCapture(hwnd, (uint)pid, width, cpuScale, synthetic != null);
+            cpu = cpuScale; stop = signal; relay = relayPath; samples = count; fixture = synthetic;
+            Text = "ReflexVision - live preview";
+            TopMost = true; StartPosition = FormStartPosition.Manual;
+            ClientSize = new Size(384, 300);
+            MinimumSize = new Size(260, 220);
+            BackColor = Color.FromArgb(23, 32, 43); ForeColor = Color.White;
+            var footer = new Panel { Dock = DockStyle.Bottom, Height = 40, Padding = new Padding(8) };
+            var cancel = new Button { Text = "Stop Capture", Dock = DockStyle.Right, Width = 105, ForeColor = Color.Black };
+            cancel.Click += (sender, args) => Close();
+            footer.Controls.Add(status);
+            footer.Controls.Add(cancel);
+            overlay.Dock = DockStyle.Fill;
+            Controls.Add(overlay);
+            Controls.Add(footer);
+            PlaceNextToGame();
+            if (relay != null)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(relay));
+                Publish("paused", null);
+            }
+            Shown += (sender, args) =>
+            {
+                hotkey = RegisterHotKey(Handle, StopHotkey, 0x4003, 0x79);
+                timer.Start();
+            };
+            timer.Tick += (sender, args) => OnFrame();
+        }
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == 0x0312 && message.WParam.ToInt32() == StopHotkey) Close();
+            base.WndProc(ref message);
+        }
+
+        // Keep the preview outside the capture rectangle. Only the foreground game is sampled.
+        private bool PlaceNextToGame()
+        {
+            Rectangle game = capture.Bounds();
+            if (game.IsEmpty) return false;
+            if (placed != game || Bounds.IntersectsWith(game))
+            {
+                Rectangle screen = Screen.FromRectangle(game).WorkingArea;
+                int right = screen.Right - game.Right;
+                int left = game.Left - screen.Left;
+                int slot = Math.Max(left, right) - 14;
+                if (slot >= MinimumSize.Width)
+                {
+                    Width = Math.Min(410, slot);
+                    Left = right >= left ? game.Right + 7 : game.Left - Width - 7;
+                    Top = Math.Max(screen.Top, Math.Min(game.Top, screen.Bottom - Height));
+                }
+                else
+                {
+                    int bottom = screen.Bottom - game.Bottom;
+                    int top = game.Top - screen.Top;
+                    int vertical = Math.Max(bottom, top) - 14;
+                    if (vertical >= MinimumSize.Height)
+                    {
+                        Height = Math.Min(340, vertical);
+                        Top = bottom >= top ? game.Bottom + 7 : game.Top - Height - 7;
+                        Left = screen.Left + 8;
+                    }
+                }
+                placed = game;
+            }
+            return !Bounds.IntersectsWith(game);
+        }
+
+        private void OnFrame()
+        {
+            if (stop.WaitOne(0) || (samples > 0 && clock.Elapsed.TotalSeconds > 55)) { Close(); return; }
+            try
+            {
+                if (fixture != null) fixture.Advance();
+                var frameStart = Stopwatch.GetTimestamp();
+                long frameUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                Surface surface = PlaceNextToGame() ? capture.Grab() : null;
+                if (surface == null)
+                {
+                    overlay.Frame = null;
+                    overlay.Visible.Clear();
+                    tracker.Clear();
+                    overlay.Invalidate();
+                    status.Text = "Focus the windowed game";
+                    timer.Interval = 180;
+                    if (relay != null && clock.ElapsedMilliseconds - lastPublish >= 200) Publish("paused", null);
+                    return;
+                }
+
+                detector.Detect(surface, detections);
+                tracker.Update(detections, clock.ElapsedMilliseconds, overlay.Visible);
+                overlay.Frame = surface;
+                overlay.Refresh();
+                double elapsed = (Stopwatch.GetTimestamp() - frameStart) * 1000.0 / Stopwatch.Frequency;
+                frames++;
+                if (samples > 0)
+                {
+                    timer.Interval = 50;
+                    if (frames == 8) { startedAt = clock.Elapsed.TotalMilliseconds; startedCpu = process.TotalProcessorTime.TotalMilliseconds; }
+                    if (frames > 8)
+                    {
+                        latency.Add(elapsed);
+                        if (overlay.Visible.Count > 0) framesWithTracks++;
+                        if (latency.Count >= samples) { finalized = true; Close(); return; }
+                    }
+                }
+                else timer.Interval = (detections.Count > 0 || elapsed > 21) ? (elapsed > 21 ? 125 : 65) : 100;
+
+                if (relay != null && clock.ElapsedMilliseconds - lastPublish >= 125)
+                    Publish("live", surface, frameUnixMs);
+                if (!finalized)
+                {
+                    status.Text = overlay.Visible.Count + " tracked | " + elapsed.ToString("0.0") + " ms" +
+                        (hotkey ? " | Ctrl+Alt+F10" : "");
+                }
+            }
+            catch (InvalidOperationException) { Close(); }
+            catch (System.ComponentModel.Win32Exception) { Close(); }
+        }
+
+        private void Publish(string mode, Surface image, long captured = 0)
+        {
+            string temporary = relay + ".next";
+            try
+            {
+                var objects = image == null ? new object[0] : overlay.Visible.Select(track => (object)new
+                {
+                    id = track.Id, kind = track.Object.Kind, confidence = track.Object.Score,
+                    x = track.Object.Box.X, y = track.Object.Box.Y,
+                    width = track.Object.Box.Width, height = track.Object.Box.Height
+                }).ToArray();
+                File.WriteAllText(temporary, json.Serialize(new
+                {
+                    schema = "reflexcore.vision.v1", sequence = ++sequence, status = mode,
+                    captured_unix_ms = image == null ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : captured,
+                    width = image == null ? 0 : image.Width, height = image == null ? 0 : image.Height, objects = objects
+                }));
+                if (File.Exists(relay)) File.Replace(temporary, relay, null);
+                else File.Move(temporary, relay);
+            }
+            catch (IOException) { }
+            finally { lastPublish = clock.ElapsedMilliseconds; }
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            timer.Stop();
+            if (hotkey) UnregisterHotKey(Handle, StopHotkey);
+            if (relay != null) Publish("stopped", null);
+            finishedAt = clock.Elapsed.TotalMilliseconds;
+            process.Refresh();
+            finishedCpu = process.TotalProcessorTime.TotalMilliseconds;
+            peakWorkingSet = process.PeakWorkingSet64;
+            workingSet = process.WorkingSet64;
+            overlay.Frame = null;
+            base.OnFormClosed(e);
+        }
+
+        private static double Percentile(List<double> sorted, double fraction)
+        {
+            return sorted.Count == 0 ? 0 : Math.Round(sorted[(int)Math.Ceiling(sorted.Count * fraction) - 1], 2);
+        }
+
+        internal string Report()
+        {
+            if (samples <= 0) return "";
+            latency.Sort();
+            double interval = finishedAt - startedAt;
+            return json.Serialize(new
+            {
+                schema = "reflexcore.vision.benchmark.v1",
+                source = fixture != null ? "visible_fixture" : "cs16",
+                capture = cpu ? "gdi_copy_cpu_scale" : "gdi_scaled_blit",
+                completed = finalized, frames = latency.Count, frames_with_tracks = framesWithTracks,
+                fps = interval > 0 && latency.Count > 0 ? Math.Round(latency.Count * 1000 / interval, 2) : 0,
+                p50_ms = Percentile(latency, .5), p95_ms = Percentile(latency, .95),
+                process_cpu_core_pct = interval > 0 && latency.Count > 0 ? Math.Round((finishedCpu - startedCpu) * 100 / interval, 2) : 0,
+                process_peak_mib = Math.Round(peakWorkingSet / 1048576.0, 2),
+                process_working_set_mib = Math.Round(workingSet / 1048576.0, 2),
+                inference_gpu_backend = false
+            });
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { timer.Dispose(); capture.Dispose(); process.Dispose(); }
+            base.Dispose(disposing);
+        }
+    }
+}

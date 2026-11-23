@@ -6,6 +6,7 @@ using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Text.RegularExpressions;
+using System.Globalization;
 
 namespace ReflexCore.Bridge
 {
@@ -27,6 +28,21 @@ namespace ReflexCore.Bridge
                 throw new Exception("Tray VisionLoop source parser regression");
             if(TrayWindow.TokensPerSecond("{\"last_tps\":31.2}")!=31.2) throw new Exception("Tray throughput parse regression");
             if(TrayWindow.TokensPerSecond("{\"last_tps\":100000}")!=0) throw new Exception("Tray throughput bounds regression");
+            if(TrayWindow.TokensPerSecond("{\"last_tps\":1000}")!=1000 ||
+               TrayWindow.TokensPerSecond("{\"last_tps\":10e2}")!=0)
+                throw new Exception("Tray throughput numeric regression");
+            DateTime at=new DateTime(2026,1,1,0,0,3,DateTimeKind.Utc);
+            bool precise;
+            DateTime legacy=TrayWindow.ModelSampleTime("{}",at,out precise);
+            if(legacy!=at || precise || !ActivityHud.ThroughputText(31.2,legacy,at,false).Contains("activity 0s ago"))
+                throw new Exception("Legacy throughput timestamp regression");
+            DateTime measured=TrayWindow.ModelSampleTime("{\"last_tps_utc\":\"2026-01-01T00:00:01Z\"}",at,out precise);
+            if(!precise || measured!=at.AddSeconds(-2) ||
+               !ActivityHud.ThroughputText(31.2,measured,at,true).Contains("last reply 2s ago"))
+                throw new Exception("Precise throughput timestamp regression");
+            if(!ActivityHud.ThroughputText(31.2,at.AddSeconds(-66),at,true).Contains("no recent sample") ||
+               !ActivityHud.ThroughputText(31.2,at.AddSeconds(11),at,true).Contains("no recent sample"))
+                throw new Exception("Throughput age bounds regression");
             Console.WriteLine("[ReflexCore] Tray/HUD C# compiled and self-test passed.");
         }
 
@@ -101,13 +117,198 @@ namespace ReflexCore.Bridge
         }
     }
 
+    // Host counters use the same Windows APIs as the diagnostics panel and zxcLagLab.
+    // NVIDIA sampling loads only the library supplied by the installed driver.
+    public sealed class ResourceCounters : IDisposable
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MemoryStatus
+        {
+            public uint Length, Load;
+            public ulong Total, Available, PageTotal, PageFree, VirtualTotal, VirtualFree, ExtendedFree;
+        }
+
+        public sealed class MemoryReading
+        {
+            public ulong UsedBytes { get; internal set; }
+            public ulong TotalBytes { get; internal set; }
+        }
+
+        public sealed class GpuReading
+        {
+            public uint? UtilizationPercent { get; internal set; }
+            public ulong? UsedBytes { get; internal set; }
+            public ulong? TotalBytes { get; internal set; }
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern bool GetSystemTimes(out ulong idle, out ulong kernel, out ulong user);
+        [DllImport("kernel32.dll")]
+        private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
+        [DllImport("kernel32.dll")]
+        private static extern ushort GetActiveProcessorGroupCount();
+
+        private ulong previousIdle, previousTotal;
+        private NvmlReader gpu;
+        public bool CpuIsProcessorGroup { get; private set; }
+
+        public ResourceCounters()
+        {
+            CpuIsProcessorGroup = GetActiveProcessorGroupCount() > 1;
+        }
+
+        public double? ReadCpuPercent()
+        {
+            ulong idle, kernel, user;
+            if (!GetSystemTimes(out idle, out kernel, out user)) return null;
+            ulong total = kernel + user;
+            double? cpu = null;
+            if (previousTotal != 0 && total > previousTotal && idle >= previousIdle)
+            {
+                double busy = 1.0 - (double)(idle - previousIdle) / (total - previousTotal);
+                cpu = 100 * Math.Min(1, Math.Max(0, busy));
+            }
+            previousIdle = idle;
+            previousTotal = total;
+            return cpu;
+        }
+
+        public MemoryReading ReadMemory()
+        {
+            var status = new MemoryStatus { Length = (uint)Marshal.SizeOf(typeof(MemoryStatus)) };
+            if (!GlobalMemoryStatusEx(ref status) || status.Total == 0 || status.Available > status.Total) return null;
+            return new MemoryReading { UsedBytes = status.Total - status.Available, TotalBytes = status.Total };
+        }
+
+        // Call ReadGpu and Dispose serially on a worker thread. GPU values refer to adapter 0.
+        public GpuReading ReadGpu()
+        {
+            if (gpu == null) gpu = new NvmlReader();
+            return gpu.Read();
+        }
+
+        public void Dispose()
+        {
+            if (gpu != null) gpu.Dispose();
+        }
+
+        private sealed class NvmlReader : IDisposable
+        {
+            [StructLayout(LayoutKind.Sequential)]
+            private struct Utilization
+            {
+                public uint Gpu, Memory;
+            }
+            [StructLayout(LayoutKind.Sequential)]
+            private struct Memory
+            {
+                public ulong Total, Free, Used;
+            }
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate int Simple();
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate int GetDevice(uint index, out IntPtr device);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate int GetUtilization(IntPtr device, out Utilization value);
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate int GetMemory(IntPtr device, out Memory value);
+            [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+            private static extern IntPtr LoadLibraryExW(string path, IntPtr reserved, uint flags);
+            [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true)]
+            private static extern IntPtr GetProcAddress(IntPtr module, string name);
+            [DllImport("kernel32.dll")]
+            private static extern bool FreeLibrary(IntPtr module);
+
+            private const uint SearchDllDirectory = 0x100;
+            private const uint SearchSystem32 = 0x800;
+            private IntPtr module, device;
+            private Simple shutdown;
+            private GetUtilization utilization;
+            private GetMemory memory;
+            private bool initialized;
+
+            internal NvmlReader()
+            {
+                try
+                {
+                    var paths = new[] {
+                        Path.Combine(Environment.SystemDirectory, "nvml.dll"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NVIDIA Corporation", "NVSMI", "nvml.dll")
+                    };
+                    foreach (string path in paths)
+                    {
+                        if (!Path.IsPathRooted(path) || !File.Exists(path)) continue;
+                        module = LoadLibraryExW(path, IntPtr.Zero, SearchDllDirectory | SearchSystem32);
+                        if (module != IntPtr.Zero) break;
+                    }
+                    if (module == IntPtr.Zero) return;
+
+                    var init = Export<Simple>("nvmlInit_v2");
+                    shutdown = Export<Simple>("nvmlShutdown");
+                    var handle = Export<GetDevice>("nvmlDeviceGetHandleByIndex_v2");
+                    utilization = Export<GetUtilization>("nvmlDeviceGetUtilizationRates");
+                    memory = Export<GetMemory>("nvmlDeviceGetMemoryInfo");
+                    if (init == null || shutdown == null || handle == null || (utilization == null && memory == null)) return;
+                    initialized = init() == 0;
+                    if (initialized && handle(0, out device) != 0) device = IntPtr.Zero;
+                }
+                finally
+                {
+                    if (device == IntPtr.Zero) Dispose();
+                }
+            }
+
+            private T Export<T>(string name) where T : class
+            {
+                IntPtr address = GetProcAddress(module, name);
+                return address == IntPtr.Zero ? null : Marshal.GetDelegateForFunctionPointer(address, typeof(T)) as T;
+            }
+
+            internal GpuReading Read()
+            {
+                var reading = new GpuReading();
+                if (device == IntPtr.Zero) return reading;
+                Utilization busy;
+                if (utilization != null && utilization(device, out busy) == 0 && busy.Gpu <= 100)
+                    reading.UtilizationPercent = busy.Gpu;
+                Memory ram;
+                if (memory != null && memory(device, out ram) == 0 && ram.Total > 0 && ram.Used <= ram.Total)
+                {
+                    reading.TotalBytes = ram.Total;
+                    reading.UsedBytes = ram.Used;
+                }
+                return reading;
+            }
+
+            public void Dispose()
+            {
+                if (initialized) shutdown();
+                if (module != IntPtr.Zero) FreeLibrary(module);
+                initialized = false;
+                module = IntPtr.Zero;
+                device = IntPtr.Zero;
+            }
+        }
+    }
+
     // Light WinForms overlay owned by the already running tray process.
     // No browser, GPU renderer, network requests, raw prompt or screenshot data.
     internal sealed class ActivityHud : Form
     {
-        private readonly Label header;
-        private readonly Label stageLabel;
-        private readonly Label speedLabel;
+        private readonly Label stageLabel, speedLabel, hostLabel, gpuLabel;
+        private readonly ResourceCounters resources = new ResourceCounters();
+        private readonly object gpuLock = new object();
+        private long nextHostSample, nextGpuSample;
+        private bool gpuBusy, releasing;
+        private volatile TimestampedGpu gpuSample;
+        private TimestampedGpu displayedGpuSample;
+
+        private sealed class TimestampedGpu
+        {
+            public ResourceCounters.GpuReading Reading;
+            public long Ticks;
+        }
+
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams
         {
@@ -115,28 +316,130 @@ namespace ReflexCore.Bridge
         }
         public ActivityHud()
         {
-            Width=288; Height=94; TopMost=true;
             FormBorderStyle=FormBorderStyle.None;
+            ClientSize=new Size(368,132); TopMost=true;
             StartPosition=FormStartPosition.Manual; ShowInTaskbar=false;
             BackColor=Color.FromArgb(14,24,27); Opacity=0.94;
-            header=new Label { Text="REFLEXCORE  /  LIVE STATUS", Left=12, Top=7, Width=260, Height=20,
+            var header=new Label { Text="REFLEXCORE  /  LIVE STATUS", Left=12, Top=7, Width=344, Height=20,
                 ForeColor=Color.FromArgb(94,237,150), Font=new Font("Consolas",9,FontStyle.Bold) };
-            stageLabel=new Label { Text="Сейчас: ожидание", Left=12, Top=33, Width=268, Height=22,
+            stageLabel=new Label { Text="Idle", Left=12, Top=29, Width=344, Height=23, AutoEllipsis=true,
                 ForeColor=Color.FromArgb(224,241,228), Font=new Font("Segoe UI",10,FontStyle.Regular) };
-            speedLabel=new Label { Text="Ollama: — tok/s (последний ответ)", Left=12, Top=63, Width=270, Height=18,
-                ForeColor=Color.FromArgb(140,198,182), Font=new Font("Segoe UI",8,FontStyle.Regular) };
-            Controls.Add(header); Controls.Add(stageLabel); Controls.Add(speedLabel);
+            hostLabel=Metric("CPU —    RAM —",55);
+            gpuLabel=Metric("GPU 0 —    VRAM —",79);
+            speedLabel=Metric("Ollama — tok/s  \u00b7  no recent sample",103);
+            Controls.AddRange(new System.Windows.Forms.Control[] {header,stageLabel,hostLabel,gpuLabel,speedLabel});
             Reposition();
         }
+
+        private static Label Metric(string value,int top)
+        {
+            return new Label { Text=value, Left=12, Top=top, Width=344, Height=22,
+                ForeColor=Color.FromArgb(172,218,205), Font=new Font("Segoe UI",9,FontStyle.Regular) };
+        }
+
         public void Reposition()
         {
             Rectangle a=Screen.PrimaryScreen.WorkingArea;
             Location=new Point(a.Right-Width-12,a.Top+35);
         }
-        public void RefreshStatus(string label,double tps)
+        public void RefreshStatus(string label) { stageLabel.Text=label; }
+
+        public void RefreshThroughput(double tps,DateTime measuredUtc,DateTime now,bool precise)
         {
-            stageLabel.Text="Сейчас: "+label;
-            speedLabel.Text=tps>0?"Ollama: "+tps.ToString("0.0",System.Globalization.CultureInfo.InvariantCulture)+" tok/s (посл. ответ)":"Ollama: — tok/s (нет замера)";
+            speedLabel.Text=ThroughputText(tps,measuredUtc,now,precise);
+        }
+
+        internal static string ThroughputText(double tps,DateTime measuredUtc,DateTime now,bool precise)
+        {
+            double age=(now-measuredUtc).TotalSeconds;
+            return tps>0 && age>=-10 && age<=65
+                ? String.Format(CultureInfo.InvariantCulture,"Ollama {0:0.0} tok/s  \u00b7  {1} {2:0}s ago",
+                    tps,precise?"last reply":"activity",Math.Max(0,Math.Floor(age)))
+                : "Ollama — tok/s  \u00b7  no recent sample";
+        }
+
+        public void RefreshResources()
+        {
+            if (!Visible) return;
+            long now=Stopwatch.GetTimestamp();
+            if(now>=nextHostSample)
+            {
+                nextHostSample=now+Stopwatch.Frequency;
+                double? cpu=resources.ReadCpuPercent();
+                var ram=resources.ReadMemory();
+                string cpuText=cpu.HasValue?cpu.Value.ToString("0",CultureInfo.InvariantCulture)+"%":"—";
+                string ramText=ram==null?"—":FormatGib(ram.UsedBytes,ram.TotalBytes);
+                hostLabel.Text=(resources.CpuIsProcessorGroup?"CPU group ":"CPU ")+cpuText+"    RAM "+ramText;
+            }
+            if(now>=nextGpuSample)
+            {
+                nextGpuSample=now+3*Stopwatch.Frequency;
+                RequestGpuSample();
+            }
+            var current=gpuSample;
+            if(current!=null && now-current.Ticks>12*Stopwatch.Frequency) current=null;
+            if(current==displayedGpuSample) return;
+            displayedGpuSample=current;
+            var reading=current==null?null:current.Reading;
+            string gpu=reading!=null && reading.UtilizationPercent.HasValue
+                ?reading.UtilizationPercent.Value.ToString(CultureInfo.InvariantCulture)+"%":"—";
+            string vram=reading!=null && reading.UsedBytes.HasValue && reading.TotalBytes.HasValue
+                ?FormatGib(reading.UsedBytes.Value,reading.TotalBytes.Value):"—";
+            gpuLabel.Text="GPU 0 "+gpu+"    VRAM "+vram;
+        }
+
+        private static string FormatGib(ulong used,ulong total)
+        {
+            const double bytesPerGib=1024*1024*1024;
+            return String.Format(CultureInfo.InvariantCulture,"{0:0.0}/{1:0.0} GiB",used/bytesPerGib,total/bytesPerGib);
+        }
+
+        private void RequestGpuSample()
+        {
+            lock(gpuLock)
+            {
+                if(gpuBusy || releasing) return;
+                gpuBusy=true;
+            }
+            ThreadPool.QueueUserWorkItem(delegate(object unused) {
+                try
+                {
+                    var reading=resources.ReadGpu();
+                    gpuSample=new TimestampedGpu {Reading=reading,Ticks=Stopwatch.GetTimestamp()};
+                }
+                catch
+                {
+                    gpuSample=null;
+                }
+                finally
+                {
+                    bool dispose;
+                    lock(gpuLock)
+                    {
+                        gpuBusy=false;
+                        dispose=releasing;
+                    }
+                    if(dispose) resources.Dispose();
+                }
+            });
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if(disposing)
+            {
+                bool dispose=false;
+                lock(gpuLock)
+                {
+                    if(!releasing)
+                    {
+                        releasing=true;
+                        dispose=!gpuBusy;
+                    }
+                }
+                if(dispose) ThreadPool.QueueUserWorkItem(delegate(object unused) {resources.Dispose();});
+            }
+            base.Dispose(disposing);
         }
     }
 
@@ -162,6 +465,9 @@ namespace ReflexCore.Bridge
         private readonly string activityPath;
         private string lastActivityStage="";
         private string lastActivitySource="";
+        private DateTime lastActivityWriteUtc, activeStageUtc, modelSampleUtc;
+        private double modelRate;
+        private bool modelSampleTimePrecise;
         private readonly System.Windows.Forms.Timer tick;
         private Process active;
         private string activeJob;
@@ -209,7 +515,7 @@ namespace ReflexCore.Bridge
             statusMenu = new ToolStripMenuItem("Status: ready");
             statusMenu.Enabled = false;
             menu.Items.Add(statusMenu);
-            activityMenu = new ToolStripMenuItem("Сейчас: ожидание");
+            activityMenu = new ToolStripMenuItem("Activity: idle");
             activityMenu.Enabled = false;
             menu.Items.Add(activityMenu);
             hudMenu=new ToolStripMenuItem("Hide corner status widget");
@@ -346,19 +652,19 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         {
             switch(stage)
             {
-                case "ready": return "готов к работе";
-                case "observing": return "наблюдает состояние";
-                case "capturing": return "снимает кадр";
-                case "thinking": return "модель анализирует";
-                case "deciding": return "выбирает действие";
-                case "awaiting_effect": return "ожидает результат";
-                case "executing": return "выполняет действие";
-                case "verifying": return "проверяет последствия";
-                case "verified": return "действие проверено";
-                case "human_override": return "остановлен человеком";
-                case "completed": return "цель завершена";
-                case "failed": return "ошибка или отказ проверки";
-                case "stopped": return "остановлен";
+                case "ready": return "Ready";
+                case "observing": return "Observing";
+                case "capturing": return "Capturing";
+                case "thinking": return "Thinking";
+                case "deciding": return "Choosing action";
+                case "awaiting_effect": return "Waiting for effect";
+                case "executing": return "Executing";
+                case "verifying": return "Verifying";
+                case "verified": return "Effect verified";
+                case "human_override": return "Operator override";
+                case "completed": return "Goal completed";
+                case "failed": return "Failed or rejected";
+                case "stopped": return "Stopped";
                 default: return "";
             }
         }
@@ -369,48 +675,93 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         }
         internal static double TokensPerSecond(string json)
         {
-            Match match=Regex.Match(json,"\"last_tps\"\\s*:\\s*(\\d{1,3}(?:\\.\\d{1,2})?)(?![0-9.])");
+            Match match=Regex.Match(json,"\"last_tps\"\\s*:\\s*(\\d{1,4}(?:\\.\\d{1,2})?)\\s*(?=[,}])");
             if(!match.Success)return 0;
             double v;
-            return double.TryParse(match.Groups[1].Value,System.Globalization.NumberStyles.AllowDecimalPoint,
-                System.Globalization.CultureInfo.InvariantCulture,out v)&&v<=1000? v:0;
+            return double.TryParse(match.Groups[1].Value,NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture,out v)&&v<=1000? v:0;
         }
+
+        private static bool Fresh(DateTime measuredUtc,DateTime now)
+        {
+            double age=(now-measuredUtc).TotalSeconds;
+            return age>=-10 && age<=65;
+        }
+
+        private static DateTime ActivityTime(string json,string field)
+        {
+            Match stamp=Regex.Match(json,"\""+field+"\"\\s*:\\s*\"(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,7})?(?:Z|\\+00:00))\"");
+            DateTimeOffset at;
+            return stamp.Success && DateTimeOffset.TryParse(stamp.Groups[1].Value,CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,out at)?at.UtcDateTime:DateTime.MinValue;
+        }
+
+        internal static DateTime ModelSampleTime(string json,DateTime activityUtc,out bool precise)
+        {
+            // Legacy VisionLoop records carry only at_utc. New producers may provide actual measurement time.
+            precise=Regex.IsMatch(json,"\"last_tps_utc\"\\s*:");
+            return precise?ActivityTime(json,"last_tps_utc"):activityUtc;
+        }
+
         private void PollActivity()
         {
             bool capturing=File.Exists(captureSignalPath);
             if(capturing || !hudEnabled) { if(hud.Visible) hud.Hide(); }
             else if(!hud.Visible){ hud.Reposition(); hud.Show(); }
-            if(!File.Exists(activityPath)){hud.RefreshStatus("ожидание",0);return;}
-            string json;
-            try { json=File.ReadAllText(activityPath); } catch { return; }
-            if(json.Length>2048||Value(json,"schema")!="reflexcore.activity.v1")return;
-            // JSON timestamp is not displayed, used only to discard stale reports.
-            Match stamp=Regex.Match(json,"\"at_utc\"\\s*:\\s*\"([^\"]{1,40})\"");
-            DateTime at;
-            if(!stamp.Success || !DateTime.TryParse(stamp.Groups[1].Value,
-                System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.RoundtripKind,out at))return;
-            double age=(DateTime.UtcNow-at.ToUniversalTime()).TotalSeconds;
-            if(age< -10||age>65)
+            hud.RefreshResources();
+
+            var now=DateTime.UtcNow;
+            if(!Fresh(activeStageUtc,now) && lastActivityStage!="")
             {
-                if(lastActivityStage!="")
-                {
-                    lastActivityStage="";lastActivitySource="";
-                    activityMenu.Text="Сейчас: ожидание";
-                    icon.Text="ReflexCore | "+currentState;
-                    hud.RefreshStatus("ожидание",0);
-                }
-                return;
+                lastActivityStage="";lastActivitySource="";
+                activityMenu.Text="Activity: idle";
+                icon.Text="ReflexCore | "+currentState;
+                hud.RefreshStatus("Idle");
             }
+            if(File.Exists(activityPath))
+            {
+                try
+                {
+                    var file= new FileInfo(activityPath);
+                    var written=file.LastWriteTimeUtc;
+                    if(written!=lastActivityWriteUtc && file.Length<=2048)
+                    {
+                        string json=File.ReadAllText(activityPath);
+                        if(RenderActivity(json,now)) lastActivityWriteUtc=written;
+                    }
+                }
+                catch(IOException) {} // A producer may be replacing the activity file.
+                catch(UnauthorizedAccessException) {}
+            }
+            if(hud.Visible) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
+        }
+
+        private bool RenderActivity(string json,DateTime now)
+        {
+            if(json.Length>2048||Value(json,"schema")!="reflexcore.activity.v1")return false;
+            DateTime at=ActivityTime(json,"at_utc");
+            if(!Fresh(at,now))return at!=DateTime.MinValue;
             string source=Value(json,"source");
-            if(source!="citadel_rust"&&source!="shared_control"&&source!="vision_loop")return;
+            if(source!="citadel_rust"&&source!="shared_control"&&source!="vision_loop")return false;
             string stage=Value(json,"stage");
             string label=StageText(stage);
-            if(label.Length==0)return;
-            string origin=source=="shared_control"?"Qwen/Windows":source=="vision_loop"?"VisionLoop":"Rust";
-            double rate=source=="vision_loop"?TokensPerSecond(json):0;
-            activityMenu.Text="Сейчас: "+origin+" — "+label+(rate>0?" | "+rate.ToString("0.0",System.Globalization.CultureInfo.InvariantCulture)+" tok/s (last)":"");
-            hud.RefreshStatus(origin+" — "+label,rate);
+            if(label.Length==0)return false;
+            string origin=source=="shared_control"?"Shared Control":source=="vision_loop"?"VisionLoop":"Citadel";
+            if(source=="vision_loop")
+            {
+                double rate=TokensPerSecond(json);
+                bool precise;
+                DateTime measured=ModelSampleTime(json,at,out precise);
+                if(rate>0 && measured>=modelSampleUtc && Fresh(measured,now))
+                {
+                    modelRate=rate;
+                    modelSampleUtc=measured;
+                    modelSampleTimePrecise=precise;
+                }
+            }
+            activeStageUtc=at;
+            activityMenu.Text=origin+" — "+label;
+            hud.RefreshStatus(origin+" — "+label);
             icon.Text="ReflexCore | "+label;
             bool changed=(stage!=lastActivityStage || source!=lastActivitySource);
             lastActivityStage=stage;lastActivitySource=source;
@@ -421,6 +772,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 toast.Display(message);
                 try {icon.ShowBalloonTip(2200,"ReflexCore",message,ToolTipIcon.Info);}catch{}
             }
+            return true;
         }
 
         private string[] Jobs()

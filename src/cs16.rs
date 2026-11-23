@@ -12,6 +12,8 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
         Some("benchmark") => cs16_benchmark::run(args),
         Some("probe") => cs16_probe::run(args),
+        Some("vision") => crate::vision::run(args),
+        Some("practice") => crate::cs16_practice::run(args),
         Some("demo") if args.len() == 2 => inspect_demo(Path::new(&args[1])),
         Some("route-check") if args.len() == 3 => check_route(Path::new(&args[1]), Path::new(&args[2])),
         Some("route-draft") if args.len() == 5 => {
@@ -21,7 +23,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&route)?);
             Ok(())
         }
-        _ => Err("Usage: cs16 benchmark <log> --player <userid> [--require-bot-win] | probe [--port <port>] [--pid <pid>] | demo <demo> | route-draft <demo> <A|B> <start-seconds> <end-seconds> | route-check <route> <demo>".into()),
+        _ => Err("Usage: cs16 benchmark <log> --player <userid> [--require-bot-win] | probe [--port <port>] [--pid <pid>] | vision | practice <mailbox> <route> --allow-offline | demo <demo> | route-draft <demo> <A|B> <start-seconds> <end-seconds> | route-check <route> <demo>".into()),
     }
 }
 

@@ -9,7 +9,7 @@ let trace=null,lastTrace=null,verifiedCount=0;
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function log(text){
   const line='['+new Date().toLocaleTimeString('ru-RU')+'] '+String(text).slice(0,180);
-  logArea.textContent=(logArea.textContent==='Агент ожидает команду.'?'':logArea.textContent+'\n')+line;
+  logArea.textContent=(logArea.textContent==='The agent is waiting for a command.'?'':logArea.textContent+'\n')+line;
   const rows=logArea.textContent.split('\n');if(rows.length>24)logArea.textContent=rows.slice(-24).join('\n');
   logArea.scrollTop=logArea.scrollHeight;
 }
@@ -19,13 +19,13 @@ function observer(stage,evidence='',level='normal'){
  const panel=document.querySelector('.agent-observer');
  if(panel){panel.classList.toggle('is-error',level==='error');panel.classList.toggle('is-success',level==='success');}
  $('agent-stage').textContent=stage;
- $('agent-evidence').textContent=evidence||'Ожидание результата игрового действия';
+ $('agent-evidence').textContent=evidence||'Waiting for a game result';
  $('agent-trace-count').textContent=verifiedCount+' / '+(trace?.steps?.filter(x=>x.action==='deploy'||x.action==='skill'||x.action==='focus').length||0)+' VERIFIED';
 }
 function startTrace(kind){
  verifiedCount=0;trace={schema:'reflexcore.citadel.agent-trace.v1',version:'0.4.5',mode:kind,mission:game.snapshot().mission,
   status:'running',result:'unknown',steps:[],total_ms:0};trace.started=performance.now();
- observer('НАБЛЮДЕНИЕ · '+kind,'Нет отправленных действий');
+ observer('OBSERVATION · '+kind,'No actions sent');
 }
 function evidence(action,reason,before,after,proof,ms){
  if(!trace)return;
@@ -38,8 +38,8 @@ function evidence(action,reason,before,after,proof,ms){
   ms:Math.max(0,Math.round(ms))};
  trace.steps.push(record);if(trace.steps.length>400)trace.steps.shift();
  if(proof.ok&&['deploy','skill','focus'].includes(action.kind))verifiedCount++;
- observer((proof.ok?'ПОДТВЕРЖДЕНО':'НЕ ПОДТВЕРЖДЕНО')+' · '+action.kind.toUpperCase()+' '+record.type,
-  record.code+' · '+record.ms+'ms · HP ядра '+after.coreHp+' · осталось '+after.remaining,
+ observer((proof.ok?'VERIFIED':'UNVERIFIED')+' · '+action.kind.toUpperCase()+' '+record.type,
+  record.code+' · '+record.ms+'ms · Core HP '+after.coreHp+' · Remaining '+after.remaining,
   proof.ok?'success':'error');
 }
 function finishTrace(status,result){
@@ -47,11 +47,11 @@ function finishTrace(status,result){
  trace.total_ms=Math.max(0,Math.round(performance.now()-trace.started));delete trace.started;
  lastTrace=JSON.parse(JSON.stringify(trace));
  $('agent-replay').disabled=running||!lastTrace.steps.some(x=>x.action==='deploy'&&x.verified);
- if(result==='verified_win')observer('ЦЕЛЬ ПОДТВЕРЖДЕНА','HP цели = 0; действия и результат записаны в трассу','success');
- else if(result==='verified_loss')observer('ЦЕЛЬ НЕ ДОСТИГНУТА','Бой завершён, но критерий миссии не выполнен','error');
+ if(result==='verified_win')observer('OBJECTIVE VERIFIED','Target HP reached 0. The trace contains the actions and result.','success');
+ else if(result==='verified_loss')observer('OBJECTIVE MISSED','The battle ended before meeting the objective.','error');
 }
 function downloadTrace(){
- if(!trace&&!lastTrace){log('Пока нет трассы для экспорта.');return;}
+ if(!trace&&!lastTrace){log('There is no trace to export yet.');return;}
  const safe=trace?.status==='running'?{...trace,total_ms:Math.round(performance.now()-trace.started)}:(lastTrace||trace);
  const copy={...safe};delete copy.started;
  const blob=new Blob([JSON.stringify(copy,null,2)],{type:'application/json'});
@@ -69,13 +69,13 @@ async function performDeployment(action,id,physical){
  if(!card||card.disabled)throw Error('Card disabled or missing: '+action.type);
  const drop=dropPoint(action.x,action.y);
  const before=game.snapshot(),begin=performance.now();
- observer('ДЕЙСТВИЕ · '+action.type.toUpperCase(),action.reason+' → ['+action.x+','+action.y+']');
+ observer('ACTION · '+action.type.toUpperCase(),action.reason+' → ['+action.x+','+action.y+']');
  if(physical)await physicalDrag(card,drop,id);else await browserDrag(card,drop,id);
  await wait(95);ensureActive(id);
  const after=game.snapshot(),proof=policy.proveDeploy(before,after,action);
  evidence(action,action.reason,before,after,proof,performance.now()-begin);
  if(proof.ok&&$('agent-brain').value==='rust')await confirm3DReadback(after.units.length,id);
- if(!proof.ok)throw Error('Размещение не подтверждено: '+proof.code+'; повтор без проверки запрещён');
+ if(!proof.ok)throw Error('Deployment unverified · '+proof.code+'. Retry requires verification.');
  return proof;
 }
 
@@ -90,7 +90,7 @@ async function confirm3DReadback(unitCount,id){
   if(lastRenderConfirmed>0&&lastRenderedUnitCount>=unitCount)return;
   await wait(100);
  }
- fallbackToVisibleBattle('3D не подтвердил кадр с высаженным отрядом');
+ fallbackToVisibleBattle('3D rendering did not confirm an image with the deployed squad.');
 }
 function spotlight(el){
   if(!el)return;document.querySelectorAll('.agent-target').forEach(x=>x.classList.remove('agent-target'));
@@ -98,7 +98,7 @@ function spotlight(el){
   cursor.style.left=(box.left+box.width*.5)+'px';cursor.style.top=(box.top+box.height*.5)+'px';cursor.classList.add('active');
 }
 function clearSpotlight(){cursor.classList.remove('active');document.querySelectorAll('.agent-target').forEach(x=>x.classList.remove('agent-target'));}
-function ensureActive(id){if(id!==runId)throw Error('Операция остановлена');}
+function ensureActive(id){if(id!==runId)throw Error('Operation stopped');}
 const PHYSICAL_BASE='/api/agent/physical/';
 let nativeToken=null,physicalDriving=false;
 async function nativeCall(name,payload){
@@ -140,22 +140,22 @@ async function visible(id,physical){
  if(trace)trace.planner=useRust?'rust_goal_agent':'browser_policy';
  let s=game.snapshot();
  if(s.phase!=='planning'){
-  spotlight($('reset'));log('Сбрасываю предыдущую операцию перед новой');await wait(260);ensureActive(id);game.reset();
+  spotlight($('reset'));log('Resetting the arena before the next operation.');await wait(260);ensureActive(id);game.reset();
  }
  spotlight($('mission'));
  s=game.snapshot();trace.mission=s.mission;
- log('НАБЛЮДАЮ: '+s.buildings.filter(b=>b.hp>0).length+' живых построек, бюджет '+s.budget);
+ log('OBSERVING · '+s.buildings.filter(b=>b.hp>0).length+' standing structures · Budget '+s.budget);
  const useOpenAI=$('agent-brain').value==='openai';
  spotlight($(useOpenAI?'api-plan':'local-plan'));
- if(useOpenAI){log('Запрос OpenAI только для стартового состава (не для низкоуровневых действий).');
-  const r=await game.planAI();ensureActive(id);log(r.ok?'Состав OpenAI принят':'LOCAL FALLBACK: '+r.error);
- }else{game.plan();log('Локальный состав войск получен из игрового состояния.');}
+ if(useOpenAI){log('Requesting the opening unit mix from OpenAI.');
+  const r=await game.planAI();ensureActive(id);log(r.ok?'Accepted the OpenAI unit mix':'LOCAL FALLBACK: '+r.error);
+ }else{game.plan();log('The local planner chose units from the game state.');}
  await wait(250);ensureActive(id);
- if(!game.snapshot().plan?.units?.length)throw Error('План не построен');
+ if(!game.snapshot().plan?.units?.length)throw Error('No plan available');
  spotlight($('launch'));await wait(220);ensureActive(id);game.launch();
- if(game.snapshot().phase!=='deploy')throw Error('Фаза высадки не подтверждена');
- log(physical?'ВВОД: настоящий курсор Windows с явным разрешением.':'ВВОД: видимые браузерные PointerEvent (НЕ курсор Windows).');
- if(useRust){const result=await rust.start(game.snapshot());ensureActive(id);log('RUST IPC: '+result.code+' · источник решений Rust Goal Agent.');}
+ if(game.snapshot().phase!=='deploy')throw Error('Deployment phase unverified');
+ log(physical?'INPUT · Windows pointer approved':'INPUT · Browser PointerEvents');
+ if(useRust){const result=await rust.start(game.snapshot());ensureActive(id);log('RUST IPC: '+result.code+' · Decisions from the Rust Goal Agent');}
  clearSpotlight();let index=0;
  while(index<24){
   ensureActive(id);
@@ -164,27 +164,27 @@ async function visible(id,physical){
   const choice=useRust?(await rust.next(s)).action:policy.decideDeploy(s,index);
   ensureActive(id);if(!choice)break;
   if(choice.kind!=='deploy')throw Error('Rust returned non-deployment while units remain');
-  log('РЕШЕНИЕ '+(index+1)+': '+choice.type.toUpperCase()+' / '+choice.lane+' · '+choice.reason);
+  log('DECISION '+(index+1)+': '+choice.type.toUpperCase()+' / '+choice.lane+' · '+choice.reason);
   await performDeployment(choice,id,physical);
   if(useRust){const confirmation=await rust.commit(game.snapshot());ensureActive(id);if(!confirmation.verified)throw Error('Rust readback did not verify deployment');}
   index++;
   await wait(260);ensureActive(id);
  }
  const remainder=game.snapshot().plan?.remaining||{};
- if(Object.values(remainder).some(n=>n>0))throw Error('Высадка остановлена: план не завершён; оставшиеся юниты не скрываются');
- log('ВЫСАДКА: '+index+' бойцов подтверждены по ID, координатам, энергии и счётчикам.');
- observer('БОЙ · НАБЛЮДЕНИЕ', 'Отслеживаю HP и применение тактических способностей');
+ if(Object.values(remainder).some(n=>n>0))throw Error('Deployment stopped with units still in the plan');
+ log('DEPLOYMENT · '+index+' units verified by ID, position, energy and counters.');
+ observer('COMBAT · OBSERVING', 'Tracking HP and tactical abilities');
  let memory={lastFocusAt:-100},prev=game.snapshot(),tick=0;
  while(tick++<700){
   await wait(390);ensureActive(id);const before=game.snapshot();
   if(before.phase==='done'){
    const verified=policy.missionVerified(before);
    evidence({kind:'goal',type:'mission'},'Game outcome + authoritative building HP',prev,before,{ok:verified,code:verified?'GOAL_VERIFIED':'GOAL_FAILED'},0);
-   log((verified?'ЦЕЛЬ ПРОВЕРЕНА':'ПОРАЖЕНИЕ')+' · '+before.elapsed.toFixed(1)+' с · '+before.stats.deployed+' высадок');
-   if(useRust){const result=await rust.finish(before);ensureActive(id);if(Boolean(result.goal_verified)!==verified)throw Error('Rust/UI mission verification disagreement');log('RUST: '+result.code+' · '+result.verified_steps+' проверенных команд');}
+   log((verified?'OBJECTIVE VERIFIED':'DEFEAT')+' · '+before.elapsed.toFixed(1)+' s · '+before.stats.deployed+' deployments');
+   if(useRust){const result=await rust.finish(before);ensureActive(id);if(Boolean(result.goal_verified)!==verified)throw Error('Rust/UI mission verification disagreement');log('RUST: '+result.code+' · '+result.verified_steps+' verified commands');}
    finishTrace('completed',verified?'verified_win':'verified_loss');return;
   }
-  if(before.phase==='paused')throw Error('Бой поставлен на паузу');
+  if(before.phase==='paused')throw Error('Battle paused');
   const action=useRust?(await rust.next(before)).action:policy.decideCombat(before,memory);ensureActive(id);
   if(action){
    const start=performance.now();let accepted=false;
@@ -194,29 +194,29 @@ async function visible(id,physical){
    const proof=action.kind==='focus'?{ok:accepted&&after.focusTargetId===action.id,code:'FOCUS_READBACK'}:
     {ok:accepted&&Number(after.cooldowns?.[action.name])>Number(before.cooldowns?.[action.name]),code:'SKILL_COOLDOWN_READBACK'};
    evidence(action,action.reason,before,after,proof,performance.now()-start);
-   if(!proof.ok)throw Error('НЕ ПОДТВЕРЖДЕНО: '+action.kind+'; действие нельзя повторять вслепую');
+   if(!proof.ok)throw Error('UNVERIFIED: '+action.kind+'. Retry requires verification.');
    if(useRust){const ack=await rust.commit(after);ensureActive(id);if(!ack.verified)throw Error('Rust rejected combat readback');}
   }
   if(before.coreHp<=prev.coreHp-40||before.stats.lost>prev.stats.lost){
-   observer('БОЙ · РЕАЛЬНЫЙ HP', 'Ядро '+Math.ceil(before.coreHp)+' HP · наши '+before.units.length+' · потери '+before.stats.lost);
+   observer('COMBAT · LIVE HP', 'Core '+Math.ceil(before.coreHp)+' HP · Allies '+before.units.length+' · Lost '+before.stats.lost);
   }
   prev=before;
  }
- throw Error('Превышено 700 проверок боя; лимит безопасности');
+ throw Error('Stopped after 700 battle checks');
 }
 async function headless(id){
   startTrace('HEADLESS_NODE');document.body.classList.add('headless-run');
   const mission=$('mission').value;
-  log('HEADLESS: отдельный Node.js-процесс, Chrome только показывает отчёт.');
+  log('HEADLESS · Node.js runs the simulation. Chrome shows the report.');
   const ctl=new AbortController();headlessController=ctl;
   const response=await fetch('/api/agent/headless',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({mission}),signal:ctl.signal});
   ensureActive(id);
   const result=await response.json();
   if(!response.ok||!result.ok)throw Error(result.error||'Headless agent failed');
-  log('HEADLESS: '+(result.verified?'ЦЕЛЬ ПОДТВЕРЖДЕНА':'ЦЕЛЬ НЕ ДОСТИГНУТА')+' · '+Number(result.elapsed).toFixed(1)+' с · затраты '+result.spent);
-  log('Метод: '+result.engine+'; интерфейс игры в этом режиме не управляется.');
-  observer('HEADLESS · '+(result.verified?'VERIFIED':'FAILED'),'Ответ отдельного Node-симулятора. В браузере юниты не появлялись.');
+  log('HEADLESS: '+(result.verified?'OBJECTIVE VERIFIED':'OBJECTIVE MISSED')+' · '+Number(result.elapsed).toFixed(1)+' s · Energy spent '+result.spent);
+  log('Engine · '+result.engine+' · Headless simulation');
+  observer('HEADLESS · '+(result.verified?'VERIFIED':'FAILED'),'Result from the headless Node.js simulation.');
   finishTrace('completed',result.verified?'headless_verified':'headless_failed');
 }
 async function stop(){
@@ -226,7 +226,7 @@ async function stop(){
   await stopNative();
   await rust?.stop();
   game.cancelApiPlan();
-  if(had){game.stop();log('Остановлено пользователем. Бой в Chrome поставлен на паузу.');finishTrace('cancelled','user_stop');observer('СТОП · ПОЛЬЗОВАТЕЛЬ','Новые действия запрещены.','error');}
+  if(had){game.stop();log('Stopped by the operator. The Chrome battle is paused.');finishTrace('cancelled','user_stop');observer('STOPPED · OPERATOR','New agent actions are blocked.','error');}
   document.body.classList.remove('headless-run');
   // Server stop is restricted to the one fixed headless executable.
   try{await fetch('/api/agent/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch{}
@@ -235,19 +235,19 @@ startButton.addEventListener('click',async(event)=>{
  if(running)return;
  const visibleMode=$('agent-mode').value==='visible';
  const physical=visibleMode&&Boolean($('agent-physical')?.checked);
- if(visibleMode&&$('agent-brain').value==='openai'&&!window.confirm('Разрешить платный OpenAI API-запрос?'))return;
- if(physical&&$('agent-brain').value==='openai'){log('Для калибровки курсора выбери LOCAL или отключи реальную мышь.');return;}
- if(physical&&!event.isTrusted){log('Настоящую мышь можно включить только реальным кликом пользователя.');return;}
- const id=++runId;state(true);log('Начинаю: '+$('agent-mode').selectedOptions[0].textContent);
+ if(visibleMode&&$('agent-brain').value==='openai'&&!window.confirm('Send a billable OpenAI API request?'))return;
+ if(physical&&$('agent-brain').value==='openai'){log('For pointer calibration, select Local or disable the Windows pointer.');return;}
+ if(physical&&!event.isTrusted){log('Click the control yourself to approve moving the Windows pointer.');return;}
+ const id=++runId;state(true);log('Starting · '+$('agent-mode').selectedOptions[0].textContent);
  try{
   if(physical){
    // Calibration must happen directly after the real user click, before any waits.
    const session=await nativeCall('start',{anchor_x:Math.round(event.clientX),anchor_y:Math.round(event.clientY)});
-   nativeToken=session.token;log('Курсор Windows привязан к окну Citadel (сессия ограничена).');
+   nativeToken=session.token;log('Windows pointer session limited to the Citadel window.');
   }
   ensureActive(id);
   if(visibleMode)await visible(id,physical);else await headless(id);
- }catch(err){if(id===runId){const msg=String(err?.message||err);log('ОШИБКА: '+msg);finishTrace('failed','action_or_observation_failed');observer('ОСТАНОВЛЕНО · НЕУДАЧА',msg,'error');}}
+ }catch(err){if(id===runId){const msg=String(err?.message||err);log('ERROR · '+msg);finishTrace('failed','action_or_observation_failed');observer('STOPPED · FAILED',msg,'error');}}
  finally{if(id===runId){state(false);headlessController=null;clearSpotlight();document.body.classList.remove('headless-run');if(rust?.active)await rust.stop();if(physical)await stopNative();}}
 });
 stopButton.addEventListener('click',stop);
@@ -269,7 +269,7 @@ async function replay(){
   }
   finishTrace('completed','deployment_replay_verified');
   observer('REPLAY · VERIFIED',deployment.length+' placement actions accepted and read back; combat continues in Chrome','success');
- }catch(e){if(id===runId){finishTrace('failed','replay_failure');observer('REPLAY · FAILED',String(e.message||e),'error');log('REPLAY ОШИБКА: '+e.message);}}
+ }catch(e){if(id===runId){finishTrace('failed','replay_failure');observer('REPLAY · FAILED',String(e.message||e),'error');log('REPLAY ERROR · '+e.message);}}
  finally{if(id===runId){state(false);clearSpotlight();}}
 }
 $('agent-replay').addEventListener('click',replay);
@@ -277,14 +277,14 @@ $('agent-replay').addEventListener('click',replay);
 window.addEventListener('keydown',event=>{
  if(!running||!event.isTrusted)return;
  // Synthetic agent sends no keyboard input. Any real key immediately cancels it.
- stop();log('Физическая клавиатура: человек получил управление.');
+ stop();log('Keyboard input returned control to the operator.');
 },true);
 window.addEventListener('pointerdown',event=>{
  if(!running||physicalDriving||event.target===startButton||event.target===stopButton||!event.isTrusted)return;
- runId++;state(false);clearSpotlight();stopNative();rust?.stop();game.stop();finishTrace('cancelled','human_override');observer('СТОП · РУЧНОЙ ВВОД','Агент уступил управление пользователю.','error');log('Человек перехватил управление — агент остановлен.');
+ runId++;state(false);clearSpotlight();stopNative();rust?.stop();game.stop();finishTrace('cancelled','human_override');observer('STOPPED · PHYSICAL INPUT','Control returned to the operator.','error');log('The operator took over. The agent stopped.');
 },true);
 
-$('agent-mode').addEventListener('change',()=>{if(running)stop();log('Режим переключён: '+$('agent-mode').value);});
+$('agent-mode').addEventListener('change',()=>{if(running)stop();log('Agent mode · '+$('agent-mode').value);});
 stopButton.disabled=true;
 const renderStatus=$('render-status');
 let threeDStart=performance.now(),lastRenderConfirmed=0,lastRenderedUnitCount=0,ready=false,lastSent=0,seq=0,visualTimer=null;
@@ -297,43 +297,43 @@ function switchScene(){
   document.body.classList.toggle('world-3d',mode==='3d');
   document.body.classList.toggle('world-2d',mode==='2d');
   if(mode==='2d'){
-    game.enable2D();renderBanner('2D · ВСЕ ЮНИТЫ И АТАКИ ОТОБРАЖАЮТСЯ','ok');
+    game.enable2D();renderBanner('2D · UNITS AND ATTACKS VISIBLE','ok');
   } else {
     threeDStart=performance.now();lastRenderConfirmed=0;
-    renderBanner('3D · ОЖИДАНИЕ КАДРОВ · живая мини-карта включена');
+    renderBanner('3D · WAITING FOR FRAMES · Live tactical map active');
     sendCamera();
   }
-  log('Камера: '+(mode==='3d'?'Akvarium 3D + боевая мини-карта':'полная видимая 2D-карта'));
+  log('Camera · '+(mode==='3d'?'Akvarium 3D + tactical minimap':'full 2D battlefield'));
 }
 $('scene-mode').addEventListener('change',switchScene);
 const scene=$('ocean-world');
 function sendCamera(){if(scene?.contentWindow&&location.origin!=='null')scene.contentWindow.postMessage({type:'reflex-ocean-camera',preset:$('camera-distance').value},location.origin);}
-$('camera-distance').addEventListener('change',()=>{sendCamera();log('Камера: '+$('camera-distance').selectedOptions[0].textContent);});
+$('camera-distance').addEventListener('change',()=>{sendCamera();log('Camera · '+$('camera-distance').selectedOptions[0].textContent);});
 window.addEventListener('keydown',event=>{if(event.ctrlKey&&event.altKey&&event.code==='KeyP'){event.preventDefault();stop();}});
 function fallbackToVisibleBattle(reason){
  if($('scene-mode').value!=='3d')return;
  $('scene-error').hidden=false;
- $('scene-error').textContent='3D недоступна: '+String(reason).slice(0,120)+' · 2D бой работает';
+ $('scene-error').textContent='3D unavailable · '+String(reason).slice(0,120)+' · 2D battle active';
  $('scene-mode').value='2d';switchScene();
- renderBanner('3D ОТКЛЮЧЕНА · '+reason+' · ПОКАЗАН РЕАЛЬНЫЙ 2D БОЙ','failed');
- log('ВИЗУАЛЬНАЯ ЗАЩИТА: '+reason+' → 2D-карта, физический бой продолжается видимо.');
+ renderBanner('3D DISABLED · '+reason+' · 2D BATTLE VISIBLE','failed');
+ log('RENDER FALLBACK · '+reason+' · Combat continues on the 2D map.');
 }
 scene?.addEventListener('load',()=>{
  try{const el=scene.contentDocument?.getElementById('status');
-    if(el&&!el.hidden)fallbackToVisibleBattle('WebGL ошибка: '+el.textContent.slice(0,90));
+    if(el&&!el.hidden)fallbackToVisibleBattle('WebGL error · '+el.textContent.slice(0,90));
  }catch{ /* If cross-origin, rely on renderer heartbeat. */ }
 });
 window.addEventListener('message',event=>{
  if(event.source!==scene?.contentWindow||event.origin!==location.origin)return;
  if(event.data?.type==='reflex-ocean-ready'){
-   ready=true;sendCamera();renderBanner('3D ИНИЦИАЛИЗИРОВАНА · ОЖИДАНИЕ РЕАЛЬНЫХ КАДРОВ');
+   ready=true;sendCamera();renderBanner('3D INITIALIZED · WAITING FOR FRAMES');
  }
  if(event.data?.type==='reflex-ocean-rendered'){
    if(!Number.isInteger(event.data.sequence)||event.data.sequence<=0)return;
    lastRenderConfirmed=performance.now();lastRenderedUnitCount=Number(event.data.unit_count)||0;
-   if($('scene-mode').value==='3d')renderBanner('3D КАДРЫ ИДУТ · бойцов '+event.data.unit_count+' · тактическая карта активна','ok');
+   if($('scene-mode').value==='3d')renderBanner('3D FRAMES ACTIVE · Units '+event.data.unit_count+' · Tactical map active','ok');
  }
- if(event.data?.type==='reflex-ocean-error')fallbackToVisibleBattle('Akvarium сообщил об ошибке');
+ if(event.data?.type==='reflex-ocean-error')fallbackToVisibleBattle('Akvarium reported a rendering error');
 });
 function syncScene(){
  if($('scene-mode').value!=='3d'||!scene?.contentWindow||location.origin==='null')return;
@@ -346,12 +346,12 @@ function syncScene(){
 function checkSceneHealth(){
  if($('scene-mode').value!=='3d'||document.visibilityState==='hidden')return;
  const t=performance.now();
- if(!lastRenderConfirmed&&t-threeDStart>4200){fallbackToVisibleBattle('нет подтверждённых кадров WebGL 4 с');return;}
- if(lastRenderConfirmed&&t-lastRenderConfirmed>3900){fallbackToVisibleBattle('рендерер перестал выдавать кадры');}
+ if(!lastRenderConfirmed&&t-threeDStart>4200){fallbackToVisibleBattle('Four seconds elapsed without a confirmed WebGL frame');return;}
+ if(lastRenderConfirmed&&t-lastRenderConfirmed>3900){fallbackToVisibleBattle('The renderer stopped producing frames');}
 }
 visualTimer=setInterval(syncScene,120);
 const visualGuard=setInterval(checkSceneHealth,950);
 window.addEventListener('beforeunload',()=>clearInterval(visualGuard));
 window.addEventListener('beforeunload',()=>clearInterval(visualTimer));
-log('Готово: 0.4.5 проверяет каждую высадку и экспортирует трассу. Visible расставляет карточки и проверяет бой. Реальная мышь — только по явному разрешению; Headless — отдельный Node.js.');
+log('Ready. Visible mode deploys troops and verifies battle events. Moving the Windows pointer requires approval. Headless mode uses a separate Node.js process.');
 })();

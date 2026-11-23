@@ -35,7 +35,7 @@ public sealed partial class StudioWindow : Window
     readonly List<TextBlock> navLabels = new();
     readonly List<int> history = new();
     readonly DispatcherTimer pulse = new() { Interval = TimeSpan.FromSeconds(1) };
-    readonly string[] names = { "Агент", "Модели", "Диагностика", "Shared Control", "Citadel Lab", "OpenAI API", "Оформление" };
+    readonly string[] names = { "Agent", "Models", "Diagnostics", "Shared Control", "Citadel Lab", "OpenAI API", "Appearance" };
     readonly string[] glyphs = { "\uE80F", "\uE950", "\uE9D9", "\uE7FC", "\uE7FC", "\uE774", "\uE790" };
     Theme current;
     int active = -1, historyIndex = -1;
@@ -110,11 +110,11 @@ public sealed partial class StudioWindow : Window
                 Padding=new Thickness(12,10,8,10),Margin=new Thickness(0,0,0,3),Cursor=Cursors.Hand};
             AutomationProperties.SetName(button,names[index]);button.Click+=(_,_)=>SelectPage(page);nav.Children.Add(button);navButtons.Add(button);
         }
-        var back=Command("←",()=>VisitHistory(-1));back.ToolTip="Предыдущий раздел";back.Margin=new Thickness(10,16,10,0);
+        var back=Command("←",()=>VisitHistory(-1));back.ToolTip="Previous page";back.Margin=new Thickness(10,16,10,0);
         back.HorizontalAlignment=HorizontalAlignment.Left;rail.Children.Add(back);
         var main=new DockPanel();Grid.SetColumn(main,1);layout.Children.Add(main);
         var head=new DockPanel{Margin=new Thickness(19,12,16,12)};
-        var stopper=Command("■  Стоп задания",stop);stopper.ToolTip="Остановить задание агента";DockPanel.SetDock(stopper,Dock.Right);head.Children.Add(stopper);
+        var stopper=Command("■  Stop task",stop);stopper.ToolTip="Stop the current agent task";DockPanel.SetDock(stopper,Dock.Right);head.Children.Add(stopper);
         stage.FontSize=12;stage.Margin=new Thickness(12,0,16,0);stage.VerticalAlignment=VerticalAlignment.Center;stage.SetResourceReference(TextBlock.ForegroundProperty,"Sub");
         DockPanel.SetDock(stage,Dock.Right);head.Children.Add(stage);
         title.FontSize=24;title.FontWeight=FontWeights.SemiBold;title.VerticalAlignment=VerticalAlignment.Center;title.SetResourceReference(TextBlock.ForegroundProperty,"Text");head.Children.Add(title);

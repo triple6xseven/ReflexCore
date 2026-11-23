@@ -1,5 +1,22 @@
 # Windows acceptance measurements
 
+## ReflexVision v0.1
+
+The measurement host ran Windows 11 with a Ryzen 5 4600H, 8 GB of RAM and a GeForce GTX 1650 Ti with 4 GB of VRAM. Both paths used the classical detector and the same 480-pixel output width. Eight warmup frames preceded each measurement. The full-copy path used GDI for the copy and CPU code for scale. The direct path used a single scaled GDI blit to the detector buffer. The path name makes no claim about the display driver's hardware acceleration.
+
+| Scene and path | Frames | FPS | Capture-to-paint p50 / p95 | CPU % of one logical core | Process peak |
+|---|---:|---:|---:|---:|---:|
+| Moving WinForms fixture, scaled GDI | 100 | 15.92 | 9.38 / 10.94 ms | 17.16% | 98.19 MiB |
+| Moving WinForms fixture, copy + CPU scale | 100 | 15.90 | 10.09 / 11.56 ms | 21.36% | 99.78 MiB |
+| Windowed local Dust II, scaled GDI | 120 | 15.52 | 29.97 / 38.89 ms | 23.85% | 105.68 MiB |
+| Windowed local Dust II, copy + CPU scale | 120 | 15.90 | 28.60 / 36.54 ms | 22.77% | 108.96 MiB |
+
+The fixed benchmark cadence caps throughput. Working set includes the PowerShell host. During the CPU-scale game run, three device-wide NVML readings showed 587–623 MiB of 4096 MiB allocated and 11–14% GPU activity, including CS 1.6 and the desktop. A nearby reading outside the trials was 599 MiB and 8%. Neither series isolates the preview's VRAM use. Both paths used CPU inference. In the game run Rust accepted four confirmed HUD boxes in a live 480×360 observation. The independent stop signal closed the live preview and Rust rejected the stopped observation.
+
+### Offline GoldSrc Plant Drill
+
+Three fresh server launches on the original de_reflex_lab map produced three verified plants. Navigation took 8.546–8.580 s, planting 4.154–4.162 s and total wall time 14.764–14.796 s including setup. Each attempt sent 78 move and 36 plant pulses. The fresh GameDLL logs independently reported 13 seconds from spawn with C4 to plant at one-second resolution. The opponent was stationary. A fourth run cancelled during navigation after five move pulses and exited 208 ms after the stop request, with no attack pulses and the mailbox lock released.
+
 ## 0.7.1-alpha.2 · Desktop queue and focus
 
 Windows 11, same 8 GiB / 4 GiB GPU host. The native Notepad fixture verified 20/20 files, with 20 memory hits, zero model calls and p50/p95 of 746/766 ms. Timing starts inside the supervisor. It excludes time waiting in the queue. The previous series measured 752/890 ms. These small series establish correct reuse on this host.
