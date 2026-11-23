@@ -20,8 +20,6 @@ Use the ReflexCore tray icon or **Ctrl+Alt+H** to show or hide the Classic telem
 
 **Appearance → Smooth scrolling** controls both the theme gallery and the scrollable hosted pages. The hosted pages reuse the same damped spring as the zxcLagLab gallery. Lists, model pickers and numeric editors keep their native wheel behavior.
 
-The built-in silver-haired avatar is procedural. To replace it, put transparent PNGs in the per-user LocalAppData ReflexCore/companion directory, under stockings or bare-legs. Supported names are idle.png, observing.png, thinking.png, working.png, success.png and warning.png. Missing poses fall back to idle PNG or the built-in character. Restart the tray after replacing assets. The viewer accepts images up to 1600 × 1600 and 4 MiB per pose.
-
 The **Agent** page submits **RUN AGENT DEMO**, **NOTEPAD · CREATE FILE**, and **NOTEPAD · CHECK WITH MODEL** to the tray. Select an entry, then use **APPROVE SELECTED** or **CANCEL SELECTED**. The WPF smoke checks those commands using an isolated queue. See [queue and recovery](QUEUE.md).
 
 Build with `dotnet build ui/ReflexCore.Studio.csproj -c Release`. The launcher builds the assembly when it is missing. After editing UI sources run the build again. The Windows UI smoke shows the real window, navigates six hosted pages, opens Appearance, switches all 45 themes in memory, filters the gallery, checks compact navigation and both caption modes, and checks history. It does not write the operator's theme preference.
