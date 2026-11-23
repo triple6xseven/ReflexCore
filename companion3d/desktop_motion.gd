@@ -36,9 +36,15 @@ var cloud_x := 0.0
 var cloud_collision_until := 0.0
 var cloud_was_seat := false
 var physics_time := 0.0
+var operator_until := 0.0
+var roam_until := 0.0
+var roam_target := INF
 
 func place(p: Vector2) -> void:
 	position = p
+	operator_until=0.0
+	roam_until=0.0
+	roam_target=INF
 	held = false
 	cloud_seated=false
 	cloud_was_seat=false
@@ -59,6 +65,17 @@ func _clear_support() -> void:
 	support_id = 0
 	support_speed=0.0
 	support = Rect2i()
+
+func interrupt(now: float, physics: bool) -> void:
+	operator_until=now+3.8
+	roam_until=0.0
+	roam_target=INF
+	if climb_progress>0:
+		climb_progress=0.0
+		release(Vector2.ZERO,physics,now,0.18)
+	if cloud_since>=0 and not cloud_seated:
+		cloud_since=-1.0
+		cloud_deadline=operator_until+0.8
 
 func grab(now := 0.0, seat_y := 0.0) -> void:
 	held = true
@@ -105,6 +122,8 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		cloud_since=-1.0
 		cloud_seated=false
 		lock_until=0
+		roam_target=INF
+		roam_until=0.0
 	var foot := float(size.y)-25*float(size.y)/500
 	var seat := size.y*SEAT_RATIO
 	var floor := float(desk.end.y)-3
@@ -172,7 +191,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		return "idle"
 
 	var target := Rect2i()
-	if walk_windows and now>=lock_until:
+	if walk_windows and now>=maxf(lock_until,operator_until) and now>=roam_until:
 		target=_reachable(windows,foreground if mode=="windows" else Rect2i(),desk,size,foot,seat)
 	if climb_progress>0:
 		var tracked := _climb_target(windows,identities)
@@ -200,7 +219,18 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		climb_origin=position
 		return _climb(dt,now,target,identities,seat,size)
 
-	var wants_cloud: bool = walk_windows and options.get("magic",true) and now>=cloud_deadline
+	# Let Free Roam alternate a cloud rest with a short walk along the desk.
+	if mode=="roam" and cloud_seated and now>=operator_until and now-cloud_since>12.0:
+		cloud_since=-1.0
+		cloud_seated=false
+		cloud_was_seat=false
+		roam_until=now+6.0
+		roam_target=clampf(position.x + (185.0 if position.x<(max_x+min_x)*0.5 else -185.0),min_x,max_x)
+		release(Vector2.ZERO,real_physics,now,0.65)
+		cloud_deadline=roam_until+4.0
+		return "falling" if falling else "recovering"
+
+	var wants_cloud: bool = walk_windows and options.get("magic",true) and now>=cloud_deadline 		and (cloud_seated or now>=maxf(operator_until,roam_until))
 	if wants_cloud:
 		if cloud_since<0:
 			cloud_since=now
@@ -229,6 +259,8 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		var dx := pointer.x-position.x-size.x*0.5
 		var wanted := clampf(pointer.x-size.x*0.5-signf(dx)*165,min_x,max_x)
 		position.x=move_toward(position.x,wanted,float(options.get("walk_speed",58))*dt)
+	if mode=="roam" and now<roam_until and now>=operator_until and is_finite(roam_target):
+		position.x=move_toward(position.x,roam_target,float(options.get("walk_speed",58))*dt)
 	velocity=(position-old)/dt
 	return "walk" if absf(velocity.x)>5 else "sleepy" if now-rest_at>100 else "idle"
 

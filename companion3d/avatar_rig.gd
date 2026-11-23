@@ -33,6 +33,8 @@ var height := 1.65
 var bottom := 0.0
 var legacy := false
 var atelier := false
+var refined := false
+var attentive := 0.0
 var surprise := 0.0
 var error := ""
 var license_data := {}
@@ -126,7 +128,9 @@ func load_file(path: String) -> bool:
 			error = "humanoid_map_incomplete"
 			return false
 	license_data = vrm0.get("meta", {}) if legacy else vrm1.get("meta", {})
-	atelier = legacy and str(license_data.get("title", "")) == "Lumen - ReflexCompanion Midnight Atelier"
+	var title := str(license_data.get("title",""))
+	refined=legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
+	atelier=refined or legacy and title=="Lumen - ReflexCompanion Midnight Atelier"
 	if atelier:
 		_apply_atelier_materials()
 	_setup_expressions(source, vrm0, vrm1, gltf)
@@ -285,6 +289,7 @@ func _apply_atelier_materials() -> void:
 					material.set_shader_parameter("fabric_texture", original.albedo_texture)
 				material.set_shader_parameter("base_tint", original.albedo_color)
 				material.set_shader_parameter("profile", profile)
+				material.set_shader_parameter("refined", refined)
 				material.set_shader_parameter("alpha_cut", 0.44 if profile == 1.0 else 0.15)
 				converted[original] = material
 			mesh.set_surface_override_material(surface, converted[original])
@@ -403,7 +408,8 @@ func _morph(key: String, value: float) -> void:
 func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false, window_swing := false, sit_style := "still", intensity := 1.0) -> void:
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
-	var swing_active := enabled and seated and window_swing and sit_style!="still"
+	var swing_active := enabled and seated and (window_swing or refined and cloudy) and sit_style!="still"
+	attentive=lerpf(attentive,1.0 if refined and seated and state=="attentive" else 0.0,blend)
 	sit_elapsed=sit_elapsed+dt if swing_active else 0.0
 	leg_motion=lerpf(leg_motion,smoothstep(0.2,1.3,sit_elapsed)*intensity,blend)
 	var moving := state in ["walk", "run"]
@@ -412,7 +418,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	posture = lerpf(posture, float({"thinking": 0.16, "working": 0.08, "sleepy": 0.24, "falling": -0.13,
 		"dragged": -0.14, "thrown": -0.24, "landing": 0.28, "recovering": 0.12, "petted": 0.08,
 		"approach": 0.13, "reach": 0.16, "grip": 0.30, "pull_up": 0.38, "settle": 0.10,
-		"soft_collision": 0.18, "hard_collision": 0.39, "cloud_summon": -0.11}.get(state, 0.0)) if enabled else 0.0, blend)
+		"soft_collision": 0.18, "hard_collision": 0.39, "cloud_summon": -0.11, "attentive": 0.10}.get(state, 0.0)) if enabled else 0.0, blend)
 	step_phase += dt * (10.0 if state == "run" else 6.8) * gait
 	if not enabled:
 		cursor = Vector2.ZERO
@@ -422,6 +428,8 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		cursor=Vector2(0,0.42)
 	look = look.lerp(cursor.limit_length(1), blend)
 	var breathe := sin(now * 2.4) * 0.019 if enabled else 0.0
+	if refined and seated and enabled:
+		breathe += sin(now * 1.06) * 0.012
 	var nod := sin(now * 11) * 0.09 if enabled and state in ["happy", "petted"] else 0.0
 	var sign := -1.0 if legacy else 1.0
 	_pose("head", Vector3(look.y * 0.15 + posture * 0.6 + nod, look.x * -0.25 * sign, look.x * 0.09), blend)
@@ -466,6 +474,19 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	if state in ["petted", "sleepy"]:
 		blink = maxf(blink, 0.9 if state == "petted" else 0.73)
 	var target_face := Vector2(0.65 if state in ["happy","petted"] else 0, 0.45 if state in ["warning","dragged","hard_collision"] else 0)
+	if refined and enabled:
+		match state:
+			"petted":
+				blink=maxf(blink,0.83)
+				target_face.x=0.39
+			"attentive":
+				target_face.x=0.22
+			"thinking":
+				blink=maxf(blink,0.16+0.06*sin(now*2.1))
+			"happy":
+				target_face.x=0.50
+			"sit","cloud_sit":
+				target_face.x=0.10
 	if atelier:
 		var startled := enabled and state in ["dragged", "thrown", "hard_collision"]
 		surprise = lerpf(surprise, 0.45 if startled else 0.0, blend)
@@ -531,17 +552,25 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 		_pose(foot,standing_foot,blend)
 		return
 	var knee_drop := (0.16 if cloudy else 0.12)+side_sign*0.035
-	var thigh := seat_forward-seat_right*side_sign*(0.13 if atelier and not cloudy else 0.07)-Vector3.UP*knee_drop
+	var spread := 0.13 if atelier and not cloudy else 0.07
+	if refined:
+		spread=lerpf(0.085 if cloudy else 0.142,0.19,attentive)
+		knee_drop+=0.045*attentive
+	var thigh := seat_forward-seat_right*side_sign*spread-Vector3.UP*knee_drop
 	var phase := sit_elapsed*1.9 + side_sign*0.95
 	var stretch := pow(maxf(0.0,sin(sit_elapsed*0.58+side_sign*1.57)),12)*0.32 if sit_style=="relaxed" else 0.0
-	var shin := Vector3.DOWN+seat_forward*(0.09+side_sign*0.02+leg_motion*(sin(phase)*0.13+stretch))
+	var rhythm := sin(phase)*0.13+stretch
+	if refined:
+		rhythm=sin(phase)*(.095 if cloudy else .14)+sin(phase*.43+side_sign*1.5)*.045+stretch
+		rhythm*=lerpf(1.0,0.4,attentive)
+	var shin := Vector3.DOWN+seat_forward*(0.09+side_sign*0.02+leg_motion*rhythm)
 	_orient_segment(upper,lower,thigh,standing_thigh,blend)
 	_orient_segment(lower,foot,shin,standing_shin,blend)
 	var ankle := int(roles[foot])
 	var basis := _parent_basis(ankle)
 	var neutral := skeleton.get_bone_global_rest(ankle).basis.orthonormalized()
-	if atelier and not cloudy:
-		var tip := leg_motion*(0.08+0.1*sin(phase-0.48)) + 0.16
+	if atelier and (not cloudy or refined):
+		var tip := leg_motion*(0.08+0.1*sin(phase-0.48)) + (0.11 if cloudy else 0.16)
 		neutral = Basis(seat_right, tip) * neutral
 	var seated_rotation := (basis.inverse()*neutral).get_rotation_quaternion()
 	_blend_joint(ankle,standing_foot,seated_rotation,blend)
@@ -595,6 +624,9 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					var frame := skeleton.global_basis.orthonormalized()
 					var local_side := signf((shoulder-torso).dot(frame*seat_right))
 					gesture=hips-torso+frame*seat_right*local_side*0.18 + Vector3.UP*0.012
+					if refined:
+						var palm_side := .195 if state!="cloud_sit" else .143
+						gesture=hips-torso+frame*(seat_right*local_side*lerpf(palm_side,.11,attentive) 							+seat_forward*lerpf(-.025,.15,attentive))+Vector3.UP*lerpf(.012,.068,attentive)
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
 			"dragged","thrown","falling":

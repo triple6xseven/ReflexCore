@@ -44,7 +44,7 @@ The renderer follows the actual support window while seated. A fast move, closed
 
 Enable **Magic Platforms** in Studio or the character menu. Window edges and Free roam look for a reachable edge before summoning a platform. The cloud supports the seated pose, bobs slightly and can catch a nearby drop during a short grace period after a grab. A reachable exposed edge lets the character leave the cloud. Disabling magic returns the character to the taskbar when no ledge is available.
 
-Under **Companion & Widgets**, select **Edition** and apply. **Edge smoothing** offers Off, 2× and 4× MSAA. Low-power mode selects 2×. The overlay uses the Windows tool-window style. Start, stop and restart are available in Studio and the ReflexCore tray.
+Under **Companion & Widgets**, select **Edition** and apply. **Edge smoothing** offers Off, 2× and 4× MSAA. Low-power mode selects 2×. The companion has a Windows taskbar entry with the ReflexCore R icon. Start, stop and restart are available in Studio and the ReflexCore tray.
 
 Windows validation used a temporary native text-editor fixture and the real Godot renderer. A 27 px horizontal and 13 px vertical window move preserved the seated pose. The settled seat contact was 766 px on a 768 px edge. A larger move released the avatar into a throw reaction. An overlapping editor window hid the original edge, causing cloud summoning. Removing the cover let the avatar leave the cloud and perch again. A clothing and edition change kept the same renderer PID, and the renderer exited cleanly on its stop flag. The tray geometry check covers full and partial occlusion. The deterministic motion test covers the climb phases, unreachable edges, moving and removed supports, cloud landing, drag smoothing and five screen boundary impulses.
 
@@ -138,3 +138,36 @@ simulation require a hand-authored garment and deformation pass. Atelier
 uses rim shading and MSAA for the silhouette. The preview accepts either
 VRM and produces front, side, back, three seating views, face, smile
 and drag renders.
+
+## Midnight Atelier Refined
+
+Studio defaults to **Midnight Atelier Refined** and **Barefoot**. When the
+local Refined files are unavailable, the renderer tries the corresponding
+Atelier asset and then Original. The user can select an older edition at
+any time. On Windows the 3D companion exposes a taskbar entry with the
+bundled ReflexCore icon. The overlay remains click-through away from the
+avatar, and the tray can restore interaction if the user enables full
+click-through.
+
+Left and right presses take priority over a pending climb, cloud summon,
+or autonomous walk. An existing safe perch stays in place for a short
+reaction. Free Roam can step off the cloud and walk along the desktop
+after a rest. The physical drag and release checks still own the mouse
+gesture. Desktop capture can still suspend the overlay temporarily.
+
+From the repository, build the private assets from the exact Atelier
+exports using Python, NumPy and Pillow.
+
+```powershell
+$models = Join-Path $env:LOCALAPPDATA 'ReflexCore/companion3d'
+py -3 examples/build_companion_refined.py "$models/avatar-atelier.vrm" "$models/avatar-atelier-refined.vrm"
+py -3 examples/build_companion_refined.py "$models/avatar-atelier-stockings.vrm" "$models/avatar-atelier-refined-stockings.vrm"
+```
+
+The builder extends the legs, raises the hips, subtly shapes the waist,
+and remaps bind matrices while preserving skin weights and morph targets.
+It refines the fringe, tail, face textures and garment trim on the copied
+asset. Refined adds separate window, cloud and cursor-attentive posing.
+The fabric remains the fitted geometry inherited from Atelier. Loose
+garment panels, detailed toe topology and a hand-keyed VRoid animation
+set remain art tasks.

@@ -11,7 +11,7 @@ const DEFAULTS := {
 	"gravity": 900.0, "walk_speed": 58.0, "hair": true, "stockings": true,
 	"midnight_stockings": false, "sit_style": "swing", "intensity": 1.0,
 	"animate": true, "bubble": true, "top": true, "clickthrough": false, "fps": 30,
-	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "original"
+	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "atelier_refined"
 }
 const MODE_NAMES := ["Stationary", "Taskbar Companion", "Window Companion", "Free Roam", "Follow Cursor"]
 const MODE_VALUES := ["stationary", "taskbar", "windows", "roam", "follow"]
@@ -111,6 +111,9 @@ func _ready() -> void:
 		get_tree().quit(2)
 		return
 	bridge = args[0]
+	var icon := ProjectSettings.globalize_path("res://../assets/reflexcore.ico")
+	if OS.get_name()=="Windows" and FileAccess.file_exists(icon):
+		DisplayServer.set_native_icon(icon)
 	renderer = RenderingServer.get_current_rendering_method()
 	_build_scene()
 	options = _read_options()
@@ -274,7 +277,7 @@ func _read_options() -> Dictionary:
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
 	next.fps = clampi(int(next.fps),15,60)
 	next.msaa=clampi(int(next.msaa),0,2)
-	if next.edition not in ["midnight","atelier"]:next.edition="original"
+	if next.edition not in ["original","midnight","atelier","atelier_refined"]:next.edition="atelier_refined"
 	if next.sit_style not in ["still","swing","relaxed"]:next.sit_style="swing"
 	next.intensity=clampf(float(next.intensity),0.0,1.0)
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
@@ -283,18 +286,23 @@ func _read_options() -> Dictionary:
 	return next
 
 func _stocking_key() -> String:
-	return "midnight_stockings" if options.edition in ["midnight","atelier"] and str(options.model).is_empty() else "stockings"
+	return "midnight_stockings" if options.edition in ["midnight","atelier","atelier_refined"] and str(options.model).is_empty() else "stockings"
 
 func _pick_model() -> String:
 	var desired: String = options.model
 	dress_model=false
 	if desired.is_empty():
-		if options.edition in ["midnight","atelier"]:
-			var prefix := "avatar-"+str(options.edition)
-			var base_skin := bridge.path_join(prefix+".vrm")
-			var dark_skin := bridge.path_join(prefix+"-stockings.vrm")
-			dress_model=FileAccess.file_exists(base_skin) and FileAccess.file_exists(dark_skin)
-			return dark_skin if options.midnight_stockings else base_skin
+		if options.edition in ["midnight","atelier","atelier_refined"]:
+			var suffix := "-stockings.vrm" if options.midnight_stockings else ".vrm"
+			var prefixes := [str(options.edition).replace("_","-")]
+			if options.edition=="atelier_refined":
+				prefixes.append("atelier")
+			for edition in prefixes:
+				var prefix := "avatar-"+String(edition)
+				var asset := bridge.path_join(prefix+suffix)
+				if FileAccess.file_exists(asset):
+					dress_model=FileAccess.file_exists(bridge.path_join(prefix+".vrm")) 						and FileAccess.file_exists(bridge.path_join(prefix+"-stockings.vrm"))
+					return asset
 		for extension in ["vrm","glb"]:
 			var variant := bridge.path_join("avatar-bare-legs."+extension)
 			if not options.stockings and FileAccess.file_exists(variant):
@@ -320,7 +328,7 @@ func _load_avatar() -> void:
 	if path==model_file and touched==model_mtime:
 		return
 	var cache_hit := path==cached_path and touched==cached_mtime
-	if not cache_hit and (now < model_attempt_at or menu.visible):
+	if not cache_hit and (now < model_attempt_at or menu.visible or pressed):
 		return
 	if not cache_hit:
 		model_attempt_at=now+3.0
@@ -349,24 +357,6 @@ func _load_avatar() -> void:
 	rig.scene.rotation.y=PI if rig.legacy else 0
 	model_error=""
 	_camera_layout()
-
-func _warm_outfit() -> void:
-	if not dress_model or rig==null or cached_rig!=null or now<model_attempt_at+2 or menu.visible:
-		return
-	var key := _stocking_key()
-	var current: bool=options[key]
-	options[key]=not current
-	var alternative := _pick_model()
-	options[key]=current
-	if alternative.is_empty() or alternative==model_file:return
-	var candidate := Rig.new()
-	if candidate.load_file(alternative):
-		cached_rig=candidate
-		cached_path=alternative
-		cached_mtime=FileAccess.get_modified_time(alternative)
-	else:
-		candidate.free_scene()
-		model_attempt_at=now+20
 
 func _apply_options() -> void:
 	var window := get_window()
@@ -435,7 +425,6 @@ func _poll() -> void:
 		if pos_changed:
 			_restore_position()
 	_load_avatar()
-	_warm_outfit()
 	var live := _read_json(bridge.path_join("live.json"),32*1024)
 	var timestamp := float(live.get("at_unix_ms",0))
 	if timestamp>0 and absf(Time.get_unix_time_from_system()*1000.0-timestamp)>6000.0:
@@ -584,7 +573,7 @@ func _process(delta: float) -> void:
 		var gaze := (local-head)/145.0
 		if not _near_model(local,52):
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
-		if stage=="warning":
+		if stage=="warning" and now>=motion.operator_until:
 			gaze.y=-0.55
 		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose,_is_midnight_loaded() and physical=="sit",str(options.sit_style),float(options.intensity))
 		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
@@ -626,6 +615,10 @@ func _choose_pose(physical: String, local: Vector2) -> String:
 		return "petted"
 	if now-click_at<1.65 or stage=="success" and now-stage_at<4.2:
 		return "happy"
+	if rig!=null and rig.refined and physical in ["sit","cloud_sit"] and _near_model(local,36):
+		return "attentive"
+	if now<motion.operator_until:
+		return physical
 	if stage=="warning" and now-stage_at<9.0:
 		return "warning"
 	if stage in ["thinking","working"]:
@@ -816,6 +809,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_pointer_on_character(mouse.position) or now<can_click_until):
 		if pressed:_release(false)
+		motion.interrupt(now,bool(options.physics))
 		_show_menu(mouse.position)
 		return
 	if mouse.button_index!=MOUSE_BUTTON_LEFT:
@@ -824,6 +818,7 @@ func _input(event: InputEvent) -> void:
 		# A fresh press supersedes a stale capture even if the prior mouse-up was lost.
 		if pressed:_release(false)
 		pressed=true
+		motion.interrupt(now,bool(options.physics))
 		press_origin=position
 		last_drag_motion=now
 		release_check_at=now+0.12
@@ -867,6 +862,7 @@ func _release(react := true) -> void:
 	elif react:
 		pet_at=-5.0
 		click_at=now
+		motion.interrupt(now,bool(options.physics))
 
 func _maybe_grab(global: Vector2) -> void:
 	if pressed and not motion.held and global.distance_to(press_origin)>6*float(options.zoom):
@@ -901,6 +897,8 @@ func _loaded_edition() -> String:
 	if not str(options.model).is_empty():
 		return "original"
 	match model_file.get_file():
+		"avatar-atelier-refined.vrm","avatar-atelier-refined-stockings.vrm":
+			return "atelier_refined"
 		"avatar-atelier.vrm","avatar-atelier-stockings.vrm":
 			return "atelier"
 		"avatar-midnight.vrm","avatar-midnight-stockings.vrm":
@@ -919,7 +917,7 @@ func _runtime_status() -> Dictionary:
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"mouse_interaction":not bool(options.clickthrough),
-		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm"],"bubble_visible":bubble.visible,
+		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file() in ["avatar-midnight.vrm","avatar-atelier.vrm","avatar-atelier-refined.vrm"],"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,

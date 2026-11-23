@@ -1,3 +1,9 @@
+## ReflexCompanion seated motion and interaction
+
+- Install Midnight Atelier Refined as the default barefoot edition when its local assets are present.
+- Give clicks and drags priority over autonomous movement. Let Free Roam leave a cloud rest for a short walk. Show the ReflexCore icon on the Windows taskbar.
+- Refine the Atelier proportions, face textures, hair, seated poses and restrained leg motion.
+
 ## ReflexCompanion Midnight Atelier
 
 - Add a separate visually upgraded VRM edition with fitted harness panels, a bevelled crest, sculpted hair, new eye and face textures, and a lightweight toon material.

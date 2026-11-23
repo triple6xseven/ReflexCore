@@ -414,7 +414,7 @@ namespace ReflexCore.Bridge
         private void StyleOverlay(IntPtr hwnd)
         {
             int current=GetWindowLong(hwnd,ExStyle);
-            int desired=(current|ToolWindow|NoActivate)&~AppWindow;
+            int desired=(current|AppWindow|NoActivate)&~ToolWindow;
             if(desired!=current)
             {
                 SetWindowLong(hwnd,ExStyle,desired);
@@ -425,7 +425,7 @@ namespace ReflexCore.Bridge
                 try
                 {
                     var shell=(ITaskbarList)new ShellTaskbar();
-                    try {shell.HrInit();shell.DeleteTab(hwnd);styled=hwnd;}
+                    try {shell.HrInit();shell.AddTab(hwnd);styled=hwnd;}
                     finally {Marshal.ReleaseComObject(shell);}
                 }
                 catch(COMException){}

@@ -115,6 +115,24 @@ func _initialize() -> void:
 	magic_options.magic=false
 	interrupt.update(DT,2.2,DESK,SIZE,Vector2i.ZERO,magic_options,climb_edges)
 	_expect(not interrupt.cloud_seated and interrupt.cloud_collision_until==0,"Magic off must clear cloud support immediately.")
+	options.mode="roam"
+	options.magic=true
+	edges.clear()
+	body=Motion.new()
+	body.place(Vector2(-900,410))
+	clock=0.0
+	poses.clear()
+	_step(1.8)
+	_expect(body.cloud_seated,"Free Roam should be able to rest on a cloud.")
+	body.interrupt(clock, true)
+	_step(1.0)
+	_expect(body.cloud_seated,"A tap must preserve the current safe perch.")
+	_step(15.0)
+	_expect(poses.has("walk") and not body.cloud_seated,"Free Roam must leave the cloud for a short walk.")
+	var pending=Motion.new()
+	pending.climb_progress=0.7
+	pending.interrupt(clock,true)
+	_expect(pending.climb_progress==0 and pending.falling,"Takeover must cancel an active climb safely.")
 	if not failed:
 		print("Companion motion: reachable ledges, all climb phases, moving/removed supports, fast release, clouds, bounded throws and spring drag passed.")
 	quit(1 if failed else 0)

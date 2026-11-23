@@ -5,6 +5,7 @@ uniform sampler2D fabric_texture : source_color, filter_linear_mipmap, hint_defa
 uniform vec4 base_tint : source_color = vec4(1.0);
 uniform float alpha_cut = 0.0;
 uniform float profile = 0.0;
+uniform bool refined = false;
 
 void fragment() {
 	vec4 texel = texture(fabric_texture, UV) * base_tint;
@@ -31,6 +32,11 @@ void fragment() {
 		sheen = 0.25;
 	}
 
+	if (refined) {
+		shadow = mix(shadow, vec3(0.72, 0.68, 0.83), 0.38);
+		tint *= vec3(0.98, 0.99, 1.0);
+		sheen *= 0.83;
+	}
 	vec3 edge = vec3(0.25, 0.29, 0.53) * rim * (0.24 + 0.28 * lit);
 	vec3 lit_color = texel.rgb * mix(shadow, tint, lit);
 	ALBEDO = lit_color + edge * (profile == 0.0 ? 0.34 : 1.0) + sheen * highlight;

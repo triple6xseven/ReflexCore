@@ -99,7 +99,7 @@ public sealed partial class StudioWindow
         var groups = new Flow { MinW = 255, MaxCols = 3, Gap = 12, Anim = false, Margin = new Thickness(0, 4, 0, 0) };
         companion.Children.Add(groups);
         var appearanceGroup = Section(groups, "Appearance");
-        WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Original", "Midnight Edition", "Midnight Atelier" }, new object[] { "original", "midnight", "atelier" });
+        WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Original", "Midnight Edition", "Midnight Atelier", "Midnight Atelier Refined" }, new object[] { "original", "midnight", "atelier", "atelier_refined" });
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
         WidgetChoice(appearanceGroup, "Original legs", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
         WidgetChoice(appearanceGroup, "Midnight legs", "midnight_stockings", new[] { "Barefoot", "Dark stockings" }, new object[] { false, true });
