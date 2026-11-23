@@ -13,6 +13,11 @@ func _verify() -> void:
 	if avatar.rig==null:
 		quit(2)
 		return
+	avatar.click_at=avatar.now
+	for phase in ["approach","reach","grip","pull_up","settle","landing"]:
+		_expect(avatar._choose_pose(phase,Vector2.ZERO)==phase,"Click interrupted "+phase)
+	_expect(avatar._choose_pose("sit",Vector2.ZERO)=="happy","Seated click lost its reaction.")
+	avatar.click_at=-5.0
 	avatar.options.mode="stationary"
 	avatar._process(1.0/60)
 	for tilt in [-0.74,0.74]:

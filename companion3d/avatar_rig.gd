@@ -406,7 +406,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var rest: Quaternion = rotations.get(bone, Quaternion.IDENTITY)
 		var drift := 0.015 * sin(now * 4 + i * 0.7) if enabled and hair else 0.0
 		var bone_name := String(skeleton.get_bone_name(bone)).to_lower()
-		var cloth := 0.20 if "skirtfront" in bone_name and bone not in skirt_roots else 0.0
+		var cloth := 0.05 if "skirtfront" in bone_name and bone not in skirt_roots else 0.0
 		var movement := Quaternion.from_euler(Vector3((secondary_motion.y * 0.16 + drift - stance*cloth) * sign, 0, secondary_motion.x * 0.225))
 		skeleton.set_bone_pose_rotation(bone, (rest * movement).normalized())
 	for bone in skirt_roots:
@@ -432,7 +432,7 @@ func _drape_skirt(bone: int, blend: float) -> void:
 		return
 	var front := "skirtfront" in String(skeleton.get_bone_name(bone)).to_lower()
 	var outward := seat_right*signf(rest_pose.origin.dot(seat_right))
-	var flow := seat_forward*(0.97 if front else 0.58)+Vector3.DOWN*(0.25 if front else 0.78)
+	var flow := seat_forward*(0.86 if front else 0.52)+Vector3.DOWN*(0.55 if front else 0.85)
 	if not front:
 		flow+=outward*0.46
 	var from := (_parent_basis(bone,true).inverse()*direction).normalized()

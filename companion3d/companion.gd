@@ -607,12 +607,12 @@ func _process(delta: float) -> void:
 func _choose_pose(physical: String, local: Vector2) -> String:
 	if physical in ["dragged","thrown","falling","hard_collision"]:
 		return physical
+	if physical in ["run","walk","approach","reach","grip","pull_up","settle","look_around","cloud_summon","landing","recovering","soft_collision"]:
+		return physical
 	if now-pet_at<1.6:
 		return "petted"
 	if now-click_at<1.65 or stage=="success" and now-stage_at<4.2:
 		return "happy"
-	if physical in ["run","walk","approach","reach","grip","pull_up","settle","look_around","cloud_summon","landing","recovering","soft_collision"]:
-		return physical
 	if stage=="warning" and now-stage_at<9.0:
 		return "warning"
 	if stage in ["thinking","working"]:

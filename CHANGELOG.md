@@ -1,3 +1,7 @@
+## Companion seating reactions
+
+- Preserve mounting and landing poses during clicks and reduce seated skirt lift.
+
 # Changelog
 
 ## Unreleased
