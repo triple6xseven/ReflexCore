@@ -135,8 +135,9 @@ func _ready() -> void:
 	window.unfocusable = true
 	window.unresizable = true
 	window.close_requested.connect(_shutdown)
-	_apply_options()
+	_apply_options(false)
 	_restore_position()
+	_apply_options()
 	_publish()
 	_set_cursor_passthrough(true)
 
@@ -362,13 +363,13 @@ func _load_avatar() -> void:
 	model_error=""
 	_camera_layout()
 
-func _apply_options() -> void:
+func _apply_options(resize_window := true) -> void:
 	var window := get_window()
 	var old_body := body_size
 	body_size=Vector2i(Vector2(BASE_SIZE)*float(options.zoom))
 	view_margin=Vector2i(Vector2(VIEW_MARGIN)*float(options.zoom))
 	var desired := body_size+view_margin*2
-	if window.size!=desired:
+	if resize_window and window.size!=desired:
 		window.size=desired
 		if not initial:
 			motion.position+=Vector2(float(old_body.x-body_size.x)/2,float(old_body.y-body_size.y))

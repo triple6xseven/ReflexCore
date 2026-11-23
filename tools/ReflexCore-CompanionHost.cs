@@ -250,7 +250,7 @@ namespace ReflexCore.Bridge
                 !File.Exists(executable)){message="Godot executable is unavailable.";return;}
             foreach(string name in new[]{"stop.flag","status.json"})if(File.Exists(InBridge(name)))File.Delete(InBridge(name));
             var start=new ProcessStartInfo {
-                FileName=executable,Arguments="--position -32000,-32000 --path \""+project+"\" -- \""+DirectoryPath+"\"",
+                FileName=executable,Arguments="--resolution 1x1 --position -32000,-32000 --path \""+project+"\" -- \""+DirectoryPath+"\"",
                 WorkingDirectory=project,UseShellExecute=false,CreateNoWindow=true
             };
             child=Process.Start(start);
