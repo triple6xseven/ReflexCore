@@ -3,6 +3,7 @@
 //! clicks coordinates or executes arbitrary plan-supplied shell commands.
 //! This module intentionally saves no UI labels, selectors, text, or values.
 
+use crate::task_control::{Cancellation, Cancelled};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -175,16 +176,29 @@ impl FlowLock {
 }
 impl Drop for FlowLock {fn drop(&mut self){unsafe{CloseHandle(self.0);}}}
 
-fn execute_action(args: &[String]) -> Result<Value> {
+fn execute_action(args: &[String], stop: &Cancellation) -> Result<Value> {
+    stop.check()?;
     if Path::new(ACTION_REPORT).exists() {
         fs::remove_file(ACTION_REPORT)?;
     }
-    let exit = Command::new(std::env::current_exe()?)
+    let mut worker = OwnedChild(Command::new(std::env::current_exe()?)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()?;
+        .spawn()?);
+    let exit = if matches!(stop, Cancellation::Unscoped) {
+        worker.0.wait()?
+    } else {
+        loop {
+            stop.check()?;
+            if let Some(status) = worker.0.try_wait()? {
+                break status;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+    };
+    stop.check()?;
     if !exit.success() {
         return Err("UIA action subprocess returned a nonzero exit code".into());
     }
@@ -206,7 +220,7 @@ pub(super) fn has_terminal_assertion(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
-fn execute_flow(flow: &Flow) -> Result<()> {
+fn execute_flow(flow: &Flow, stop: &Cancellation) -> Result<()> {
     validate(flow)?;
     let _lock = FlowLock::acquire()?;
     let started = Instant::now();
@@ -233,7 +247,7 @@ fn execute_flow(flow: &Flow) -> Result<()> {
         let mut succeeded = false;
         for attempt in 1..=attempts_allowed {
             attempt_count = attempt;
-            match execute_action(&build_action_args(flow, step)) {
+            match execute_action(&build_action_args(flow, step), stop) {
                 Ok(response) => {
                     last_status = response["status"].as_str().unwrap_or("invalid_report").to_owned();
                     last_verification = response["verification"].as_str().unwrap_or("not_applicable").to_owned();
@@ -243,6 +257,14 @@ fn execute_flow(flow: &Flow) -> Result<()> {
                             last_status == "assertion_passed" && last_verification == "verified",
                         _ => last_status == "issued",
                     };
+                }
+                Err(err) if err.is::<Cancelled>() => {
+                    final_report.outcome = "cancelled";
+                    final_report.duration_ms = started.elapsed().as_millis();
+                    if let Err(report_error) = save_report(&final_report) {
+                        eprintln!("[ReflexCore] Could not save cancelled flow report: {report_error}");
+                    }
+                    return Err(err);
                 }
                 Err(_) => {
                     last_status = "worker_error".to_owned();
@@ -298,21 +320,22 @@ fn fixture_visible() -> bool {
         .is_some_and(|list| list.iter().any(|w| w["title"].as_str() == Some("ReflexCore Test Window")))
 }
 
-struct FixtureProcess(Child);
-impl Drop for FixtureProcess {
+struct OwnedChild(Child);
+impl Drop for OwnedChild {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
 }
 
-fn demo(execute: bool) -> Result<()> {
+fn demo(execute: bool, stop: &Cancellation) -> Result<()> {
     let flow = parse_flow(include_str!("../examples/smoke_flow.json"))?;
     if !execute {
         println!("[ReflexCore] Demo has {} steps; no changes made.", flow.steps.len());
         println!("[ReflexCore] To run against a temporary test window: flow demo --execute");
         return Ok(());
     }
+    stop.check()?;
     if fixture_visible() {
         return Err("A ReflexCore Test Window already exists; close it before demo".into());
     }
@@ -327,9 +350,10 @@ fn demo(execute: bool) -> Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    let mut fixture = FixtureProcess(child);
+    let mut fixture = OwnedChild(child);
     let started = Instant::now();
     while !fixture_visible() {
+        stop.check()?;
         if fixture.0.try_wait()?.is_some() {
             return Err("Windows Forms test fixture exited before opening".into());
         }
@@ -339,7 +363,16 @@ fn demo(execute: bool) -> Result<()> {
         thread::sleep(Duration::from_millis(150));
     }
     println!("[ReflexCore] Test fixture launched; running full UIA flow...");
-    execute_flow(&flow)
+    execute_flow(&flow, stop)
+}
+
+pub(crate) fn execute_skill(source: &str, stop: &Cancellation) -> Result<()> {
+    stop.check()?;
+    if source == "demo" {
+        return demo(true, stop);
+    }
+    let flow = parse_flow(&fs::read_to_string(source)?)?;
+    execute_flow(&flow, stop)
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -352,7 +385,7 @@ pub fn run(args: &[String]) -> Result<()> {
             if args.len() > (if execute { 2 } else { 1 }) {
                 return Err("Usage: flow demo [--execute]".into());
             }
-            demo(execute)
+            demo(execute, &Cancellation::from_queue())
         }
         "validate" | "run" => {
             let path = args.get(1).ok_or("Expected a JSON flow path")?;
@@ -369,7 +402,7 @@ pub fn run(args: &[String]) -> Result<()> {
                 println!("[ReflexCore] Preview only. To perform actions: flow run <file> --execute");
                 return Ok(());
             }
-            execute_flow(&flow)
+            execute_flow(&flow, &Cancellation::from_queue())
         }
         _ => Err("Unknown flow command".into()),
     }

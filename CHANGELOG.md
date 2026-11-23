@@ -1,3 +1,8 @@
+## Goal task lifecycle
+
+- Separate the Rust Goal planner and task runner. Publish typed terminal task events atomically.
+- Honor scoped queue cancellation during UIA dispatch and exclude cancellations from skill reliability.
+
 ## Companion animation hot path
 
 - Reuse the rig frame and seated knee positions across arm calculations.

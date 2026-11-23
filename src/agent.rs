@@ -7,16 +7,17 @@
 
 #[path = "agent_memory.rs"]
 mod memory;
+mod planner;
+mod runtime;
+
+use planner::plan;
 
 use serde::{Deserialize, Serialize};
 use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashMap, HashSet},
+    collections::HashSet,
     error::Error,
-    fs::{self, OpenOptions},
-    io::Write,
+    fs,
     path::{Component, Path},
-    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -51,7 +52,6 @@ pub(crate) fn citadel_skill_score(kind: &str, s: &CitadelSignals, previous_failu
 }
 
 const SCHEMA: &str = "reflexcore.goal.v1";
-const EVENT_DIR: &str = "data/agent/events";
 const MAX_MANIFEST_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -153,165 +153,6 @@ fn read_goal(path: &Path) -> Result<Goal> {
     parse(&fs::read_to_string(path)?)
 }
 
-// Dijkstra with positive skill costs. The sequence number and skill names are
-// stable tie-breakers so identical inputs yield identical plans.
-fn plan(goal: &Goal) -> Result<Vec<usize>> {
-    validate(goal)?;
-    if goal.initial_state == goal.goal_state {
-        return Ok(Vec::new());
-    }
-    let mut best: HashMap<String, (u64, usize)> = HashMap::new();
-    let mut predecessor: HashMap<String, (String, usize)> = HashMap::new();
-    let mut queue: BinaryHeap<Reverse<(u64, usize, String)>> = BinaryHeap::new();
-    best.insert(goal.initial_state.clone(), (0, 0));
-    queue.push(Reverse((0, 0, goal.initial_state.clone())));
-
-    let mut indexes: Vec<usize> = (0..goal.skills.len()).collect();
-    indexes.sort_by(|&left, &right| goal.skills[left].id.cmp(&goal.skills[right].id));
-
-    let mut outgoing: HashMap<&str, Vec<usize>> = HashMap::new();
-    for index in indexes {
-        outgoing.entry(&goal.skills[index].from).or_default().push(index);
-    }
-    while let Some(Reverse((cost, hops, state))) = queue.pop() {
-        if best.get(&state) != Some(&(cost, hops)) {
-            continue;
-        }
-        if state == goal.goal_state {
-            break;
-        }
-        let Some(edges) = outgoing.get(state.as_str()) else { continue };
-        for &index in edges {
-            let skill = &goal.skills[index];
-            let next_cost = cost + u64::from(skill.cost);
-            let next_hops = hops + 1;
-            let candidate = (next_cost, next_hops);
-            if best.get(&skill.to).is_none_or(|old| candidate < *old) {
-                best.insert(skill.to.clone(), candidate);
-                predecessor.insert(skill.to.clone(), (state.clone(), index));
-                queue.push(Reverse((next_cost, next_hops, skill.to.clone())));
-            }
-        }
-    }
-    if !best.contains_key(&goal.goal_state) {
-        return Err("No verified skill path reaches the requested goal".into());
-    }
-    let mut path = Vec::new();
-    let mut cursor = goal.goal_state.as_str();
-    while cursor != goal.initial_state {
-        let (previous, index) = predecessor
-            .get(cursor)
-            .ok_or("Planner predecessor chain is incomplete")?;
-        path.push(*index);
-        cursor = previous;
-    }
-    path.reverse();
-    Ok(path)
-}
-
-#[derive(Serialize)]
-struct Event {
-    schema: &'static str,
-    run_id: String,
-    phase: &'static str,
-    completed_skills: usize,
-    total_skills: usize,
-    elapsed_ms: u128,
-}
-
-fn now_ns() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos())
-}
-
-fn log_event(run_id: &str, event: &Event, number: usize) -> Result<()> {
-    fs::create_dir_all(EVENT_DIR)?;
-    let filename = format!("{run_id}-{number:05}.json");
-    let path = Path::new(EVENT_DIR).join(filename);
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    file.write_all(&serde_json::to_vec_pretty(event)?)?;
-    file.sync_all()?;
-    Ok(())
-}
-
-fn print_status() -> Result<()> {
-    let directory = Path::new(EVENT_DIR);
-    if !directory.exists() {
-        println!("[ReflexCore] No previous Goal Agent runs.");
-        return Ok(());
-    }
-    let last = fs::read_dir(directory)?
-        .filter_map(|item| item.ok())
-        .filter(|entry| entry.path().extension().is_some_and(|s| s == "json"))
-        .max_by_key(|entry| entry.file_name());
-    if let Some(last) = last {
-        println!("{}", fs::read_to_string(last.path())?);
-    } else {
-        println!("[ReflexCore] No previous Goal Agent runs.");
-    }
-    Ok(())
-}
-
-fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memory>) -> Result<()> {
-    let started = Instant::now();
-    let run_id = format!("{:020}-{}", now_ns(), std::process::id());
-    let total = planned.len();
-    let mut completed = 0;
-    let initial = Event {
-        schema: "reflexcore.agent.event.v1",
-        run_id: run_id.clone(),
-        phase: if total == 0 { "verified" } else { "running" },
-        completed_skills: completed,
-        total_skills: total,
-        elapsed_ms: 0,
-    };
-    log_event(&run_id, &initial, 0)?;
-
-    for (step, &index) in planned.iter().enumerate() {
-        let skill = &goal.skills[index];
-        println!("[Agent {:02}/{}] skill={} (running verified Flow Engine)", step + 1, total, skill.id);
-        let args = if skill.flow == "demo" {
-            vec!["demo".to_owned(), "--execute".to_owned()]
-        } else {
-            vec!["run".to_owned(), skill.flow.clone(), "--execute".to_owned()]
-        };
-        let version = memory.as_ref().and_then(|_| memory::Memory::fingerprint(&skill.flow));
-        let outcome = crate::flow::run(&args);
-        if let (Some(db), Some(version)) = (memory.as_deref_mut(), version) {
-            if memory::Memory::fingerprint(&skill.flow).as_ref() == Some(&version)
-                && db.record(index, &version, outcome.is_ok()).is_err() {
-                eprintln!("[ReflexCore] Could not persist skill outcome.");
-            }
-        }
-        if outcome.is_err() {
-            let event = Event {
-                schema: "reflexcore.agent.event.v1",
-                run_id: run_id.clone(),
-                phase: "failed",
-                completed_skills: completed,
-                total_skills: total,
-                elapsed_ms: started.elapsed().as_millis(),
-            };
-            log_event(&run_id, &event, step + 1)?;
-            return Err(format!("Agent stopped: skill {} failed verification", step + 1).into());
-        }
-        completed += 1;
-        let event = Event {
-            schema: "reflexcore.agent.event.v1",
-            run_id: run_id.clone(),
-            phase: if completed == total { "verified" } else { "running" },
-            completed_skills: completed,
-            total_skills: total,
-            elapsed_ms: started.elapsed().as_millis(),
-        };
-        log_event(&run_id, &event, step + 1)?;
-    }
-
-    println!("[ReflexCore] GOAL VERIFIED: {completed}/{total} skills, {} ms", started.elapsed().as_millis());
-    Ok(())
-}
-
 fn print_plan(goal: &Goal, planned: &[usize]) {
     let total_cost: u64 = planned.iter().map(|&i| u64::from(goal.skills[i].cost)).sum();
     println!("[ReflexCore] Goal plan: {} skills, total cost {}", planned.len(), total_cost);
@@ -329,7 +170,7 @@ pub fn run(args: &[String]) -> Result<()> {
         if args.len() != 1 {
             return Err("Usage: agent status".into());
         }
-        return print_status();
+        return runtime::print_status();
     }
     let (goal, execute_flag) = match command {
         "demo" => {
@@ -366,7 +207,7 @@ pub fn run(args: &[String]) -> Result<()> {
         println!("[ReflexCore] Preview only. Append --execute to run the verified skills.");
         return Ok(());
     }
-    execute(&goal, &planned, memory.as_mut())
+    Ok(runtime::execute(&goal, &planned, memory.as_mut())?)
 }
 
 // Small, verified CS16 skill policy used by Unified Coordinator.
@@ -507,22 +348,6 @@ mod tests {
     fn unknown_manifest_properties_rejected() {
         let src = r#"{"schema":"reflexcore.goal.v1","name":"x","initial_state":"a","goal_state":"b","skills":[],"command":"powershell"}"#;
         assert!(parse(src).is_err());
-    }
-
-    #[test]
-    fn event_records_no_skill_names_or_values() {
-        let event = Event {
-            schema: "reflexcore.agent.event.v1",
-            run_id: "test".into(),
-            phase: "verified",
-            completed_skills: 1,
-            total_skills: 1,
-            elapsed_ms: 100,
-        };
-        let text = serde_json::to_string(&event).unwrap();
-        assert!(!text.contains("private@example.com"));
-        assert!(!text.contains("secret"));
-        assert!(!text.contains("fixture-verify"));
     }
 
     #[test]

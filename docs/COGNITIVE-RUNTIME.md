@@ -8,6 +8,14 @@ The Rust Goal Agent and the PowerShell Notepad supervisor share the Studio task 
 
 A new demo file is created exclusively. The executor requires an empty editor, uses UIA ValuePattern.SetValue or targeted Unicode EM_REPLACESEL on a recognized native child editor, verifies the editor value, sends a bounded Save shortcut, then checks the file with ordinal text equality. Existing tabs are outside the task contract. The test runner closes only the verified fixture tab and retains the synthetic file in the local fixtures directory. On failure the fixture remains available for inspection. Typing into the editor, queueing Save and model classification each supply different evidence.
 
+## Goal lifecycle and cancellation
+
+The CLI validates the goal and asks `agent::planner` for the ordered skill slots. `agent::runtime` owns execution state and outcome events. It calls the Flow executor, which dispatches UIA actions and checks the returned verification evidence. Skill reliability remains in `agent::memory`. These boundaries are inside the existing Rust executable.
+
+A Goal run records `running`, `verified`, `failed` or `cancelled` as applicable. The journal publishes each redacted event through a same-directory rename. A queued Flow checks the existing claim and cancel marker before each attempt and while waiting for its owned UIA subprocess. The check interval while the child is running is 25 ms, plus scheduling and cleanup time. A cancellation does not increment a success or failure counter in the skill database. Actions that already reached Windows may still have taken effect.
+
+The desktop queue marks orphaned claims interrupted on startup. `agent status` displays the last published Goal event, which can be `running` after a crash. A partial flow requires inspection before submitting new work.
+
 ## Incremental learning
 
 **Goal routes.** A SQLite database under data/private is opened read-only for planning and created on first execution. The primary key identifies a SHA-256 digest of the canonical goal and a skill slot. Each learning sample also carries the SHA-256 of the bounded flow contents. A terminal assertion is required. A changed goal or flow ignores old evidence. A transaction records the outcome and evicts the least recently updated rows beyond 256. At 64 observations the counters decay together. Planning applies a bounded penalty proportional to misses divided by one plus passes. The manifest supplies the initial costs and allowed edges. A busy or unavailable database falls back to those costs. The execution report and permission checks remain authoritative for each run.

@@ -13,6 +13,8 @@ mod flow;
 #[cfg(windows)]
 mod agent;
 #[cfg(windows)]
+mod task_control;
+#[cfg(windows)]
 mod unified;
 #[cfg(windows)]
 mod citadel_bridge;
