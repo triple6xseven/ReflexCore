@@ -46,6 +46,7 @@ var state := "idle"
 var stance := 0.0
 var seat_forward := Vector3.FORWARD
 var seat_right := Vector3.RIGHT
+var hover_drift := Vector2.ZERO
 var posture := 0.0
 var step_phase := 0.0
 var gait := 0.0
@@ -168,7 +169,7 @@ func load_file(path: String) -> bool:
 			return false
 	license_data = vrm0.get("meta", {}) if legacy else vrm1.get("meta", {})
 	var title := str(license_data.get("title",""))
-	nocturne=legacy and title in ["Lumen - ReflexCompanion Midnight Nocturne","Lumen - ReflexCompanion Lunar Temptation"]
+	nocturne=legacy and title in ["Lumen - ReflexCompanion Midnight Nocturne","Lumen - ReflexCompanion Lunar Temptation","Lumen - ReflexCompanion Velvet Enchantress"]
 	refined=nocturne or legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
 	sole_y=_measure_sole()
 	atelier=refined or legacy and title=="Lumen - ReflexCompanion Midnight Atelier"
@@ -336,7 +337,7 @@ func _apply_atelier_materials() -> void:
 				profile = 3.0
 			elif name in ["fitted top","tailored shorts","violet piping","graphite belt","corset panel",
 					"woven harness","harness piping","high collar","shorts side panel","stocking cuff",
-					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar panel","lunar seam","lunar cuff","lunar liner","lunar stocking"]:
+					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar panel","lunar seam","lunar cuff","lunar liner","lunar stocking","velvet velvet","velvet silk fold","velvet embroidery"]:
 				profile = 2.0
 			if profile < 0.0:
 				continue
@@ -492,6 +493,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	attentive=lerpf(attentive,1.0 if refined and seated and state=="attentive" else 0.0,blend)
 	sit_elapsed=sit_elapsed+dt if swing_active else 0.0
 	leg_motion=lerpf(leg_motion,smoothstep(0.2,1.3,sit_elapsed)*intensity,blend)
+	hover_drift=hover_drift.lerp((motion/180.0).limit_length(1) if enabled and state=="hover" else Vector2.ZERO,1-exp(-4*dt))
 	var moving := state in ["walk", "run"]
 	gait = lerpf(gait, 1.0 if moving and enabled else 0.0, blend)
 	stance = lerpf(stance, 1.0 if seated else 0.0, blend)
@@ -518,7 +520,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_pose("head", Vector3(look.y * 0.15 + posture * 0.6 + nod, look.x * -0.25 * sign, look.x * 0.09 + tilt), blend)
 	_pose("leftEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("rightEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
-	_pose("spine", Vector3(posture * sign + breathe, 0.02 * sin(step_phase) * gait, 0.012 * sin(now * 1.7)), blend)
+	_pose("spine", Vector3(posture * sign + breathe, 0.02 * sin(step_phase) * gait, 0.012 * sin(now * 1.7)-hover_drift.x*.13), blend)
 	_pose("chest", Vector3(breathe+.12*knee_hug*sign, 0.04 * sin(step_phase) * gait+.16*side_sit+.13*crossed, look.x * 0.025+.06*side_sit-.07*crossed), blend)
 	var arm_lift := 0.0
 	if enabled and not seated:
@@ -534,7 +536,8 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		if enabled and state in ["dragged","thrown","falling","landing","hard_collision"]:
 			tuck=clampf(0.13+motion.length()/2100,0.13,0.64)
 		elif enabled and state=="hover":
-			tuck=.18+side_sign*.09+sin(now*3.0+side_sign)*.04
+			tuck=.26+side_sign*(.13+.13*hover_drift.x)+sin(now*2.35+side_sign)*.075+.1*maxf(0,-hover_drift.y)
+			swing=.32*sin(now*2.35+side_sign)+.38*side_sign*hover_drift.x
 		_seat_leg(side,side_sign,swing,tuck,sign,blend,cloudy,sit_style)
 	var hips := int(roles["hips"])
 	var hip_rest: Vector3 = starting_positions[hips]
@@ -772,7 +775,8 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				gesture=outward*.16+forward*.18+Vector3.DOWN*(.16+.027*sin(now*6))
 			"hover":
 				var sway := sin(now*2.4+side_sign*.65)*.035
-				gesture=outward*(.23+sway)+forward*.06+Vector3.DOWN*(.23-sway)
+				var lead := side_sign*hover_drift.x
+				gesture=outward*(.23+sway+.08*lead)+forward*(.09+.09*lead)+Vector3.DOWN*(.19-sway-.10*lead+.065*hover_drift.y)
 			"stand_up":
 				gesture=hips-torso+outward*.20+forward*.075+Vector3.UP*.06
 			"soft_collision","hard_collision":

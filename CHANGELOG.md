@@ -1,3 +1,7 @@
+## Velvet Enchantress and directional hover
+
+- Add Velvet Enchantress beside Lunar, with split pleated overskirt, butterfly ornaments and matching legwear variants. Hover now banks and balances arms and legs with flight velocity.
+
 ## Window edge crossed-leg animation
 
 - Alternate the existing window sit with a supported knee-over-knee pose and eased leg lift when sitting motion is enabled.

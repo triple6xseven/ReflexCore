@@ -51,7 +51,7 @@ func _render() -> void:
 		if item[0]=="window-crossed":
 			rig.animate(1.0/60,0,"idle",Vector2.ZERO,Vector2.ZERO,true,true)
 		for tick in (440 if item[0]=="window-crossed" else 288 if item[0] in ["cloud-tucked","cloud-side"] else 285 if item[0]=="seated-stretch" else 95):
-			rig.animate(1.0/60.0,float(tick)/60.0,pose,Vector2.ZERO,Vector2(400,-65) if pose=="dragged" else Vector2.ZERO,true,true,item[2],"",pose=="cloud_sit",item[2],"relaxed")
+			rig.animate(1.0/60.0,float(tick)/60.0,pose,Vector2.ZERO,Vector2(400,-65) if pose=="dragged" else Vector2(115,-32) if pose=="hover" else Vector2.ZERO,true,true,item[2],"",pose=="cloud_sit",item[2],"relaxed")
 		var closeup: bool=item[0] in ["face","smile","thinking","feet"]
 		camera.size=0.54 if closeup else 2.10
 		var center := Vector3(0,1.57 if closeup else .88 if item[2] else .95,0)
