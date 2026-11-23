@@ -72,6 +72,7 @@ public sealed partial class StudioWindow : Window
         var hostedWheel=new HostedWheel(pages,()=>smooth);
         SelectPage(Math.Max(0,pages.SelectedIndex));
         pulse.Tick+=(_,_)=>{stage.Text=readStage();if(active==7)RefreshWidgetStatus();};
+        SourceInitialized+=(_,_)=>StudioTaskbar.Register(new System.Windows.Interop.WindowInteropHelper(this).Handle,projectRoot);
         ContentRendered+=(_,_)=>{ stage.Text=readStage(); if(WindowState!=WindowState.Minimized)pulse.Start(); };
         StateChanged+=(_,_)=>{ pulse.IsEnabled=WindowState!=WindowState.Minimized; RefreshBackground(); };
         SizeChanged+=(_,_)=>SizeRail();
