@@ -24,6 +24,12 @@ The classical detector uses sparse red connected components in the scene and gol
 
 The relay replaces data/bridge/reflexvision.json with the latest observation at up to eight writes per second. Each live frame has a schema, monotonic per-process sequence, capture timestamp, dimensions and a bounded list of track IDs, classes, scores and pixel boxes. Rust rejects non-live, oversized, invalid and expired snapshots. CS16 can read a fresh observation with `reflexcore cs16 vision`. No pixels, prompts, player names or window titles enter that protocol. Existing movement and verification use independent engine evidence.
 
+### Player rectangles
+
+Live ReflexVision also shows visible person candidates with the optional YOLOX-Tiny worker. The capture stays in memory and inference runs locally on two CPU threads. This model detects human silhouettes, including some CS 1.6 models. It does not identify team membership or distinguish bots from human-controlled players. The player overlay is separate from the Rust match controller and its engine log scoring.
+
+Place the official YOLOX-Tiny ONNX export at `%LOCALAPPDATA%/ReflexCore/vision/yolox_tiny.onnx`. Install the worker dependency with `py -3 -m pip install --target "%LOCALAPPDATA%/ReflexCore/vision/python" opencv-python-headless` from Command Prompt, or use the equivalent expanded path in PowerShell. The worker validates the release file SHA-256. Restart the preview to load it. If the worker is unavailable, the preview displays color and HUD tracks. [YOLOX official ONNX exports](https://github.com/Megvii-BaseDetection/YOLOX/tree/main/demo/ONNXRuntime)
+
 ## Repeat a measurement
 
 ~~~powershell

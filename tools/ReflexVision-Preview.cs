@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
@@ -42,7 +43,7 @@ namespace ReflexCore.Vision
                             window = fixtureWindow.Handle.ToInt64();
                         }
                         string relay = fixture ? null : Path.Combine(project, "data", "bridge", "reflexvision.json");
-                        using (var form = new PreviewWindow(pid, new IntPtr(window), width, cpu, samples, stop, relay, fixtureWindow))
+                        using (var form = new PreviewWindow(pid, new IntPtr(window), width, cpu, samples, stop, relay, fixtureWindow, project))
                         {
                             Application.Run(form);
                             return form.Report();
@@ -164,6 +165,82 @@ namespace ReflexCore.Vision
         }
     }
 
+    // One inference at a time. Copy the DIB before returning to the capture loop.
+    internal sealed class PlayerDetector : IDisposable
+    {
+        private readonly Process child;
+        private Task<double[][]> pending;
+        private long submitted;
+        private Size dimensions;
+        internal long LastResult { get; private set; }
+
+        private PlayerDetector(Process process) { child = process; }
+
+        internal static PlayerDetector TryStart(string project)
+        {
+            string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ReflexCore", "vision");
+            string script = Path.Combine(project, "tools", "reflexvision_players.py");
+            if (!File.Exists(Path.Combine(root, "yolox_tiny.onnx")) || !File.Exists(script)) return null;
+            try
+            {
+                return new PlayerDetector(Process.Start(new ProcessStartInfo {
+                    FileName = "py.exe", Arguments = "-3 \"" + script + "\" \"" + root + "\"",
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
+                    RedirectStandardOutput = true
+                }));
+            }
+            catch (System.ComponentModel.Win32Exception) { return null; }
+        }
+
+        internal bool Update(Surface frame, long now, List<Detection> output)
+        {
+            if (child.HasExited) return false;
+            if (pending != null)
+            {
+                if (!pending.IsCompleted) return now - submitted < 5000;
+                if (pending.Status != TaskStatus.RanToCompletion) return false;
+                if (now - submitted < 350 && dimensions == new Size(frame.Width, frame.Height))
+                {
+                    LastResult = now;
+                    foreach (var box in pending.Result)
+                    {
+                        if (box.Length != 5 || box.Any(value => Double.IsNaN(value) || Double.IsInfinity(value))) continue;
+                        if (box[0] < 0 || box[1] < 0 || box[2] < 1 || box[3] < 1 ||
+                            box[0]+box[2] > frame.Width || box[1]+box[3] > frame.Height || box[4] < 0 || box[4] > 1) continue;
+                        output.Add(new Detection("player", new Rectangle((int)box[0],(int)box[1],(int)box[2],(int)box[3]),(float)box[4]));
+                    }
+                }
+                pending = null;
+            }
+            if (now - submitted < 82) return true;
+            submitted = now;
+            dimensions = new Size(frame.Width, frame.Height);
+            int width = frame.Width, height = frame.Height;
+            var pixels = new byte[width * height * 4];
+            Marshal.Copy(frame.Pixels, pixels, 0, pixels.Length);
+            pending = Task.Run(() =>
+            {
+                var input = new BinaryWriter(child.StandardInput.BaseStream);
+                input.Write(width); input.Write(height); input.Write(pixels); input.Flush();
+                string response = child.StandardOutput.ReadLine();
+                if (response == "READY") response = child.StandardOutput.ReadLine();
+                if (response == null || response.Length > 4096) throw new IOException("Invalid player detector response");
+                return new JavaScriptSerializer().Deserialize<double[][]>(response) ?? new double[0][];
+            });
+            return true;
+        }
+
+        internal void Invalidate() { dimensions = Size.Empty; LastResult = 0; }
+
+        public void Dispose()
+        {
+            try { if (!child.HasExited) child.Kill(); }
+            catch (InvalidOperationException) {}
+            catch (System.ComponentModel.Win32Exception) {}
+            child.Dispose();
+        }
+    }
+
     internal sealed class PreviewWindow : Form
     {
         [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr handle, int id, uint modifiers, uint key);
@@ -175,6 +252,10 @@ namespace ReflexCore.Vision
         private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 65 };
         private readonly GameCapture capture;
         private readonly IDetector detector = new ColorRegions();
+        private PlayerDetector players;
+        private readonly List<Detection> playerBoxes = new List<Detection>(16);
+        private readonly Tracker playerTracker = new Tracker();
+        private readonly List<Track> playerTracks = new List<Track>(16);
         private readonly Tracker tracker = new Tracker();
         private readonly List<Detection> detections = new List<Detection>(24);
         private readonly EventWaitHandle stop;
@@ -189,7 +270,7 @@ namespace ReflexCore.Vision
         private double startedAt, finishedAt, startedCpu, finishedCpu;
         private long peakWorkingSet, workingSet;
         private int frames, framesWithTracks;
-        private long sequence, lastPublish;
+        private long sequence, lastPublish, lastPlayerResult;
         private bool finalized, hotkey;
         private Rectangle placed;
 
@@ -205,9 +286,10 @@ namespace ReflexCore.Vision
             }
         }
 
-        internal PreviewWindow(int pid, IntPtr hwnd, int width, bool cpuScale, int count, EventWaitHandle signal, string relayPath, BenchmarkScene synthetic)
+        internal PreviewWindow(int pid, IntPtr hwnd, int width, bool cpuScale, int count, EventWaitHandle signal, string relayPath, BenchmarkScene synthetic, string project)
         {
             capture = new GameCapture(hwnd, (uint)pid, width, cpuScale, synthetic != null);
+            players = count == 0 && synthetic == null ? PlayerDetector.TryStart(project) : null;
             cpu = cpuScale; stop = signal; relay = relayPath; samples = count; fixture = synthetic;
             Text = "ReflexVision - live preview";
             TopMost = true; StartPosition = FormStartPosition.Manual;
@@ -290,6 +372,8 @@ namespace ReflexCore.Vision
                     overlay.Frame = null;
                     overlay.Visible.Clear();
                     tracker.Clear();
+                    playerTracker.Clear(); playerTracks.Clear();
+                    if (players != null) players.Invalidate();
                     overlay.Invalidate();
                     status.Text = "Focus the windowed game";
                     timer.Interval = 180;
@@ -299,6 +383,22 @@ namespace ReflexCore.Vision
 
                 detector.Detect(surface, detections);
                 tracker.Update(detections, clock.ElapsedMilliseconds, overlay.Visible);
+                if (players != null)
+                {
+                    playerBoxes.Clear();
+                    if (!players.Update(surface, clock.ElapsedMilliseconds, playerBoxes))
+                    {
+                        players.Dispose(); players = null;
+                        playerTracks.Clear();
+                    }
+                    else if (players.LastResult != lastPlayerResult)
+                    {
+                        lastPlayerResult = players.LastResult;
+                        playerTracker.Update(playerBoxes, lastPlayerResult, playerTracks);
+                    }
+                    else if (clock.ElapsedMilliseconds - lastPlayerResult > 250) playerTracks.Clear();
+                    overlay.Visible.AddRange(playerTracks);
+                }
                 overlay.Frame = surface;
                 overlay.Refresh();
                 double elapsed = (Stopwatch.GetTimestamp() - frameStart) * 1000.0 / Stopwatch.Frequency;
@@ -320,7 +420,7 @@ namespace ReflexCore.Vision
                     Publish("live", surface, frameUnixMs);
                 if (!finalized)
                 {
-                    status.Text = overlay.Visible.Count + " color / HUD tracks | " + elapsed.ToString("0.0") + " ms" +
+                    status.Text = (players == null ? "Color / HUD only" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
                         (hotkey ? " | Ctrl+Alt+F10" : "");
                 }
             }
@@ -333,7 +433,7 @@ namespace ReflexCore.Vision
             string temporary = relay + ".next";
             try
             {
-                var objects = image == null ? new object[0] : overlay.Visible.Select(track => (object)new
+                var objects = image == null ? new object[0] : overlay.Visible.Where(track => track.Object.Kind != "player").Select(track => (object)new
                 {
                     id = track.Id, kind = track.Object.Kind, confidence = track.Object.Score,
                     x = track.Object.Box.X, y = track.Object.Box.Y,
@@ -393,7 +493,7 @@ namespace ReflexCore.Vision
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { timer.Dispose(); capture.Dispose(); process.Dispose(); }
+            if (disposing) { timer.Dispose(); capture.Dispose(); process.Dispose(); if (players != null) players.Dispose(); }
             base.Dispose(disposing);
         }
     }
