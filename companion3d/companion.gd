@@ -33,6 +33,7 @@ var bubble_style: StyleBoxFlat
 var menu: PanelContainer
 var menu_buttons: Dictionary = {}
 var outside_menu_since := -1.0
+var region_landmarks := PackedVector2Array()
 var native_region := PackedVector2Array()
 var next_region_at := 0.0
 var rig: RefCounted
@@ -375,7 +376,8 @@ func _apply_options(resize_window := true) -> void:
 	var window := get_window()
 	var old_body := body_size
 	body_size=Vector2i(Vector2(BASE_SIZE)*float(options.zoom))
-	view_margin=Vector2i(Vector2(VIEW_MARGIN)*float(options.zoom))
+	# Keep tilt clearance without scaling the transparent border at high zoom.
+	view_margin=Vector2i(Vector2(VIEW_MARGIN)*minf(1.0,float(options.zoom)))
 	var desired := body_size+view_margin*2
 	if resize_window and window.size!=desired:
 		window.size=desired
@@ -829,26 +831,50 @@ func _update_window_region() -> void:
 		return
 	next_region_at=now+0.042
 	var zoom := float(options.zoom)
-	var points := PackedVector2Array()
+	var centers := PackedVector2Array()
+	var radii := PackedVector2Array()
 	for role in ["head","chest","hips","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand","leftLowerLeg","rightLowerLeg","leftFoot","rightFoot"]:
 		if not projected_bones.has(role):
 			continue
 		var center: Vector2=projected_bones[role]
 		var radius := Vector2(68,73) if role=="head" else Vector2(89,74) if role=="hips" else Vector2(47,53) if role.ends_with("Foot") else Vector2(46,47)
-		for i in 8:
-			var radial := Vector2.from_angle(i*TAU/8.0)*radius*zoom
-			points.append((center+radial).snapped(Vector2(3,3)))
+		centers.append(center)
+		radii.append(radius*zoom)
 	for ear in projected_ears:
-		for i in 8:
-			points.append((ear+Vector2.from_angle(i*TAU/8.0)*31*zoom).snapped(Vector2(3,3)))
-	var outline := Geometry2D.convex_hull(points)
+		centers.append(ear)
+		radii.append(Vector2.ONE*31*zoom)
+	var rects: Array[Rect2] = []
 	if bubble.visible:
-		outline=_add_region_rect(outline,bubble.get_rect().grow(2))
+		rects.append(bubble.get_rect().grow(2))
 	if cloud.visible:
 		var base := Vector2(motion.cloud_x,motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO if motion.cloud_seated else motion.cloud_edge)-Vector2(get_window().position)
-		outline=_add_region_rect(outline,Rect2(base-Vector2(106,35)*zoom,Vector2(212,94)*zoom))
+		rects.append(Rect2(base-Vector2(106,35)*zoom,Vector2(212,94)*zoom))
 	if menu.visible:
-		outline=_add_region_rect(outline,menu.get_rect().grow(1))
+		rects.append(menu.get_rect().grow(1))
+
+	# Avoid replacing the native window region for subpixel idle motion. Compare
+	# against the last applied region so slow cumulative movement still updates.
+	var landmarks := centers.duplicate()
+	landmarks.append(Vector2(zoom*100,centers.size()))
+	for rect in rects:
+		landmarks.append(rect.position)
+		landmarks.append(rect.end)
+	var stable := landmarks.size()==region_landmarks.size()
+	if stable:
+		for i in landmarks.size():
+			if landmarks[i].distance_squared_to(region_landmarks[i])>9:
+				stable=false
+				break
+	if stable:
+		return
+	region_landmarks=landmarks
+	var points := PackedVector2Array()
+	for n in centers.size():
+		for i in 8:
+			points.append(centers[n]+Vector2.from_angle(i*TAU/8)*(radii[n]+Vector2(4,4)))
+	var outline := Geometry2D.convex_hull(points)
+	for rect in rects:
+		outline=_add_region_rect(outline,rect.grow(4))
 	if outline!=native_region:
 		native_region=outline
 		get_window().mouse_passthrough_polygon=native_region
