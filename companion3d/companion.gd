@@ -9,6 +9,7 @@ const STATUS_SCHEMA := "reflexcore.companion.runtime.v1"
 const DEFAULTS := {
 	"model": "", "mode": "taskbar", "x": -1, "y": -1, "zoom": 1.0, "physics": true,
 	"gravity": 900.0, "walk_speed": 58.0, "hair": true, "stockings": true,
+	"midnight_stockings": false, "sit_style": "swing", "intensity": 1.0,
 	"animate": true, "bubble": true, "top": true, "clickthrough": false, "fps": 30,
 	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "original"
 }
@@ -229,7 +230,7 @@ func _add_menu_button(rows: VBoxContainer, id: int, check: bool) -> void:
 func _show_menu(anchor: Vector2) -> void:
 	for i in MODE_NAMES.size():
 		menu_buttons[i].text=("●  " if MODE_VALUES[i]==options.mode else "    ")+MODE_NAMES[i]
-	for entry in [[10,"Show status bubble",options.bubble],[11,"Stockings",options.stockings],[12,"Magic Platforms",options.magic]]:
+	for entry in [[10,"Show status bubble",options.bubble],[11,"Stockings",options[_stocking_key()]],[12,"Magic Platforms",options.magic]]:
 		var button: CheckButton=menu_buttons[entry[0]]
 		button.text=entry[1]
 		button.set_pressed_no_signal(entry[2])
@@ -274,15 +275,25 @@ func _read_options() -> Dictionary:
 	next.fps = clampi(int(next.fps),15,60)
 	next.msaa=clampi(int(next.msaa),0,2)
 	if next.edition!="midnight":next.edition="original"
+	if next.sit_style not in ["still","swing","relaxed"]:next.sit_style="swing"
+	next.intensity=clampf(float(next.intensity),0.0,1.0)
 	next.poll_ms = clampi(int(next.poll_ms),200,2500)
 	if next.model is String and (not next.model.is_absolute_path() or next.model.length()>3000):
 		next.model = ""
 	return next
 
+func _stocking_key() -> String:
+	return "midnight_stockings" if options.edition=="midnight" and str(options.model).is_empty() else "stockings"
+
 func _pick_model() -> String:
 	var desired: String = options.model
 	dress_model=false
 	if desired.is_empty():
+		if options.edition=="midnight":
+			var base_skin := bridge.path_join("avatar-midnight.vrm")
+			var dark_skin := bridge.path_join("avatar-midnight-stockings.vrm")
+			dress_model=FileAccess.file_exists(base_skin) and FileAccess.file_exists(dark_skin)
+			return dark_skin if options.midnight_stockings else base_skin
 		for extension in ["vrm","glb"]:
 			var variant := bridge.path_join("avatar-bare-legs."+extension)
 			if not options.stockings and FileAccess.file_exists(variant):
@@ -316,7 +327,7 @@ func _load_avatar() -> void:
 	var previous_mtime := model_mtime
 	var candidate = cached_rig if cache_hit else Rig.new()
 	if not cache_hit and not candidate.load_file(path):
-		model_error=candidate.error
+		model_error="midnight_asset_missing" if not FileAccess.file_exists(path) and path.get_file().begins_with("avatar-midnight") else candidate.error
 		return
 	model_file=path
 	model_mtime=touched
@@ -331,7 +342,6 @@ func _load_avatar() -> void:
 	rig=candidate
 	pivot.add_child(rig.scene)
 	projected_bones.clear()
-	rig.set_edition(options.edition=="midnight" and str(options.model).is_empty())
 	var size_factor:=1.65/float(rig.height)
 	rig.scene.scale=Vector3.ONE*size_factor
 	rig.scene.position.y=-float(rig.bottom)*size_factor
@@ -342,10 +352,11 @@ func _load_avatar() -> void:
 func _warm_outfit() -> void:
 	if not dress_model or rig==null or cached_rig!=null or now<model_attempt_at+2 or menu.visible:
 		return
-	var current:bool=options.stockings
-	options.stockings=not current
+	var key := _stocking_key()
+	var current: bool=options[key]
+	options[key]=not current
 	var alternative := _pick_model()
-	options.stockings=current
+	options[key]=current
 	if alternative.is_empty() or alternative==model_file:return
 	var candidate := Rig.new()
 	if candidate.load_file(alternative):
@@ -368,7 +379,6 @@ func _apply_options() -> void:
 			motion.position+=Vector2(float(old_body.x-body_size.x)/2,float(old_body.y-body_size.y))
 	window.always_on_top=bool(options.top)
 	window.msaa_3d=int(options.msaa) as Viewport.MSAA
-	if rig!=null:rig.set_edition(options.edition=="midnight" and str(options.model).is_empty())
 	bubble_style.bg_color=Color("#101b27e9") if options.bubble_style=="minimal" else Color("#182238ed")
 	bubble_style.set_corner_radius_all(5 if options.bubble_style=="minimal" else 13)
 	_camera_layout()
@@ -575,7 +585,7 @@ func _process(delta: float) -> void:
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
 		if stage=="warning":
 			gaze.y=-0.55
-		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose)
+		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose,_is_midnight_loaded() and physical=="sit",str(options.sit_style),float(options.intensity))
 		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
 		var hip_pad := 11*float(options.zoom)
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
@@ -876,11 +886,15 @@ func _menu_action(id: int) -> void:
 	elif id==10:
 		values.bubble=not options.bubble
 	elif id==11:
-		values.stockings=not options.stockings
+		var key := _stocking_key()
+		values[key]=not options[key]
 	elif id==12:
 		values.magic=not options.magic
 	if _write_json("settings.json",values):
 		poll_clock=0.0
+
+func _is_midnight_loaded() -> bool:
+	return str(options.model).is_empty() and model_file.get_file() in ["avatar-midnight.vrm","avatar-midnight-stockings.vrm"]
 
 func _runtime_status() -> Dictionary:
 	return {
@@ -894,11 +908,11 @@ func _runtime_status() -> Dictionary:
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"mouse_interaction":not bool(options.clickthrough),
-		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs"),"bubble_visible":bubble.visible,
+		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs") or _is_midnight_loaded() and model_file.get_file()=="avatar-midnight.vrm","bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,
-		"msaa":get_window().msaa_3d,"edition":options.edition,
+		"msaa":get_window().msaa_3d,"edition":"midnight" if _is_midnight_loaded() else "original",
 		"interactions":interaction_count,"drags":drag_count,"held":motion.held,"releases":release_count,"body_size":[body_size.x,body_size.y]
 	}
 

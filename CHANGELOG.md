@@ -1,3 +1,8 @@
+## ReflexCompanion Midnight Edition
+
+- Add a separate skinned shorts and fitted-top VRM with bare feet and optional dark stockings.
+- Add persistent Midnight sitting styles and intensity. The active overlay switches local VRMs in place.
+
 ## Companion menu and seated hem
 
 - Allow an outside body press to dismiss the menu and start a drag immediately. Shape each seated front and side skirt segment independently.

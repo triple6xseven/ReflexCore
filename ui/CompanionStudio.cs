@@ -101,7 +101,10 @@ public sealed partial class StudioWindow
         var appearanceGroup = Section(groups, "Appearance");
         WidgetChoice(appearanceGroup, "Edition", "edition", new[] { "Original", "Midnight Edition" }, new object[] { "original", "midnight" });
         WidgetNumber(appearanceGroup, "Scale", "zoom", 65, 200, "%", 100);
-        WidgetChoice(appearanceGroup, "Outfit", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
+        WidgetChoice(appearanceGroup, "Original legs", "stockings", new[] { "Stockings", "Bare legs" }, new object[] { true, false });
+        WidgetChoice(appearanceGroup, "Midnight legs", "midnight_stockings", new[] { "Barefoot", "Dark stockings" }, new object[] { false, true });
+        WidgetChoice(appearanceGroup, "Midnight sitting", "sit_style", new[] { "Still", "Leg swing", "Relaxed stretch" }, new object[] { "still", "swing", "relaxed" });
+        WidgetNumber(appearanceGroup, "Sitting motion intensity", "intensity", 0, 100, "%", 100);
         WidgetToggle(appearanceGroup, "Animations", "animate");
         WidgetToggle(appearanceGroup, "Hair motion", "hair");
         WidgetToggle(appearanceGroup, "Thought bubble", "bubble");

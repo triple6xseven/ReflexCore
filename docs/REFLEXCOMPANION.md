@@ -44,7 +44,7 @@ The renderer follows the actual support window while seated. A fast move, closed
 
 Enable **Magic Platforms** in Studio or the character menu. Window edges and Free roam look for a reachable edge before summoning a platform. The cloud supports the seated pose, bobs slightly and can catch a nearby drop during a short grace period after a grab. A reachable exposed edge lets the character leave the cloud. Disabling magic returns the character to the taskbar when no ledge is available.
 
-Under **Companion & Widgets**, use **Edition** for Original or Midnight Edition and **Outfit** for stockings or bare legs. Midnight derives the look in memory from the default model, adds a rig-mounted metal clasp and gem, and recolors compatible clothing materials. The runtime preserves face, rig and metadata. The source VRMs stay unchanged. This is an accessory and material variant. A new authored garment and cloth collision are still pending. **Edge smoothing** offers Off, 2× and 4× MSAA. Low-power mode selects 2×. The overlay uses the Windows tool-window style and removes its tab from the shell taskbar. Start, stop and restart are available in Studio and the ReflexCore tray.
+Under **Companion & Widgets**, select **Edition** and apply. **Edge smoothing** offers Off, 2× and 4× MSAA. Low-power mode selects 2×. The overlay uses the Windows tool-window style. Start, stop and restart are available in Studio and the ReflexCore tray.
 
 Windows validation used a temporary native text-editor fixture and the real Godot renderer. A 27 px horizontal and 13 px vertical window move preserved the seated pose. The settled seat contact was 766 px on a 768 px edge. A larger move released the avatar into a throw reaction. An overlapping editor window hid the original edge, causing cloud summoning. Removing the cover let the avatar leave the cloud and perch again. A clothing and edition change kept the same renderer PID, and the renderer exited cleanly on its stop flag. The tray geometry check covers full and partial occlusion. The deterministic motion test covers the climb phases, unreachable edges, moving and removed supports, cloud landing, drag smoothing and five screen boundary impulses.
 
@@ -65,3 +65,41 @@ Continue with an installed Studio walkthrough for head petting, window focus cha
 The companion now faces the direction of travel. Window edges mode gives priority to the active window when its title edge leaves room for the model. Maximized windows and edges with insufficient room do not provide a seat. Free roam responds to available surfaces instead of pacing on a timer. The status bubble stays hidden in idle and briefly shows a petting reaction. A click can trigger a wave while standing. A seated click uses a small lap-and-face reaction. Clothing can change within the current session. The renderer keeps one alternate VRM in memory, so the original single-model memory sample above should not be used as the cost of the current outfit cache.
 
 A Windows renderer check with supplied foreground bounds measured the seated contact at y=410 for an edge at y=410. The two outfit variants switched in both directions in one renderer process. The deterministic motion check covers taskbar standing, quiet roaming, foreground priority, moving supports and support removal.
+
+## Midnight Edition
+
+Midnight uses the supported Lumen Original rig, expressions and hair. Its fitted top,
+shorts, hem piping, belt and clasp are separate material regions cut into the
+skinned geometry. The dress and shoes are removed from the derived model.
+The bare and stocking editions use separate foot materials. The underlying hair
+silhouette and foot topology come from the source. The outfit has no loose straps,
+separate cloth solver or bespoke foot geometry.
+
+Build the optional private models using Python, NumPy and Pillow. Run the following
+commands from the repository with PowerShell. The builder verifies the source hashes
+and refuses to overwrite files.
+
+```powershell
+$models = Join-Path $env:LOCALAPPDATA 'ReflexCore/companion3d'
+py -3 examples/build_companion_midnight.py "$models/avatar-bare-legs.vrm" "$models/avatar-midnight.vrm"
+py -3 examples/build_companion_midnight.py "$models/avatar.vrm" "$models/avatar-midnight-stockings.vrm"
+```
+
+In Studio, open **Companion & Widgets**, select **Midnight Edition** and apply.
+**Midnight legs** is saved independently from **Original legs**. Select **Still**,
+**Leg swing**, or **Relaxed stretch** for a seated pose. Sitting motion intensity
+scales only the additional shin motion on window edges. It leaves cloud seating
+and gravity independent. A missing Midnight model is reported and the loaded
+avatar stays visible.
+
+To reproduce the Godot turntable, pass the private VRM and an existing output
+directory to `godot --path companion3d --script res://render_outfit.gd -- MODEL OUTPUT`.
+
+For a 10–15 second desktop recording, set Window edges, enable the thought bubble,
+choose Leg swing or Relaxed stretch, and open a blank window with its top just
+above the companion. From the tray, show the companion and move the cursor
+near her face. Hold on the climb, then give the seated pose a few seconds.
+Brush across the head three times in short alternating horizontal strokes.
+A real ReflexCore task can supply live bubble status during the recording.
+With no active task the bubble can stay hidden. Capture a clean desktop without
+private window content.

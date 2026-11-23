@@ -48,8 +48,8 @@ var face := Vector2.ZERO
 var last_expression: Dictionary = {}
 var gesture_weight := 0.0
 var gesture_state := ""
-var midnight: BoneAttachment3D
-var midnight_materials := {}
+var sit_elapsed := 0.0
+var leg_motion := 0.0
 
 func load_file(path: String) -> bool:
 	var input := FileAccess.open(path, FileAccess.READ)
@@ -353,9 +353,12 @@ func _morph(key: String, value: float) -> void:
 		var mesh: MeshInstance3D = binding[0]
 		mesh.set_blend_shape_value(binding[1], value * binding[2])
 
-func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false) -> void:
+func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false, window_swing := false, sit_style := "still", intensity := 1.0) -> void:
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
+	var swing_active := enabled and seated and window_swing and sit_style!="still"
+	sit_elapsed=sit_elapsed+dt if swing_active else 0.0
+	leg_motion=lerpf(leg_motion,smoothstep(0.2,1.3,sit_elapsed)*intensity,blend)
 	var moving := state in ["walk", "run"]
 	gait = lerpf(gait, 1.0 if moving and enabled else 0.0, blend)
 	stance = lerpf(stance, 1.0 if seated else 0.0, blend)
@@ -392,7 +395,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var tuck := 0.0
 		if enabled and state in ["dragged","thrown","falling","landing","hard_collision"]:
 			tuck=clampf(0.13+motion.length()/2100,0.13,0.64)
-		_seat_leg(side,side_sign,swing,tuck,sign,blend,cloudy)
+		_seat_leg(side,side_sign,swing,tuck,sign,blend,cloudy,sit_style)
 	var hips := int(roles["hips"])
 	var hip_rest: Vector3 = starting_positions[hips]
 	hip_rest.y += (-stance * 0.12 + breathe * 0.14 - posture * 0.03) * height
@@ -460,7 +463,7 @@ func _find_seat_axes() -> void:
 			forward=projected.normalized()
 	seat_forward=forward
 
-func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: float,blend: float,cloudy: bool) -> void:
+func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: float,blend: float,cloudy: bool,sit_style: String) -> void:
 	var upper := side+"UpperLeg"
 	var lower := side+"LowerLeg"
 	var foot := side+"Foot"
@@ -474,7 +477,9 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 		return
 	var knee_drop := (0.16 if cloudy else 0.12)+side_sign*0.035
 	var thigh := seat_forward-seat_right*side_sign*0.07-Vector3.UP*knee_drop
-	var shin := Vector3.DOWN+seat_forward*(0.09+side_sign*0.02)
+	var phase := sit_elapsed*1.9 + side_sign*0.95
+	var stretch := pow(maxf(0.0,sin(sit_elapsed*0.58+side_sign*1.57)),12)*0.32 if sit_style=="relaxed" else 0.0
+	var shin := Vector3.DOWN+seat_forward*(0.09+side_sign*0.02+leg_motion*(sin(phase)*0.13+stretch))
 	_orient_segment(upper,lower,thigh,standing_thigh,blend)
 	_orient_segment(lower,foot,shin,standing_shin,blend)
 	var ankle := int(roles[foot])
@@ -576,51 +581,3 @@ func _rotate_chain(bone: int, current: Vector3, desired: Vector3, weight: float)
 	var rotation := skeleton.get_bone_pose_rotation(bone)
 	var change := Quaternion((basis*current).normalized(),(basis*desired).normalized())
 	skeleton.set_bone_pose_rotation(bone,rotation.slerp((change*rotation).normalized(),weight))
-
-func set_edition(enabled: bool) -> void:
-	if midnight!=null and midnight.visible==enabled:
-		return
-	if enabled and midnight==null:
-		# Derive an outfit scene from the loaded rig. Source VRM bytes stay intact.
-		midnight=BoneAttachment3D.new()
-		midnight.bone_idx=int(roles["hips"])
-		skeleton.add_child(midnight)
-		var metal := StandardMaterial3D.new()
-		metal.albedo_color=Color("#ab9cc9")
-		metal.metallic=0.54
-		metal.roughness=0.32
-		var gem := StandardMaterial3D.new()
-		gem.albedo_color=Color("#735de3")
-		gem.emission_enabled=true
-		gem.emission=Color("#502f9c")
-		gem.emission_energy_multiplier=0.28
-		var clasp := TorusMesh.new()
-		clasp.inner_radius=0.024
-		clasp.outer_radius=0.034
-		clasp.rings=14
-		clasp.ring_segments=10
-		var stone := BoxMesh.new()
-		stone.size=Vector3(0.031,0.031,0.013)
-		_mount_detail(clasp,metal,Vector3(0,0.096,0.11),Vector3(PI/2,0,0))
-		_mount_detail(stone,gem,Vector3(0,0.096,0.121),Vector3(0,0,PI/4))
-		for mesh in meshes:
-			for surface in mesh.mesh.get_surface_count():
-				var original := mesh.get_active_material(surface) as StandardMaterial3D
-				if original==null or not "cloth" in (original.resource_name+" "+mesh.mesh.surface_get_name(surface)).to_lower():
-					continue
-				var tint := original.duplicate() as StandardMaterial3D
-				tint.albedo_color *= Color(0.82,0.76,1.0)
-				midnight_materials[[mesh,surface]]=[original,tint]
-	if midnight!=null:
-		midnight.visible=enabled
-	for key in midnight_materials:
-		var mesh: MeshInstance3D=key[0]
-		mesh.set_surface_override_material(key[1],midnight_materials[key][int(enabled)])
-
-func _mount_detail(mesh: PrimitiveMesh, material: Material, at: Vector3, angle: Vector3) -> void:
-	var part := MeshInstance3D.new()
-	part.mesh=mesh
-	part.material_override=material
-	part.position=at
-	part.rotation=angle
-	midnight.add_child(part)

@@ -1,0 +1,61 @@
+extends SceneTree
+const Rig = preload("res://avatar_rig.gd")
+
+func _initialize() -> void:
+	call_deferred("_render")
+
+func _render() -> void:
+	var args := OS.get_cmdline_user_args()
+	if args.size()!=2:
+		quit(2)
+		return
+	root.size=Vector2i(480,620)
+	var rig := Rig.new()
+	if not rig.load_file(args[0]):
+		push_error(rig.error)
+		quit(1)
+		return
+	root.add_child(rig.scene)
+	rig.scene.rotation.y=PI if rig.legacy else 0.0
+	var camera := Camera3D.new()
+	camera.projection=Camera3D.PROJECTION_ORTHOGONAL
+	camera.size=2.0
+	camera.current=true
+	root.add_child(camera)
+	var world := WorldEnvironment.new()
+	world.environment=Environment.new()
+	world.environment.background_mode=Environment.BG_COLOR
+	world.environment.background_color=Color("#252235")
+	world.environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
+	world.environment.ambient_light_color=Color("#e6e5ff")
+	world.environment.ambient_light_energy=0.70
+	root.add_child(world)
+	var light := DirectionalLight3D.new()
+	light.rotation_degrees=Vector3(-31,-23,0)
+	light.light_energy=0.85
+	root.add_child(light)
+	var preview_seat := MeshInstance3D.new()
+	preview_seat.mesh=BoxMesh.new()
+	preview_seat.mesh.size=Vector3(.80,.20,.55)
+	var seat_material := StandardMaterial3D.new()
+	seat_material.albedo_color=Color("#4b526a")
+	preview_seat.material_override=seat_material
+	root.add_child(preview_seat)
+	preview_seat.visible=false
+	for item in [["front",0.0,false],["profile",PI/2,false],["back",PI,false],["seated",-.63,true],["seated-side",PI/2,true],["seated-stretch",.55,true]]:
+		for tick in (285 if item[0]=="seated-stretch" else 95):
+			rig.animate(1.0/60.0,float(tick)/60.0,"sit" if item[2] else "idle",Vector2.ZERO,Vector2.ZERO,true,true,item[2],"",false,item[2],"relaxed")
+		var center := Vector3(0,.88 if not item[2] else .83,0)
+		if item[2]:
+			var hips := rig.world_bone("hips")
+			preview_seat.position=hips-Vector3.UP*.18-rig.scene.basis*rig.seat_forward*.25
+		preview_seat.visible=item[2]
+		camera.position=center+Vector3(sin(item[1]),.08,cos(item[1]))*3
+		camera.look_at(center)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		if root.get_texture().get_image().save_png(args[1].path_join(item[0]+".png"))!=OK:
+			quit(1)
+			return
+	print(JSON.stringify({"mapped_bones":rig.roles.size(),"facial_binds":rig.expression_binds,"triangles":rig.triangle_count}))
+	quit()
