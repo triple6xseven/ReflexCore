@@ -94,20 +94,20 @@ namespace ReflexCore.Citadel
             }
         }
         static string Calibrate(Dictionary<string,object> data){
-                if(DateTime.UtcNow.Ticks<pauseUntil)return "{\"ok\":false,\"error\":\"Human input cooldown\"}";
-                IntPtr focus=GetForegroundWindow();if(!IsCitadelChrome(focus))return "{\"ok\":false,\"error\":\"Focus the Citadel browser window first\"}";
-                Point p;if(!GetCursorPos(out p))return "{\"ok\":false,\"error\":\"Cannot read cursor\"}";
-                if(!GetWindowRect(focus,out calibratedBounds)||GetAncestor(WindowFromPoint(p),2)!=focus)
-                    return "{\"ok\":false,\"error\":\"PHYSICAL_TARGET_OCCLUDED\"}";
-                try{
-                    scale=ReadScale(data);
-                    originX=p.X-DevicePixel(Number(data,"anchor_x"),scale);
-                    originY=p.Y-DevicePixel(Number(data,"anchor_y"),scale);
-                }
-                catch{return "{\"ok\":false,\"error\":\"INVALID_PHYSICAL_CALIBRATION\"}";}
-                window=focus;actions=0;abort=false;session=Guid.NewGuid().ToString("N");
-                deadline=DateTime.UtcNow.AddMinutes(2).Ticks;
-                return "{\"ok\":true,\"token\":\""+session+"\",\"mode\":\"REAL_WINDOWS_CURSOR\"}";
+            if(DateTime.UtcNow.Ticks<pauseUntil)return "{\"ok\":false,\"error\":\"Human input cooldown\"}";
+            IntPtr focus=GetForegroundWindow();if(!IsCitadelChrome(focus))return "{\"ok\":false,\"error\":\"Focus the Citadel browser window first\"}";
+            Point p;if(!GetCursorPos(out p))return "{\"ok\":false,\"error\":\"Cannot read cursor\"}";
+            if(!GetWindowRect(focus,out calibratedBounds)||GetAncestor(WindowFromPoint(p),2)!=focus)
+                return "{\"ok\":false,\"error\":\"PHYSICAL_TARGET_OCCLUDED\"}";
+            try{
+                scale=ReadScale(data);
+                originX=p.X-DevicePixel(Number(data,"anchor_x"),scale);
+                originY=p.Y-DevicePixel(Number(data,"anchor_y"),scale);
+            }
+            catch{return "{\"ok\":false,\"error\":\"INVALID_PHYSICAL_CALIBRATION\"}";}
+            window=focus;actions=0;abort=false;session=Guid.NewGuid().ToString("N");
+            deadline=DateTime.UtcNow.AddMinutes(2).Ticks;
+            return "{\"ok\":true,\"token\":\""+session+"\",\"mode\":\"REAL_WINDOWS_CURSOR\"}";
         }
         static bool InWindow(int x,int y,Rect r){return x>=r.Left+4&&x<=r.Right-4&&y>=r.Top+4&&y<=r.Bottom-4;}
         static bool Cancelled(){return abort||StopKey()||GetForegroundWindow()!=window||DateTime.UtcNow.Ticks>deadline;}

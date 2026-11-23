@@ -4,7 +4,7 @@ const game=window.ReflexCitadel,policy=window.ReflexCitadelPolicy,rust=window.Re
 if(!game||!policy){console.error('Citadel game or tactics API unavailable');return;}
 const $=id=>document.getElementById(id);
 const logArea=$('agent-log'),cursor=$('agent-cursor'),startButton=$('agent-start'),stopButton=$('agent-stop');
-let runId=0,running=false,headlessController=null,stageCode='START';
+let runId=0,running=false,stopping=false,headlessController=null,stageCode='START';
 let trace=null,lastTrace=null,verifiedCount=0;
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function log(text){
@@ -131,7 +131,7 @@ async function nativeCall(name,payload){
  const detail={
   OUTSIDE_FOREGROUND_WINDOW:'The card or drop point is outside the browser window. Fit the arena to the browser and try again.',
   PHYSICAL_CALIBRATION_CHANGED:'The browser window or zoom changed. Click Agent Deployment again to calibrate.',
-  PHYSICAL_TARGET_OCCLUDED:'Another window overlaps the card or drop point. Move it clear and try again.',
+  PHYSICAL_TARGET_OCCLUDED:'Another window or desktop overlay covers a required point. Move the overlay clear and try again.',
   CANCELLED_OR_FOCUS_LOST:'The browser lost focus, the stop shortcut was pressed, or the pointer session expired.',
   USER_OVERRIDE:'Mouse movement interrupted the drag.'
  }[code]||code;
@@ -185,8 +185,8 @@ async function physicalDrag({from,drop,r},id){
 }
 async function visible(id,physical){
  document.body.classList.remove('headless-run');const useRust=$('agent-brain').value==='rust';
- if(useRust&&!rust)throw Error('Rust bridge JavaScript not loaded');
  stageCode='PLANNING';
+ if(useRust&&!rust)throw Error('Rust bridge JavaScript not loaded');
  if(trace)trace.planner=useRust?'rust_goal_agent':'browser_policy';
  let s=game.snapshot();
  if(s.phase!=='planning'){
@@ -278,24 +278,37 @@ async function headless(id){
   observer('HEADLESS · '+(result.verified?'VERIFIED':'FAILED'),'Result from the headless Node.js simulation.');
   finishTrace('completed',result.verified?'headless_verified':'headless_failed');
 }
-async function stop(){
-  const had=running;
-  runId++;state(false);clearSpotlight();
-  headlessController?.abort();headlessController=null;
-  await stopNative();
-  await rust?.stop();
-  game.cancelApiPlan();
-  if(had){game.stop();log('Stopped by the operator. The Chrome battle is paused.');finishTrace('cancelled','user_stop');observer('STOPPED · OPERATOR','New agent actions are blocked.','error');}
-  document.body.classList.remove('headless-run');
-  // Server stop is restricted to the one fixed headless executable.
-  try{await fetch('/api/agent/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch{}
+async function stop(reason='user_stop'){
+ if(!running||stopping)return;
+ stopping=true;
+ const id=++runId;
+ stopButton.disabled=true;
+ clearSpotlight();
+ headlessController?.abort();headlessController=null;
+ game.cancelApiPlan();
+ window.dispatchEvent(new PointerEvent('pointercancel'));
+ game.stop();
+ const human=reason==='human_override';
+ log(human?'The operator took over. The agent stopped.':'Stopped by the operator. The Chrome battle is paused.');
+ finishTrace('cancelled',reason);
+ observer(human?'STOPPED · PHYSICAL INPUT':'STOPPED · OPERATOR','New agent actions are blocked.','error');
+ document.body.classList.remove('headless-run');
+ try{
+  await Promise.all([
+   stopNative(),rust?.stop(),
+   fetch('/api/agent/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(4500)}).catch(()=>{})
+  ]);
+ }finally{
+  stopping=false;
+  if(id===runId)state(false);
+ }
 }
 startButton.addEventListener('click',async(event)=>{
  if(running)return;
  const visibleMode=$('agent-mode').value==='visible';
  const physical=visibleMode&&Boolean($('agent-physical')?.checked);
  if(visibleMode&&$('agent-brain').value==='openai'&&!window.confirm('Send a billable OpenAI API request?'))return;
- if(physical&&$('agent-brain').value==='openai'){log('For pointer calibration, select Local or disable the Windows pointer.');return;}
+ if(physical&&$('agent-brain').value==='openai'){log('For pointer calibration, select the local planner or Rust, or clear the Windows pointer checkbox.');return;}
  if(physical&&!event.isTrusted){log('Click the control yourself to approve moving the Windows pointer.');return;}
  const id=++runId;state(true);log('Starting · '+$('agent-mode').selectedOptions[0].textContent);
  const label=visibleMode?(physical?'VISIBLE_REAL_CURSOR':'VISIBLE_BROWSER_POINTER')+( $('agent-brain').value==='rust'?'_RUST':'_JS'):'HEADLESS_NODE';
@@ -317,7 +330,7 @@ startButton.addEventListener('click',async(event)=>{
   if(id===runId)state(false);
  }}
 });
-stopButton.addEventListener('click',stop);
+stopButton.addEventListener('click',()=>stop());
 async function replay(){
  if(running||!lastTrace)return;
  const previous=JSON.parse(JSON.stringify(lastTrace));
@@ -336,7 +349,7 @@ async function replay(){
   }
   finishTrace('completed','deployment_replay_verified');
   observer('REPLAY · VERIFIED',deployment.length+' placement actions accepted and read back; combat continues in Chrome','success');
- }catch(e){if(id===runId){finishTrace('failed','replay_failure');observer('REPLAY · FAILED',String(e.message||e),'error');log('REPLAY ERROR · '+e.message);}}
+ }catch(e){if(id===runId)failTrace(e);}
  finally{if(id===runId){state(false);clearSpotlight();}}
 }
 $('agent-replay').addEventListener('click',replay);
@@ -348,7 +361,7 @@ window.addEventListener('keydown',event=>{
 },true);
 window.addEventListener('pointerdown',event=>{
  if(!running||physicalDriving||event.target===startButton||event.target===stopButton||!event.isTrusted)return;
- runId++;state(false);clearSpotlight();stopNative();rust?.stop();game.stop();finishTrace('cancelled','human_override');observer('STOPPED · PHYSICAL INPUT','Control returned to the operator.','error');log('The operator took over. The agent stopped.');
+ stop('human_override');
 },true);
 
 $('agent-mode').addEventListener('change',()=>{if(running)stop();log('Agent mode · '+$('agent-mode').value);});
