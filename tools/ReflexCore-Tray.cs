@@ -7,6 +7,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Text.RegularExpressions;
 using System.Globalization;
+using System.Collections.Generic;
+using System.Management;
 
 namespace ReflexCore.Bridge
 {
@@ -136,9 +138,11 @@ namespace ReflexCore.Bridge
 
         public sealed class GpuReading
         {
+            public string Name { get; internal set; }
             public uint? UtilizationPercent { get; internal set; }
             public ulong? UsedBytes { get; internal set; }
             public ulong? TotalBytes { get; internal set; }
+            public ulong? SharedBytes { get; internal set; }
         }
 
         [DllImport("kernel32.dll")]
@@ -150,6 +154,7 @@ namespace ReflexCore.Bridge
 
         private ulong previousIdle, previousTotal;
         private NvmlReader gpu;
+        private WindowsGpuReader adapters;
         public bool CpuIsProcessorGroup { get; private set; }
 
         public ResourceCounters()
@@ -185,6 +190,130 @@ namespace ReflexCore.Bridge
         {
             if (gpu == null) gpu = new NvmlReader();
             return gpu.Read();
+        }
+
+        public GpuReading[] ReadAdapters()
+        {
+            if (adapters == null) adapters = new WindowsGpuReader();
+            var readings = adapters.Read();
+            if (readings.Length != 0) return readings;
+            var fallback = ReadGpu();
+            if (fallback == null || (!fallback.UtilizationPercent.HasValue && !fallback.TotalBytes.HasValue))
+                return readings;
+            fallback.Name = "NVIDIA";
+            return new[] {fallback};
+        }
+
+        private sealed class WindowsGpuReader
+        {
+            [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+            private struct AdapterDescription
+            {
+                [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string Name;
+                public uint Vendor, Device, Subsystem, Revision;
+                public UIntPtr DedicatedVideo, DedicatedSystem, SharedSystem;
+                public uint LuidLow, LuidHigh, Flags;
+            }
+            [DllImport("dxgi.dll")]
+            private static extern int CreateDXGIFactory1(ref Guid iid, out IntPtr factory);
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            private delegate int EnumAdapter(IntPtr factory, uint index, out IntPtr adapter);
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            private delegate int DescribeAdapter(IntPtr adapter, out AdapterDescription description);
+
+            private readonly Dictionary<string,AdapterDescription> devices =
+                new Dictionary<string,AdapterDescription>(StringComparer.OrdinalIgnoreCase);
+            private static readonly Regex Instance = new Regex(
+                @"(luid_0x[0-9a-f]{8}_0x[0-9a-f]{8})_phys_[0-9]+(?:_eng_[0-9]+)?",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+            private static T Method<T>(IntPtr instance, int slot) where T : class
+            {
+                IntPtr pointer = Marshal.ReadIntPtr(Marshal.ReadIntPtr(instance),slot * IntPtr.Size);
+                return Marshal.GetDelegateForFunctionPointer(pointer,typeof(T)) as T;
+            }
+
+            internal WindowsGpuReader()
+            {
+                var iid = new Guid("770aae78-f26f-4dba-a829-253c83d1b387");
+                IntPtr factory;
+                if (CreateDXGIFactory1(ref iid,out factory) < 0) return;
+                try
+                {
+                    var enumerate = Method<EnumAdapter>(factory,12);
+                    for (uint index=0; index<32; index++)
+                    {
+                        IntPtr adapter;
+                        if (enumerate(factory,index,out adapter)<0) break;
+                        try
+                        {
+                            AdapterDescription value;
+                            if (Method<DescribeAdapter>(adapter,10)(adapter,out value)<0 || (value.Flags&2)!=0) continue;
+                            string key=String.Format(CultureInfo.InvariantCulture,"luid_0x{0:X8}_0x{1:X8}",value.LuidHigh,value.LuidLow);
+                            devices[key]=value;
+                        }
+                        finally { Marshal.Release(adapter); }
+                    }
+                }
+                finally { Marshal.Release(factory); }
+            }
+
+            internal GpuReading[] Read()
+            {
+                var result = new Dictionary<string,GpuReading>(StringComparer.OrdinalIgnoreCase);
+                foreach (var device in devices)
+                {
+                    var info=device.Value;
+                    string name=info.Name.Replace("GeForce ","").Replace("(TM)","").Replace(" Graphics","").Replace("  "," ").Trim();
+                    if (name.Length>23) name=name.Substring(0,23);
+                    result.Add(device.Key,new GpuReading {Name=name,TotalBytes=info.DedicatedVideo.ToUInt64()});
+                }
+                if (result.Count==0) return new GpuReading[0];
+                Query("GPUAdapterMemory","Name,DedicatedUsage,SharedUsage",row =>
+                {
+                    Match match=Instance.Match((string)row["Name"]);
+                    GpuReading adapter;
+                    if (!match.Success || !result.TryGetValue(match.Groups[1].Value,out adapter)) return;
+                    adapter.UsedBytes=(adapter.UsedBytes??0)+Convert.ToUInt64(row["DedicatedUsage"]);
+                    adapter.SharedBytes=(adapter.SharedBytes??0)+Convert.ToUInt64(row["SharedUsage"]);
+                });
+                // The busiest physical engine represents adapter utilization. Processes on
+                // the same engine contribute to that engine's utilization, not other engines.
+                var engines=new Dictionary<string,ulong>(StringComparer.OrdinalIgnoreCase);
+                Query("GPUEngine","Name,UtilizationPercentage",row =>
+                {
+                    Match match=Instance.Match((string)row["Name"]);
+                    if (!match.Success || !result.ContainsKey(match.Groups[1].Value)) return;
+                    ulong busy;
+                    engines.TryGetValue(match.Value,out busy);
+                    engines[match.Value]=Math.Min(100UL,busy+Convert.ToUInt64(row["UtilizationPercentage"]));
+                });
+                foreach (var engine in engines)
+                {
+                    var adapter=result[Instance.Match(engine.Key).Groups[1].Value];
+                    adapter.UtilizationPercent=Math.Max(adapter.UtilizationPercent??0,(uint)engine.Value);
+                }
+                var readings=new GpuReading[result.Count];
+                result.Values.CopyTo(readings,0);
+                Array.Sort(readings,(a,b)=>Nullable.Compare(b.TotalBytes,a.TotalBytes));
+                return readings;
+            }
+
+            private static void Query(string counter,string columns,Action<ManagementBaseObject> handle)
+            {
+                try
+                {
+                    using (var query=new ManagementObjectSearcher("SELECT "+columns+
+                        " FROM Win32_PerfFormattedData_GPUPerformanceCounters_"+counter))
+                    using (var rows=query.Get())
+                    {
+                        foreach (ManagementBaseObject row in rows)
+                            using (row) { handle(row); }
+                    }
+                }
+                catch (ManagementException) { }
+                catch (UnauthorizedAccessException) { }
+            }
         }
 
         public void Dispose()
@@ -305,7 +434,7 @@ namespace ReflexCore.Bridge
 
         private sealed class TimestampedGpu
         {
-            public ResourceCounters.GpuReading Reading;
+            public ResourceCounters.GpuReading[] Readings;
             public long Ticks;
         }
 
@@ -325,7 +454,7 @@ namespace ReflexCore.Bridge
             stageLabel=new Label { Text="Idle", Left=12, Top=29, Width=344, Height=23, AutoEllipsis=true,
                 ForeColor=Color.FromArgb(224,241,228), Font=new Font("Segoe UI",10,FontStyle.Regular) };
             hostLabel=Metric("CPU —    RAM —",55);
-            gpuLabel=Metric("GPU 0 —    VRAM —",79);
+            gpuLabel=Metric("GPU —    VRAM —",79);
             speedLabel=Metric("Ollama — tok/s  \u00b7  no recent sample",103);
             Controls.AddRange(new System.Windows.Forms.Control[] {header,stageLabel,hostLabel,gpuLabel,speedLabel});
             Reposition();
@@ -380,12 +509,25 @@ namespace ReflexCore.Bridge
             if(current!=null && now-current.Ticks>12*Stopwatch.Frequency) current=null;
             if(current==displayedGpuSample) return;
             displayedGpuSample=current;
-            var reading=current==null?null:current.Reading;
-            string gpu=reading!=null && reading.UtilizationPercent.HasValue
-                ?reading.UtilizationPercent.Value.ToString(CultureInfo.InvariantCulture)+"%":"—";
-            string vram=reading!=null && reading.UsedBytes.HasValue && reading.TotalBytes.HasValue
-                ?FormatGib(reading.UsedBytes.Value,reading.TotalBytes.Value):"—";
-            gpuLabel.Text="GPU 0 "+gpu+"    VRAM "+vram;
+            var rows=new List<string>();
+            if(current!=null)
+                foreach(var gpu in current.Readings) rows.Add(GpuText(gpu));
+            if(rows.Count==0) rows.Add("GPU —    VRAM —");
+            gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
+            gpuLabel.Height=22+20*(rows.Count-1);
+            speedLabel.Top=gpuLabel.Bottom+2;
+            ClientSize=new Size(420,speedLabel.Bottom+7);
+            foreach(System.Windows.Forms.Control label in Controls) label.Width=396;
+            Reposition();
+        }
+
+        private static string GpuText(ResourceCounters.GpuReading gpu)
+        {
+            string load=gpu.UtilizationPercent.HasValue?gpu.UtilizationPercent.Value.ToString(CultureInfo.InvariantCulture)+"%":"—";
+            string vram=gpu.UsedBytes.HasValue && gpu.TotalBytes.HasValue
+                ?String.Format(CultureInfo.InvariantCulture,"{0}/{1} MiB",gpu.UsedBytes.Value>>20,gpu.TotalBytes.Value>>20):"—";
+            string shared=gpu.SharedBytes.HasValue?(gpu.SharedBytes.Value>>20).ToString(CultureInfo.InvariantCulture)+" MiB":"—";
+            return gpu.Name+" "+load+"  |  VRAM "+vram+"  |  Shared "+shared;
         }
 
         private static string FormatGib(ulong used,ulong total)
@@ -404,8 +546,8 @@ namespace ReflexCore.Bridge
             ThreadPool.QueueUserWorkItem(delegate(object unused) {
                 try
                 {
-                    var reading=resources.ReadGpu();
-                    gpuSample=new TimestampedGpu {Reading=reading,Ticks=Stopwatch.GetTimestamp()};
+                    var readings=resources.ReadAdapters();
+                    gpuSample=new TimestampedGpu {Readings=readings,Ticks=Stopwatch.GetTimestamp()};
                 }
                 catch
                 {

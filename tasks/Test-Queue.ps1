@@ -34,7 +34,7 @@ function Wait-Verified($id){
     } 'Queued fixture did not complete'
 }
 try {
-    Add-Type -Path @((Join-Path $root 'tools/ReflexCore-Queue.cs'),(Join-Path $root 'tools/ReflexCore-Tray.cs')) -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll
+    Add-Type -Path @((Join-Path $root 'tools/ReflexCore-Queue.cs'),(Join-Path $root 'tools/ReflexCore-Tray.cs')) -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll,System.Management.dll
     Copy-Item -LiteralPath (Join-Path $root 'tools/ReflexCore-QueuedWorker.ps1') -Destination (Join-Path $fixture 'tools')
     Put-Task 'short' '[IO.File]::AppendAllText((Join-Path (Split-Path $PSScriptRoot -Parent) "trace"),"s")'
     Put-Task 'bad' 'exit 7'

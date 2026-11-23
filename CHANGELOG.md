@@ -4,6 +4,8 @@
 
 ### ReflexVision v0.1
 
+* Show each physical GPU separately in the tray HUD with utilization, dedicated video memory and shared memory usage. Join Windows GPU counters to DXGI adapters by LUID.
+
 * Add a Windows preview with low-copy capture, classical HUD and scene cues, confirmed track IDs, bounding boxes, adaptive cadence and an independent stop signal.
 * Expose fresh typed observations through the existing CS16 command. Validate blank, lost and stale observations.
 * Add the separate offline Plant Drill and display the controlled player's real route and progress. Verify planting inside the isolated GoldSrc fixture using the server event.
