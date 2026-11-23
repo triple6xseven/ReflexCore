@@ -4,6 +4,8 @@
 
 ### ReflexVision v0.1
 
+* Add AI Companion as an optional tray widget mode with an original animated avatar, live status and replaceable local poses.
+
 * Show each physical GPU separately in the tray HUD with utilization, dedicated video memory and shared memory usage. Join Windows GPU counters to DXGI adapters by LUID.
 
 * Add a Windows preview with low-copy capture, classical HUD and scene cues, confirmed track IDs, bounding boxes, adaptive cadence and an independent stop signal.

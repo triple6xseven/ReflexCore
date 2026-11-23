@@ -16,6 +16,7 @@ namespace ReflexCore.Bridge
     {
         public static void SelfTest(string root)
         {
+            CompanionCanvas.SelfTest();
             if (!File.Exists(Path.Combine(root, "Cargo.toml")))
                 throw new Exception("Cargo.toml missing");
             if (!File.Exists(Path.Combine(root, "tools", "ReflexCore-Tray.cs")))
@@ -422,7 +423,7 @@ namespace ReflexCore.Bridge
 
     // Light WinForms overlay owned by the already running tray process.
     // No browser, GPU renderer, network requests, raw prompt or screenshot data.
-    internal sealed class ActivityHud : Form
+    internal sealed partial class ActivityHud : Form
     {
         private readonly Label stageLabel, speedLabel, hostLabel, gpuLabel;
         private readonly ResourceCounters resources = new ResourceCounters();
@@ -441,7 +442,7 @@ namespace ReflexCore.Bridge
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams
         {
-            get { CreateParams cp=base.CreateParams; cp.ExStyle|=0x08000000|0x00000080; return cp; }
+            get { CreateParams cp=base.CreateParams; cp.ExStyle|=0x08000000|0x00000080; if(clickThrough)cp.ExStyle|=0x20; return cp; }
         }
         public ActivityHud()
         {
@@ -468,6 +469,13 @@ namespace ReflexCore.Bridge
 
         public void Reposition()
         {
+            if(companionMode && positioned)
+            {
+                Rectangle screen=Screen.FromPoint(Location).WorkingArea;
+                Location=new Point(Math.Max(screen.Left,Math.Min(Left,screen.Right-Width)),
+                    Math.Max(screen.Top,Math.Min(Top,screen.Bottom-Height)));
+                return;
+            }
             Rectangle a=Screen.PrimaryScreen.WorkingArea;
             Location=new Point(a.Right-Width-12,a.Top+35);
         }
@@ -516,9 +524,8 @@ namespace ReflexCore.Bridge
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
             speedLabel.Top=gpuLabel.Bottom+2;
-            ClientSize=new Size(420,speedLabel.Bottom+7);
-            foreach(System.Windows.Forms.Control label in Controls) label.Width=396;
-            Reposition();
+            if(!companionMode){ClientSize=new Size(420,speedLabel.Bottom+7);Reposition();}
+            foreach(System.Windows.Forms.Control label in Controls)if(!ReferenceEquals(label,companion))label.Width=396;
         }
 
         private static string GpuText(ResourceCounters.GpuReading gpu)
@@ -661,17 +668,24 @@ namespace ReflexCore.Bridge
             activityMenu.Enabled = false;
             menu.Items.Add(activityMenu);
             hudMenu=new ToolStripMenuItem("Hide corner status widget");
-            hudMenu.Click += delegate(object s,EventArgs e) {
-                hudEnabled=!hudEnabled;
-                hudMenu.Text=hudEnabled?"Hide corner status widget":"Show corner status widget";
-                if(hudEnabled)hud.Show();else hud.Hide();
-            };
+            hudMenu.Click += delegate { ToggleHud(); };
             menu.Items.Add(hudMenu);
-            menu.Items.Add("Open Control Center", null, delegate(object s, EventArgs e) {
+            var studioAction=menu.Items.Add("Open Control Center", null, delegate(object s, EventArgs e) {
                 string center = Path.Combine(root, "tools", "ReflexCore-ControlCenter.ps1");
                 string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
                 Process.Start(new ProcessStartInfo { FileName=ps, Arguments="-NoProfile -ExecutionPolicy Bypass -File \"" + center + "\"",WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true });
             });
+            if(!isolated)
+            {
+                hud.ConfigureCompanion(()=>studioAction.PerformClick(),()=>{if(hudEnabled)ToggleHud();});
+                var widgetOptions=new ToolStripMenuItem("Widget mode and settings");
+                widgetOptions.DropDownOpening+=delegate {
+                    while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
+                    hud.AddWidgetActions(widgetOptions.DropDownItems);
+                };
+                widgetOptions.DropDownItems.Add("Settings");
+                menu.Items.Add(widgetOptions);
+            }
             menu.Items.Add("Run next pending job", null, delegate(object s, EventArgs e) { StartPending(true); });
             menu.Items.Add("STOP - Ctrl+Alt+P", null, delegate(object s, EventArgs e) { StopJob(); });
             menu.Items.Add("STOP ALL: Reflex + Ollama", null, delegate(object s, EventArgs e) {
@@ -725,6 +739,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             // Force creation of a Win32 handle to receive WM_HOTKEY while hidden.
             IntPtr hwnd = Handle;
             hotkeyRegistered = !isolated && RegisterHotKey(hwnd, HotkeyId, 0x4003u, 0x50u); // ALT+CTRL+NOREPEAT, P
+            if(!isolated)RegisterHotKey(hwnd,7814,0x4003u,0x48u); // Ctrl+Alt+H
             WriteStatus(-1);
             if(!isolated)hud.Show();
 
@@ -745,12 +760,20 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
 
         protected override void WndProc(ref Message m)
         {
+            if(m.Msg==WmHotkey && m.WParam.ToInt32()==7814){ToggleHud();return;}
             if (m.Msg == WmHotkey && m.WParam.ToInt32() == HotkeyId)
             {
                 StopJob();
                 return;
             }
             base.WndProc(ref m);
+        }
+
+        private void ToggleHud()
+        {
+            hudEnabled=!hudEnabled;
+            hudMenu.Text=hudEnabled?"Hide corner status widget":"Show corner status widget";
+            if(hudEnabled)hud.Show();else hud.Hide();
         }
 
         private static string TimeUtc()
@@ -876,6 +899,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 catch(UnauthorizedAccessException) {}
             }
             if(hud.Visible) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
+            if(hud.Visible) hud.RefreshCompanion(lastPending<0?0:lastPending,currentState);
         }
 
         private bool RenderActivity(string json,DateTime now)
@@ -1097,6 +1121,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             tick.Stop();
             if (active != null) StopJob();
             if (hotkeyRegistered) UnregisterHotKey(Handle, HotkeyId);
+            if(!isolated)UnregisterHotKey(Handle,7814);
             icon.Visible = false;
             icon.Dispose();
             hud.Close();hud.Dispose();
