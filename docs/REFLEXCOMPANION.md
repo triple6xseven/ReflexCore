@@ -200,3 +200,10 @@ the taskbar. Pin the ReflexCore application shortcut for Studio.
 ### Lunar Temptation
 
 Select Lunar Temptation under Character. Generate each private avatar-lunar VRM from its matching Nocturne export with examples/build_companion_lunar.py. The new locks follow the head. Window and cloud seating use the preserved Nocturne rig.
+
+Lunar uses distinct barefoot and stocking meshes. Build the barefoot asset with the matching
+Nocturne barefoot export. Pass `--stockings` when building from the Nocturne stockings export.
+In Studio, **Companion & Widgets > Advanced > Show over fullscreen apps** keeps the overlay
+above borderless fullscreen apps. ReflexCore capture still pauses the overlay.
+**Maximum edge smoothing** sets the MSAA ceiling. The renderer limits MSAA to 2x at
+140% scale and disables it at 180% and above.

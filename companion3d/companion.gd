@@ -10,7 +10,7 @@ const DEFAULTS := {
 	"model": "", "mode": "taskbar", "x": -1, "y": -1, "zoom": 1.0, "physics": true,
 	"gravity": 900.0, "walk_speed": 58.0, "hair": true, "stockings": true,
 	"midnight_stockings": false, "sit_style": "swing", "intensity": 1.0,
-	"animate": true, "bubble": true, "top": true, "clickthrough": false, "fps": 30,
+	"animate": true, "bubble": true, "top": true, "fullscreen_overlay": false, "clickthrough": false, "fps": 30,
 	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "nocturne"
 }
 const MODE_NAMES := ["Stationary", "Taskbar Companion", "Window Companion", "Free Roam", "Follow Cursor"]
@@ -380,8 +380,14 @@ func _apply_options(resize_window := true) -> void:
 		window.size=desired
 		if not initial:
 			motion.position+=Vector2(float(old_body.x-body_size.x)/2,float(old_body.y-body_size.y))
-	window.always_on_top=bool(options.top)
-	window.msaa_3d=int(options.msaa) as Viewport.MSAA
+	window.always_on_top=bool(options.top) or bool(options.fullscreen_overlay)
+	# A doubled window has four times the pixels. Keep the MSAA sample budget bounded.
+	var effective_msaa := int(options.msaa)
+	if float(options.zoom)>=1.40:
+		effective_msaa=mini(effective_msaa,1)
+	if float(options.zoom)>=1.80:
+		effective_msaa=0
+	window.msaa_3d=effective_msaa as Viewport.MSAA
 	bubble_style.bg_color=Color("#101b27e9") if options.bubble_style=="minimal" else Color("#182238ed")
 	bubble_style.set_corner_radius_all(5 if options.bubble_style=="minimal" else 13)
 	_camera_layout()
@@ -577,8 +583,9 @@ func _process(delta: float) -> void:
 	if rig!=null:
 		var moving := physical in ["walk","run"]
 		var cloud_pose: bool=motion.cloud_seated
-		var seated: bool=physical in ["sit","settle","cloud_sit"] or cloud_pose
-		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.77 if cloud_pose else -0.64 if seated else 0.0
+		var rising := physical=="stand_up"
+		var seated: bool=not rising and (physical in ["sit","settle","cloud_sit"] or cloud_pose)
+		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.77 if cloud_pose else -0.64 if seated or rising else 0.0
 		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,minf(10*dt,1))
 		if physical=="dragged" and bool(options.animate):
 			pivot.rotation.x=lerpf(pivot.rotation.x,clampf(motion.velocity.y/4500.0,-0.19,0.19),1-exp(-9*dt))
@@ -620,7 +627,7 @@ func _process(delta: float) -> void:
 	shown=true
 	_update_window_region()
 	_track_input(Vector2(pointer-window.position),dt)
-	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","cloud_summon"] or _near_model(local,25)
+	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","cloud_summon"] or _near_model(local,25)
 	Engine.max_fps=clampi(int(options.fps),15,60) if interactive else mini(24,int(options.fps))
 	if status_clock>=1.8 or avatar_state!=last_reported_pose:
 		last_reported_pose=avatar_state
@@ -659,7 +666,7 @@ func _update_contact_effect() -> void:
 func _choose_pose(physical: String, local: Vector2) -> String:
 	if physical in ["dragged","thrown","falling","hard_collision"]:
 		return physical
-	if physical in ["run","walk","approach","reach","grip","pull_up","settle","look_around","cloud_summon","landing","recovering","soft_collision"]:
+	if physical in ["run","walk","approach","reach","grip","pull_up","settle","stand_up","look_around","cloud_summon","landing","recovering","soft_collision"]:
 		return physical
 	if now-pet_at<1.6:
 		return "petted"

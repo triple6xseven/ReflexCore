@@ -291,7 +291,7 @@ func _apply_atelier_materials() -> void:
 			var profile := -1.0
 			if "hairback" in name:
 				continue
-			elif "_hair_" in name or "nocturne ear" in name or name in ["lunar pearl","lunar lilac"]:
+			elif "_hair_" in name or "nocturne ear" in name or name in ["lunar pearlescent hair","lunar lilac hair"]:
 				profile = 1.0
 			elif "_skin" in name or "midnight barefoot" in name:
 				profile = 0.0
@@ -299,7 +299,7 @@ func _apply_atelier_materials() -> void:
 				profile = 3.0
 			elif name in ["fitted top","tailored shorts","violet piping","graphite belt","corset panel",
 					"woven harness","harness piping","high collar","shorts side panel","stocking cuff",
-					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar trim"]:
+					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar panel","lunar seam","lunar cuff","lunar liner","lunar stocking"]:
 				profile = 2.0
 			if profile < 0.0:
 				continue
@@ -449,7 +449,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	posture = lerpf(posture, float({"thinking": 0.16, "working": 0.08, "sleepy": 0.24, "falling": -0.13,
 		"dragged": -0.14, "thrown": -0.24, "landing": 0.28, "recovering": 0.12, "petted": 0.08,
 		"approach": 0.13, "reach": 0.16, "grip": 0.30, "pull_up": 0.38, "settle": 0.10,
-		"soft_collision": 0.18, "hard_collision": 0.39, "cloud_summon": -0.11, "attentive": 0.10}.get(state, 0.0)) if enabled else 0.0, blend)
+		"stand_up": 0.17, "soft_collision": 0.18, "hard_collision": 0.39, "cloud_summon": -0.11, "attentive": 0.10}.get(state, 0.0)) if enabled else 0.0, blend)
 	step_phase += dt * (10.0 if state == "run" else 6.8) * gait
 	if not enabled:
 		cursor = Vector2.ZERO
@@ -645,7 +645,7 @@ func _blend_joint(bone: int, idle: Vector3, target: Quaternion, blend: float) ->
 
 func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String, motion: Vector2) -> void:
 	var active := seated or enabled and state in ["walk","run","dragged","thrown","falling","soft_collision","hard_collision",
-		"approach","reach","grip","pull_up","cloud_summon","landing","recovering"]
+		"approach","reach","grip","pull_up","stand_up","cloud_summon","landing","recovering"]
 	var target_weight := 0.94 if active else 0.0
 	gesture_weight=lerpf(gesture_weight,target_weight,1-exp(-9*dt))
 	if active:
@@ -659,13 +659,15 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			continue
 		var shoulder := world_bone(side+"UpperArm")
 		var side_sign := signf(shoulder.x-torso.x)
+		var frame := skeleton.global_basis.orthonormalized()
+		var outward := frame*seat_right*(-1.0 if side=="left" else 1.0)
+		var forward := frame*seat_forward
 		var gesture := Vector3(side_sign*0.135,-0.10,0.15)
 		match gesture_state:
 			"seated":
 				gesture=hips-torso+Vector3(side_sign*0.117,0.081,0.16)
 				if atelier:
 					# Aim the wrist beside the hip in the actual rig frame as the avatar turns.
-					var frame := skeleton.global_basis.orthonormalized()
 					var local_side := signf((shoulder-torso).dot(frame*seat_right))
 					gesture=hips-torso+frame*seat_right*local_side*0.18 + Vector3.UP*0.012
 					if refined:
@@ -680,32 +682,43 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			"reach","grip","pull_up":
 				var vertical := -0.04 if gesture_state=="reach" else -0.15 if gesture_state=="grip" else -0.21
 				gesture=Vector3(side_sign*0.135,vertical,0.29)
-			"walk","run","cloud_summon":
-				var frame := skeleton.global_basis.orthonormalized()
-				var lateral := -1.0 if side=="left" else 1.0
-				var swing := lateral*sin(step_phase)
-				gesture=frame*(seat_right*lateral*.17+seat_forward*(.035+swing*.09))+Vector3.DOWN*.27
-				if gesture_state=="cloud_summon":
-					gesture=frame*(seat_right*lateral*.16+seat_forward*.18)+Vector3.DOWN*(.12+.034*sin(now*6+lateral))
+			"walk","run":
+				var side_phase := -1.0 if side=="left" else 1.0
+				var stride := -sin(step_phase)*side_phase*gait
+				var arm_length := shoulder.distance_to(world_bone(side+"LowerArm"))
+				arm_length += world_bone(side+"LowerArm").distance_to(world_bone(side+"Hand"))
+				var reach := arm_length*(.24 if gesture_state=="run" else .16)
+				gesture=shoulder-torso+outward*.027+forward*(.012+stride*reach)
+				gesture+=Vector3.DOWN*(arm_length*(.96-.04*maxf(0,stride)))
+			"cloud_summon":
+				gesture=outward*.16+forward*.18+Vector3.DOWN*(.16+.027*sin(now*6))
+			"stand_up":
+				gesture=hips-torso+outward*.20+forward*.075+Vector3.UP*.06
 			"soft_collision","hard_collision":
 				var toward := -1.0 if "left" in impact else 1.0 if "right" in impact else 0.0
 				gesture=Vector3(side_sign*0.08+toward*0.07,0.16 if "top" in impact else 0.05,0.16)
 			"landing","recovering":
 				gesture=Vector3(side_sign*0.27,-0.22,0.19)
 		var pole := Vector3(side_sign*0.65,-1.0,0.05)
-		if atelier and seated:
-			var frame := skeleton.global_basis.orthonormalized()
-			var lateral := frame*seat_right*(-1.0 if side=="left" else 1.0)
-			pole=lateral*0.65+Vector3.DOWN-frame*seat_forward*0.12
+		if gesture_state in ["walk","run"]:
+			pole=outward*.36-forward
+		elif gesture_state=="cloud_summon":
+			pole=outward*.38+Vector3.DOWN-forward*.2
+		elif atelier and (seated or gesture_state=="stand_up"):
+			pole=outward*.65+Vector3.DOWN-forward*.12
 		_solve_arm(side,torso+gesture,pole,gesture_weight)
-		if atelier and gesture_state=="seated":
+		if atelier and gesture_state!="":
 			var hand := int(roles[side+"Hand"])
 			var finger := int(bone_name_ids.get("jbip"+side.left(1)+"middle1",-1))
 			if finger >= 0:
 				var wrist := skeleton.get_bone_global_pose(hand).origin
 				var direction := skeleton.get_bone_global_pose(finger).origin-wrist
-				var palm := seat_forward + Vector3.DOWN*(0.22 if nocturne else 0.38)
-				_rotate_chain(hand,direction,palm,gesture_weight*0.77)
+				if gesture_state=="seated":
+					var palm := seat_forward + Vector3.DOWN*(0.22 if nocturne else 0.38)
+					_rotate_chain(hand,direction,palm,gesture_weight*0.77)
+				elif gesture_state in ["walk","run","cloud_summon","stand_up"]:
+					var forearm := wrist-skeleton.get_bone_global_pose(int(roles[side+"LowerArm"])).origin
+					_rotate_chain(hand,direction,forearm,gesture_weight*0.69)
 
 
 func _solve_arm(side: String, target_world: Vector3, outward_world: Vector3, weight: float) -> void:

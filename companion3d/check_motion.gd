@@ -136,7 +136,21 @@ func _initialize() -> void:
 	_step(1.0)
 	_expect(body.cloud_seated,"A tap must preserve the current safe perch.")
 	_step(15.0)
+	_expect(poses.has("stand_up"),"Free Roam skipped getting up from the cloud.")
 	_expect(poses.has("walk") and not body.cloud_seated,"Free Roam must leave the cloud for a short walk.")
+	var perched := Motion.new()
+	perched.place(Vector2(-990,440))
+	options.mode="windows"
+	options.magic=false
+	edges.assign([close])
+	for frame in 100:
+		perched.update(DT,float(frame)*DT,DESK,SIZE,Vector2i.ZERO,options,edges,close)
+	_expect(perched.seated,"Fixture did not reach its window seat.")
+	options.mode="taskbar"
+	_expect(perched.update(DT,2.0,DESK,SIZE,Vector2i.ZERO,options,edges)=="stand_up","Mode switch skipped getting up from the window.")
+	_expect(perched.seated and not perched.falling,"Seat detached before getting up.")
+	perched.grab(2.1)
+	_expect(perched.update(DT,2.1,DESK,SIZE,Vector2i.ZERO,options,edges)=="dragged","Drag could not interrupt getting up.")
 	var pending=Motion.new()
 	pending.climb_progress=0.7
 	pending.interrupt(clock,true)

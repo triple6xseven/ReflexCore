@@ -43,14 +43,17 @@ func _render() -> void:
 	preview_seat.material_override=seat_material
 	root.add_child(preview_seat)
 	preview_seat.visible=false
-	for item in [["front",0.0,false],["three-quarter",.61,false],["profile",PI/2,false],["back",PI,false],["seated-front",0.0,true],["seated",-.63,true],["seated-side",PI/2,true],["seated-stretch",.55,true],["face",.23,false],["smile",-.2,false],["drag",.55,false],["cloud",-.71,true],["attentive",.5,true],["thinking",.32,false]]:
+	for item in [["front",0.0,false],["three-quarter",.61,false],["profile",PI/2,false],["back",PI,false],["seated-front",0.0,true],["seated",-.63,true],["seated-side",PI/2,true],["seated-stretch",.55,true],["face",.23,false],["smile",-.2,false],["drag",.55,false],["cloud",-.71,true],["attentive",.5,true],["thinking",.32,false],["walk",1.25,false],["summon",.5,false],["feet",.45,false]]:
 		var pose: String={"cloud":"cloud_sit","attentive":"attentive","thinking":"thinking",
-			"smile":"petted","drag":"dragged"}.get(item[0],"sit" if item[2] else "idle")
+			"smile":"petted","drag":"dragged","walk":"walk","summon":"cloud_summon"}.get(item[0],"sit" if item[2] else "idle")
 		for tick in (285 if item[0]=="seated-stretch" else 95):
 			rig.animate(1.0/60.0,float(tick)/60.0,pose,Vector2.ZERO,Vector2(400,-65) if pose=="dragged" else Vector2.ZERO,true,true,item[2],"",item[0]=="cloud",item[2],"relaxed")
-		var closeup: bool=item[0] in ["face","smile","thinking"]
+		var closeup: bool=item[0] in ["face","smile","thinking","feet"]
 		camera.size=0.54 if closeup else 2.10
 		var center := Vector3(0,1.57 if closeup else .88 if item[2] else .95,0)
+		if item[0]=="feet":
+			center.y=.115
+			camera.size=.27
 		if item[2]:
 			var hips := rig.world_bone("hips")
 			preview_seat.position=hips-Vector3.UP*.18-rig.scene.basis*rig.seat_forward*.25

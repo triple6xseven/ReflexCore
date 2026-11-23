@@ -28,6 +28,7 @@ namespace ReflexCore.Bridge
         private string message="Stopped";
         private string mode="taskbar";
         private bool physics=true;
+        private bool fullscreenOverlay;
         internal bool Running {get{return child!=null && !child.HasExited;}}
 
         internal void Show3D(bool showClassic,Action<bool> applyClassic)
@@ -111,6 +112,7 @@ namespace ReflexCore.Bridge
                 opacity=Math.Max(.4,Math.Min(1,Convert.ToDouble(opacityValue)));
             if(settings.TryGetValue("mode",out behavior) && behavior is string)mode=(string)behavior;
             physics=Boolean(settings,"physics",true);
+            fullscreenOverlay=Boolean(settings,"fullscreen_overlay",false);
             hud.ConfigureClassic(opacity,Boolean(settings,"classic_host",true),
                 Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true));
             bool revised=Boolean(settings,"app_start",false);
@@ -162,7 +164,7 @@ namespace ReflexCore.Bridge
                     statusSnapshot=status;
                 }
                 if(!Running)return;
-                bool pause=capture||WindowSurfaces.ForegroundFullscreen(child.Id);
+                bool pause=capture||(!fullscreenOverlay && WindowSurfaces.ForegroundFullscreen(child.Id));
                 WriteText("live.json",json.Serialize(hud.CompanionSnapshot(pending,queueState,!classic,pause,
                     new int[0][],null)));
             }

@@ -162,9 +162,10 @@ public sealed partial class StudioWindow
         }));
 
         WidgetToggle(desktop, "Always on top", "top");
+        WidgetToggle(desktop, "Show over fullscreen apps", "fullscreen_overlay");
         WidgetToggle(desktop, "Click-through", "clickthrough");
         WidgetToggle(desktop, "Start with ReflexCore", "app_start");
-        WidgetChoice(desktop, "Edge smoothing", "msaa", new[] { "Off", "2× MSAA", "4× MSAA" }, new object[] { 0, 1, 2 });
+        WidgetChoice(desktop, "Maximum edge smoothing", "msaa", new[] { "Off", "2× MSAA", "4× MSAA" }, new object[] { 0, 1, 2 });
         WidgetNumber(desktop, "FPS limit", "fps", 15, 60, "FPS");
         WidgetButtons(desktop, ("Use low-power preset", () =>
         {

@@ -36,6 +36,7 @@ var cloud_deadline := 0.0
 var cloud_x := 0.0
 var cloud_collision_until := 0.0
 var cloud_was_seat := false
+var stand_until := 0.0
 var physics_time := 0.0
 var operator_until := 0.0
 var roam_until := 0.0
@@ -49,6 +50,7 @@ func place(p: Vector2) -> void:
 	held = false
 	cloud_seated=false
 	cloud_was_seat=false
+	stand_until=0.0
 	lock_until=0
 	cloud_deadline=0
 	velocity = Vector2.ZERO
@@ -68,6 +70,7 @@ func _clear_support() -> void:
 	support = Rect2i()
 
 func interrupt(now: float, physics: bool) -> void:
+	stand_until=0.0
 	operator_until=now+3.8
 	roam_until=0.0
 	roam_target=INF
@@ -80,6 +83,7 @@ func interrupt(now: float, physics: bool) -> void:
 
 func grab(now := 0.0, seat_y := 0.0) -> void:
 	held = true
+	stand_until=0.0
 	falling = false
 	_clear_support()
 	climb_progress = 0.0
@@ -118,6 +122,12 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		options: Dictionary, windows: Array[Rect2i], foreground := Rect2i(), identities := {}, occupied := false) -> String:
 	var desired_mode: String = options.get("mode","taskbar")
 	if mode!=desired_mode:
+		var departing_seat := seated or cloud_seated
+		if departing_seat and not held:
+			if stand_until==0.0:
+				stand_until=now+.34
+			if now<stand_until:
+				return "stand_up"
 		mode=desired_mode
 		_clear_support()
 		climb_progress=0.0
@@ -126,6 +136,11 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		lock_until=0
 		roam_target=INF
 		roam_until=0.0
+		stand_until=0.0
+		if departing_seat and not held:
+			release(Vector2.ZERO,bool(options.get("physics",true)),now,.65)
+	if seated:
+		stand_until=0.0
 	var foot := float(size.y)-25*float(size.y)/500
 	var seat := size.y*SEAT_RATIO
 	var floor := float(desk.end.y)-3
@@ -205,6 +220,14 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			release(Vector2.ZERO,real_physics,now)
 			return "falling" if falling else "recovering"
 		return _climb(dt,now,tracked,identities,seat,size)
+	var roam_departure := mode=="roam" and cloud_seated and not occupied and now>=operator_until and now-cloud_since>12.0
+	if cloud_seated and (target.has_area() or roam_departure):
+		if stand_until==0.0:
+			stand_until=now+.38
+		if now<stand_until:
+			return "stand_up"
+	else:
+		stand_until=0.0
 	if target.has_area():
 		if cloud_since>=0:cloud_deadline=now+1.25
 		cloud_since=-1
@@ -222,7 +245,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		return _climb(dt,now,target,identities,seat,size)
 
 	# Let Free Roam alternate a cloud rest with a short walk along the desk.
-	if mode=="roam" and cloud_seated and not occupied and now>=operator_until and now-cloud_since>12.0:
+	if roam_departure:
 		cloud_since=-1.0
 		cloud_seated=false
 		cloud_was_seat=false

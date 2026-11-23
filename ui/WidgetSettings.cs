@@ -20,7 +20,7 @@ static class WidgetSettings
         ["edition"] = "nocturne", ["midnight_stockings"] = false, ["sit_style"] = "swing", ["intensity"] = 1.0, ["magic"] = true, ["msaa"] = 2,
         ["physics"] = true, ["gravity"] = 900, ["walk_speed"] = 58, ["hair"] = true,
         ["stockings"] = true, ["animate"] = true, ["bubble"] = true, ["bubble_style"] = "glass",
-        ["top"] = true, ["clickthrough"] = false, ["fps"] = 30, ["poll_ms"] = 450, ["app_start"] = false,
+        ["top"] = true, ["fullscreen_overlay"] = false, ["clickthrough"] = false, ["fps"] = 30, ["poll_ms"] = 450, ["app_start"] = false,
         ["classic_opacity"] = 0.94, ["classic_host"] = true, ["classic_gpu"] = true, ["classic_ollama"] = true
     };
 
