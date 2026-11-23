@@ -1,3 +1,7 @@
+## ZXC companion edition
+
+- Add a locally built ZXC mesh with front and rear painted atlas, separate barefoot and stockings files, and two facial morphs on the existing humanoid motion system.
+
 ## Companion overlay at large scales
 
 - Bound transparent padding above 100% scale and reuse the input region for small idle movements. At 200% the overlay measures 848 x 1096 instead of 1008 x 1192.

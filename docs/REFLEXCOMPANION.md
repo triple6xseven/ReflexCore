@@ -222,3 +222,7 @@ While sitting on a cloud with sitting motion enabled, the companion shifts betwe
 Choose Velvet Enchantress under Character > Edition. Its split overskirt follows the hips and upper legs. Hair, bodice and belt butterflies and cuff flowers are rigged geometry. Hover responds to horizontal velocity and vertical lift.
 
 To prepare the private assets, run `py examples/build_companion_velvet.py SOURCE OUTPUT` once per matching Lunar legwear source. Place the results beside the Lunar files as `avatar-velvet.vrm` and `avatar-velvet-stockings.vrm`. The builder preserves the source and refuses to overwrite an existing destination.
+
+### ZXC
+
+Select ZXC under Character > Edition. Its mesh is built independently from anatomical cross-sections in A pose. It reuses the humanoid skeleton for existing movement and uses separately painted front and rear views. Build with `py examples/build_companion_zxc.py RIG FRONT BACK OUTPUT` and optionally `--stockings`. Both illustrations must match the ZXC atlas layout. Private runtime filenames are avatar-zxc.vrm and avatar-zxc-stockings.vrm. The face supports blink and smile. Side details are reconstructed and drapes follow the leg rig.
