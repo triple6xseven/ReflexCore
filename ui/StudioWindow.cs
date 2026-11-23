@@ -54,7 +54,11 @@ public sealed partial class StudioWindow : Window
     public StudioWindow(Forms.TabControl pages, string initialTheme, Action<string> save, Action stop, Func<string> readStage, string projectRoot)
     {
         this.pages=pages; this.save=save; this.stop=stop; this.readStage=readStage; this.projectRoot=projectRoot;
-        Title="ReflexCore Studio"; Width=1180; Height=790; MinWidth=820; MinHeight=590;
+        Title="ReflexCore Studio";
+        var iconPath = System.IO.Path.Combine(projectRoot ?? "", "assets", "reflexcore.ico");
+        if (System.IO.File.Exists(iconPath))
+            Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(System.IO.Path.GetFullPath(iconPath)));
+        Width=1180; Height=790; MinWidth=820; MinHeight=590;
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         current=Theme.All.FirstOrDefault(t=>t.Name==initialTheme) ?? Theme.All[0];
         InitStudioButtons(); InitSurfaceStyles();

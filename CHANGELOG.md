@@ -1,3 +1,7 @@
+## Windows launcher
+
+- Add a native windowed launcher, a shared ReflexCore icon, and a desktop shortcut installer. Launch Studio directly and keep PowerShell consoles off the taskbar.
+
 ## Citadel visible deployment
 
 - Calibrate Windows cursor drags using the browser pixel ratio and keep the deck card and target on screen. Stop safely if the browser moves or either point is covered.

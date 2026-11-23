@@ -85,7 +85,7 @@ namespace ReflexCore.Control
             queue=testQueue ?? new ReflexCore.Bridge.QueueStore(project);
             root=project;Text="REFLEXCORE // CONTROL CENTER";Width=1210;Height=825;MinimumSize=new Size(900,680);StartPosition=FormStartPosition.CenterScreen;
             BackColor=bg;ForeColor=text;Font=new Font("Segoe UI",10);ShowInTaskbar=true;
-            string ico=Path.Combine(root,"assets","reflex_dragon.ico");if(File.Exists(ico)){try{Icon=new Icon(ico);}catch{}}
+            string ico=Path.Combine(root,"assets","reflexcore.ico");if(File.Exists(ico)){try{Icon=new Icon(ico);}catch{}}
             var header=new Panel{Dock=DockStyle.Top,Height=98,BackColor=surface};Controls.Add(header);
             var title=new Label{Text="◈  REFLEXCORE",Font=new Font("Consolas",26,FontStyle.Bold),ForeColor=accent,Location=new Point(26,17),AutoSize=true};header.Controls.Add(title);
             header.Controls.Add(new Label{Text="LOCAL AGENT · DEV BRIDGE · GAME LAB",Font=new Font("Consolas",10),ForeColor=muted,Location=new Point(30,66),AutoSize=true});

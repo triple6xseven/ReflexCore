@@ -755,7 +755,7 @@ namespace ReflexCore.Bridge
             icon.Icon = SystemIcons.Information;
             icon.Text = "ReflexCore | ready";
             icon.Visible = !isolated;
-            string dragonIcon = Path.Combine(root,"assets","reflex_dragon.ico");
+            string dragonIcon = Path.Combine(root,"assets","reflexcore.ico");
             if(File.Exists(dragonIcon)) { try { icon.Icon = new Icon(dragonIcon); } catch(Exception) {} }
             icon.MouseDoubleClick += delegate(object s, MouseEventArgs e) {
                 string center = Path.Combine(root, "tools", "ReflexCore-ControlCenter.ps1");
@@ -857,7 +857,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             else if (state == "stopped") icon.Icon = SystemIcons.Warning;
             else icon.Icon = SystemIcons.Information;
             WriteStatus(code);
-            string dragon = Path.Combine(root,"assets","reflex_dragon.ico");
+            string dragon = Path.Combine(root,"assets","reflexcore.ico");
             if(File.Exists(dragon)) { try { icon.Icon = new Icon(dragon); } catch(Exception) {} }
             if (!isolated && notification != null && notification.Length > 0) toast.Display(notification);
         }
