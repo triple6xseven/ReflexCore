@@ -30,6 +30,14 @@ func _verify() -> void:
 			_expect(variant==(visit==1),"Wrong rotation for "+pose)
 			if visit==1:
 				_expect(point.distance_to(classic)>.001,"No joint variation in "+pose)
+	if rig.nocturne:
+		rig.animate(1.0/60,0,"idle",Vector2.ZERO,Vector2.ZERO,true,true)
+		for tick in 750:
+			rig.animate(1.0/60,tick/60.0,"sit",Vector2.ZERO,Vector2.ZERO,true,true,true,"",false,true,"relaxed")
+			if tick==449:
+				_expect(rig.crossed>.99,"Window leg cross never reached its hold")
+			if tick==735:
+				_expect(rig.crossed<.01,"Classic window pose did not return")
 	avatar.click_at=avatar.now
 	for phase in ["approach","reach","grip","pull_up","settle","landing"]:
 		_expect(avatar._choose_pose(phase,Vector2.ZERO)==phase,"Click interrupted "+phase)

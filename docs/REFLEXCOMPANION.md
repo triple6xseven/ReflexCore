@@ -226,3 +226,5 @@ To prepare the private assets, run `py examples/build_companion_velvet.py SOURCE
 ### ZXC
 
 Select ZXC under Character > Edition. Its mesh is built independently from anatomical cross-sections in A pose. It reuses the humanoid skeleton for existing movement and uses separately painted front and rear views. Build with `py examples/build_companion_zxc.py RIG FRONT BACK OUTPUT` and optionally `--stockings`. Both illustrations must match the ZXC atlas layout. Private runtime filenames are avatar-zxc.vrm and avatar-zxc-stockings.vrm. The face supports blink and smile. Side details are reconstructed and drapes follow the leg rig.
+
+With magic enabled, Window Companion and Free Roam may travel from a cloud to a distant visible ledge with sufficient room on the current monitor. Successful remote trips alternate cloud flight and heart portal. Drag interrupts either trip. Window leg crossing begins five seconds into an uninterrupted seat with Leg swing or Relaxed stretch enabled. Still disables pose cycling.

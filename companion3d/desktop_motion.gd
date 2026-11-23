@@ -38,13 +38,26 @@ var cloud_collision_until := 0.0
 var cloud_was_seat := false
 var stand_until := 0.0
 var cloud_trip := Vector2.INF
+var ferry_edge := Rect2i()
+var ferry_id := 0
+var ferry_next_portal := false
+var portal_time := 0.0
+var portal_scale := 1.0
+var ferry_until := 0.0
 var next_cloud_trip := 0.0
 var physics_time := 0.0
 var operator_until := 0.0
 var roam_until := 0.0
 var roam_target := INF
 
+func _end_ferry() -> void:
+	ferry_edge=Rect2i()
+	portal_time=0
+	portal_scale=1
+
 func place(p: Vector2) -> void:
+	_end_ferry()
+	ferry_until=0
 	position = p
 	operator_until=0.0
 	roam_until=0.0
@@ -74,6 +87,7 @@ func _clear_support() -> void:
 	support = Rect2i()
 
 func interrupt(now: float, physics: bool) -> void:
+	_end_ferry()
 	stand_until=0.0
 	cloud_trip=Vector2.INF
 	operator_until=now+3.8
@@ -87,6 +101,7 @@ func interrupt(now: float, physics: bool) -> void:
 		cloud_deadline=operator_until+0.8
 
 func grab(now := 0.0, seat_y := 0.0) -> void:
+	_end_ferry()
 	held = true
 	stand_until=0.0
 	cloud_trip=Vector2.INF
@@ -128,6 +143,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		options: Dictionary, windows: Array[Rect2i], foreground := Rect2i(), identities := {}, occupied := false) -> String:
 	var desired_mode: String = options.get("mode","taskbar")
 	if mode!=desired_mode:
+		_end_ferry()
 		var departing_seat := seated or cloud_seated
 		if departing_seat and not held:
 			if stand_until==0.0:
@@ -158,6 +174,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 	var walk_windows := mode in ["windows","roam"]
 	var real_physics: bool = options.get("physics",true)
 	if not walk_windows or not options.get("magic",true):
+		_end_ferry()
 		cloud_trip=Vector2.INF
 		cloud_collision_until=0
 		cloud_since=-1
@@ -240,6 +257,50 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			release(Vector2.ZERO,real_physics,now)
 			return "falling" if falling else "recovering"
 		return _climb(dt,now,tracked,identities,seat,size)
+	if cloud_seated and now>=maxf(ferry_until,operator_until):
+		if not ferry_edge.has_area() and not target.has_area() and not occupied and now-cloud_since>2.2:
+			var best := INF
+			for edge in windows:
+				var goal := _ferry_goal(edge,desk,size)
+				var distance := position.distance_squared_to(goal)
+				if goal.is_finite() and distance<best:
+					best=distance
+					ferry_edge=edge
+					ferry_id=_id(edge,identities)
+		if ferry_edge.has_area():
+			var current := _nearest_segment(ferry_edge,ferry_id,windows,identities)
+			var goal := _ferry_goal(current,desk,size)
+			if goal.is_finite():
+				ferry_edge=current
+				cloud_trip=Vector2.INF
+				if ferry_next_portal:
+					portal_time+=dt
+					portal_scale=1.0-smoothstep(0,.44,portal_time)+smoothstep(.50,1.0,portal_time)
+					if portal_time>=.46:
+						position=goal
+					velocity=Vector2.ZERO
+				else:
+					_fly_to(goal,dt,260)
+				cloud_x=position.x+size.x*.5
+				cloud_edge=position.y+seat
+				if (portal_time>=1.03 if ferry_next_portal else position.distance_to(goal)<2):
+					position=goal
+					ferry_next_portal=not ferry_next_portal
+					_end_ferry()
+					cloud_since=-1
+					cloud_seated=false
+					supported=true
+					seated=true
+					support=current
+					support_id=_id(current,identities)
+					support_origin=_origin(current,identities)
+					support_at=now
+					velocity=Vector2.ZERO
+					return "sit"
+				return "portal" if ferry_next_portal else "cloud_fly"
+			_end_ferry()
+			ferry_until=now+1.5
+			cloud_since=now-.94
 	if mode=="roam" and cloud_seated:
 		var roam_center := position.x+size.x*.5
 		var pointer_distance := pointer.x-roam_center
@@ -475,6 +536,17 @@ func _fits(edge: Rect2i, desk: Rect2i, size: Vector2i) -> bool:
 	return desk.intersection(edge).size.x>=94 and edge.size.y>0 \
 		and edge.position.y>=desk.position.y+size.y*SEAT_RATIO+5 \
 		and edge.position.y<=desk.end.y-size.y*0.25
+
+func _ferry_goal(edge: Rect2i, desk: Rect2i, size: Vector2i) -> Vector2:
+	if not _fits(edge,desk,size):
+		return Vector2.INF
+	var y := edge.position.y-size.y*SEAT_RATIO
+	var pad := size.x*.24
+	var left := maxf(edge.position.x+pad,desk.position.x+size.x*.5+5)
+	var right := minf(edge.end.x-pad,desk.end.x-size.x*.5-5)
+	if left>right or y<desk.position.y+5 or y+size.y>desk.end.y:
+		return Vector2.INF
+	return Vector2((left+right-size.x)*.5,y)
 
 func _reachable(windows: Array[Rect2i], foreground: Rect2i, desk: Rect2i, size: Vector2i, foot: float, seat: float) -> Rect2i:
 	var best := Rect2i()

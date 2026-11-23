@@ -169,6 +169,26 @@ func _initialize() -> void:
 	pending.climb_progress=0.7
 	pending.interrupt(clock,true)
 	_expect(pending.climb_progress==0 and pending.falling,"Takeover must cancel an active climb safely.")
+	var ferry := Motion.new()
+	options.mode="windows"
+	options.magic=true
+	edges.assign([above])
+	for teleport in [false,true]:
+		ferry.place(Vector2(-1250,440))
+		ferry.ferry_next_portal=teleport
+		var visited := false
+		for frame in 600:
+			var travel := ferry.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,options,edges)
+			visited=visited or travel==("portal" if teleport else "cloud_fly")
+		_expect(visited and ferry.seated and ferry.support==above,"Remote seat transfer failed")
+		_expect(DESK.encloses(Rect2i(Vector2i(ferry.position),SIZE)),"Seat destination outside monitor")
+	ferry.place(Vector2(-1250,440))
+	ferry.ferry_next_portal=true
+	for frame in 280:
+		var travel := ferry.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,options,edges)
+		if travel=="portal":
+			edges.clear()
+	_expect(not ferry.seated and ferry.portal_scale==1.0,"Invalid portal persisted")
 	if not failed:
 		print("Companion motion: reachable ledges, all climb phases, moving/removed supports, fast release, clouds, bounded throws and spring drag passed.")
 	quit(1 if failed else 0)

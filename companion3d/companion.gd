@@ -47,6 +47,7 @@ var cloud: Node3D
 var seat_contact_y := -1
 var sole_contact_y := -1
 var projected_ears := PackedVector2Array()
+var portal_hearts: Array[Polygon2D] = []
 var contact_ring := Line2D.new()
 var seat_offset := 0.0
 var body_size := BASE_SIZE
@@ -178,6 +179,16 @@ func _build_scene() -> void:
 
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	for index in 9:
+		var heart := Polygon2D.new()
+		var vertices := PackedVector2Array()
+		for sample in 32:
+			var t := TAU*sample/32.0
+			vertices.append(Vector2(16*pow(sin(t),3),-13*cos(t)+5*cos(2*t)+2*cos(3*t)+cos(4*t)))
+		heart.polygon=vertices
+		heart.visible=false
+		layer.add_child(heart)
+		portal_hearts.append(heart)
 	layer.add_child(contact_ring)
 	contact_ring.visible=false
 	contact_ring.width=2.0
@@ -598,6 +609,7 @@ func _process(delta: float) -> void:
 		pivot.rotation.z=lerpf(pivot.rotation.z,motion.angle,1-exp(-11*dt))
 		# Lean around the body, not around the feet at the scene origin.
 		var torso_center := Vector3(0,0.86,0)
+		pivot.scale=Vector3.ONE*maxf(.015,motion.portal_scale)
 		pivot.position=torso_center-pivot.basis*torso_center
 		var gaze := (local-head)/145.0
 		if not _near_model(local,52):
@@ -631,8 +643,17 @@ func _process(delta: float) -> void:
 		projected_ears.clear()
 		for ear in rig.ear_anchors():
 			projected_ears.append(camera.unproject_position(ear))
+	for i in portal_hearts.size():
+		var heart := portal_hearts[i]
+		heart.visible=physical=="portal"
+		if heart.visible:
+			var burst := sin(PI*minf(motion.portal_time/1.04,1))
+			var orbit := Vector2.from_angle(TAU*i/portal_hearts.size()+motion.portal_time*1.7)
+			heart.position=projected_bones.get("chest",head)+orbit*Vector2(52,68)*burst*float(options.zoom)
+			heart.scale=Vector2.ONE*(.18+.29*burst)*float(options.zoom)
+			heart.color=Color(.99,.44,.79,burst)
 	_update_contact_effect()
-	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now,window.size.y)
+	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha*motion.portal_scale,now,window.size.y)
 	if actual!=window.position:
 		window.position=actual
 	_update_bubble()
@@ -644,9 +665,10 @@ func _process(delta: float) -> void:
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
 	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and fmod(rig.cloud_clock,4.8)<1.1
 	var changing_window_pose: bool = rig!=null and rig.crossed>0 and rig.crossed<1
-	if physical=="cloud_fly" or seat_transition or changing_cloud_pose or changing_window_pose:
+	if physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
+	interactive=interactive or physical=="portal"
 	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
 	if status_clock>=1.8 or avatar_state!=last_reported_pose:
 		last_reported_pose=avatar_state
@@ -846,6 +868,10 @@ func _update_window_region() -> void:
 	var rects: Array[Rect2] = []
 	if bubble.visible:
 		rects.append(bubble.get_rect().grow(2))
+	if motion.portal_time>0:
+		var center: Vector2=projected_bones.get("chest",head)
+		var radius := Vector2(70,84)*zoom
+		rects.append(Rect2(center-radius,2*radius))
 	if cloud.visible:
 		var base := Vector2(motion.cloud_x,motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO if motion.cloud_seated else motion.cloud_edge)-Vector2(get_window().position)
 		rects.append(Rect2(base-Vector2(106,35)*zoom,Vector2(212,94)*zoom))

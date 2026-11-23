@@ -101,10 +101,24 @@ def build(source, illustration, back, stockings):
                 if kind=="face":
                     wz-=.019*exp(-((x-512)/12)**2-((y-192)/11)**2)*max(0,cos(angle))
                 if kind=="arm":
-                    wx=-side*np.interp(y,[280,465,695,785],[.115,.33,.54,.63])-side*(x-cx)*.00112*.87
-                    wy=1.455-(x-cx)*.00050-(y-280)*.000035
+                    # The authored arm is diagonal in the image but horizontal in bind pose.
+                    # Cross-section width belongs across the humerus, not along it.
+                    wx=-side*np.interp(y,[277,292,465,695,785],[.088,.127,.335,.542,.677])
+                    wy=1.459-(x-cx)*.00122-(y-280)*.000025
+                    wz*=1.12
                 if kind=="foot":
-                    wz-=.12*np.clip((y-1420)/85,0,1)
+                    # Shape in anatomical space without moving the UV landmarks.
+                    width=np.interp(y,[650,755,900,1005,1124,1280,1420,1495,1511],
+                                      [1.10,1.18,1.20,1.15,1.26,1.20,1.18,1.27,1.18])
+                    wx=-side*((cx-512)*.00124+(x-cx)*.00112*width)
+                    depth=np.interp(y,[650,740,895,1005,1080,1160,1300,1415,1455,1485,1504,1511],
+                                      [.080,.109,.089,.068,.073,.089,.058,.039,.056,.078,.085,.018])
+                    center=np.interp(y,[650,890,1005,1140,1300,1420,1455,1495,1511],
+                                       [0,.003,-.014,.018,.023,.027,.012,-.023,-.038])
+                    wz=center-depth*cos(angle)
+                    if y>1420:
+                        wy=np.interp(y,[1420,1455,1490,1505,1511],[.14,.104,.072,.059,.056])
+                        wy+=.017*max(0,-cos(angle))*sin(pi*(y-1420)/91)
                 u,v=x,y
                 if side==-1:
                     u=1024-u
@@ -134,6 +148,12 @@ def build(source, illustration, back, stockings):
         n=np.cross(b-a,c-a)
         for col in range(3):
             np.add.at(norms,tris[:,col],n)
+        # Share normals on the duplicated front/back UV seam.
+        strips=norms.reshape(-1,stride,3)
+        for left,right in ((0,stride-1),(segments//2,segments//2+1)):
+            shared=strips[:,left]+strips[:,right]
+            strips[:,left]=shared
+            strips[:,right]=shared
         norms/=np.maximum(np.linalg.norm(norms,axis=1,keepdims=True),1e-8)
         pieces.append((points,norms,tex,joints,weights,tris,blink,smile))
     head=[(0,"C_Head"),(1550,"C_Head")]

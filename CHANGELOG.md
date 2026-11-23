@@ -1,3 +1,7 @@
+## Remote window seats and ZXC anatomy
+
+- Free Roam and Window Companion alternate a cloud approach and a heart portal for distant visible ledges. Validate the destination throughout travel. Reshape ZXC arms, calves, heels and forefeet in both legwear variants.
+
 ## ZXC companion edition
 
 - Add a locally built ZXC mesh with front and rear painted atlas, separate barefoot and stockings files, and two facial morphs on the existing humanoid motion system.
