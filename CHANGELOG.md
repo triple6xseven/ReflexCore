@@ -3,6 +3,7 @@
 ## Unreleased
 
 * Restore Classic and 3D widget visibility on launch, save pending widget changes on close and add top-level Restart and Exit to the tray.
+* Preserve a Preview 3D request sent while the previous renderer is still stopping.
 * Recover lost mouse releases during companion drags. Let newer gestures preempt older reactions and render magic platforms behind the avatar in 3D.
 
 * Keep the 3D companion seated as its real support window moves. Release on a fast move, window closure or occlusion and restrict climbs to exposed edges within reach.

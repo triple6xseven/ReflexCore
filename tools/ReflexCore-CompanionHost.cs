@@ -129,7 +129,6 @@ namespace ReflexCore.Bridge
                     SaveVisibility();
                     if(companionPreferred)Start();
                 }
-                ReadCommand(classicVisibility);
                 if(child!=null && child.HasExited)
                 {
                     if(stopDeadline==0)
@@ -142,6 +141,7 @@ namespace ReflexCore.Bridge
                     if(surfaces!=null){surfaces.Dispose();surfaces=null;}
                     if(restart){restart=false;Start();}
                 }
+                ReadCommand(classicVisibility);
                 long now=Stopwatch.GetTimestamp();
                 if(Running && stopDeadline!=0 && now>=stopDeadline)
                 {
@@ -214,7 +214,12 @@ namespace ReflexCore.Bridge
 
         private void Start()
         {
-            if(child!=null)return;
+            if(child!=null)
+            {
+                // Studio can request a preview before the previous child has exited.
+                if(stopDeadline!=0||child.HasExited)restart=true;
+                return;
+            }
             string project=Path.Combine(root,"companion3d");
             string configured=InBridge("runtime-exe.txt");
             if(!File.Exists(configured)||new FileInfo(configured).Length>2048 ||
