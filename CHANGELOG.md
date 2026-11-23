@@ -1,3 +1,7 @@
+## Classic widget
+
+- Retire the animated 2D companion and its tray controls. Keep the Classic telemetry widget.
+
 # Changelog
 
 ## Unreleased

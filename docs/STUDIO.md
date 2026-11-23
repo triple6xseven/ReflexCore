@@ -16,7 +16,7 @@ Selecting a theme updates both WPF resources and the hosted page colors. Only an
 
 ### Verification
 
-Open the ReflexCore tray icon and choose **Widget → Classic**, **AI Companion**, or **Both**. Classic shows all hardware and Ollama metrics at once. In Both, the companion bubble only shows activity and waiting jobs. Drag the companion with the mouse and use **Widget → Companion options** for pinning, compact mode, appearance, sound, and click-through. **Ctrl+Alt+H** shows or hides the widget.
+Use the ReflexCore tray icon or **Ctrl+Alt+H** to show or hide the Classic telemetry widget. It displays hardware and Ollama metrics together.
 
 **Appearance → Smooth scrolling** controls both the theme gallery and the scrollable hosted pages. The hosted pages reuse the same damped spring as the zxcLagLab gallery. Lists, model pickers and numeric editors keep their native wheel behavior.
 

@@ -16,7 +16,6 @@ namespace ReflexCore.Bridge
     {
         public static void SelfTest(string root)
         {
-            CompanionCanvas.SelfTest();
             if (!File.Exists(Path.Combine(root, "Cargo.toml")))
                 throw new Exception("Cargo.toml missing");
             if (!File.Exists(Path.Combine(root, "tools", "ReflexCore-Tray.cs")))
@@ -442,7 +441,7 @@ namespace ReflexCore.Bridge
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams
         {
-            get { CreateParams cp=base.CreateParams; cp.ExStyle|=0x08000000|0x00000080; if(clickThrough)cp.ExStyle|=0x20; return cp; }
+            get { CreateParams cp=base.CreateParams; cp.ExStyle|=0x08000000|0x00000080; return cp; }
         }
         public ActivityHud()
         {
@@ -469,13 +468,6 @@ namespace ReflexCore.Bridge
 
         public void Reposition()
         {
-            if(companionMode && positioned)
-            {
-                Rectangle screen=Screen.FromPoint(Location).WorkingArea;
-                Location=new Point(Math.Max(screen.Left,Math.Min(Left,screen.Right-Width)),
-                    Math.Max(screen.Top,Math.Min(Top,screen.Bottom-Height)));
-                return;
-            }
             Rectangle a=Screen.PrimaryScreen.WorkingArea;
             Location=new Point(a.Right-Width-12,a.Top+35);
         }
@@ -524,9 +516,9 @@ namespace ReflexCore.Bridge
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
             speedLabel.Top=gpuLabel.Bottom+2;
-            if(combined)SetWidgetMode();
-            else if(!companionMode){ClientSize=new Size(420,speedLabel.Bottom+7);Reposition();}
-            foreach(System.Windows.Forms.Control label in Controls)if(!ReferenceEquals(label,companion))label.Width=396;
+            ClientSize=new Size(420,speedLabel.Bottom+7);
+            Reposition();
+            foreach(System.Windows.Forms.Control label in Controls)label.Width=396;
         }
 
         private static string GpuText(ResourceCounters.GpuReading gpu)
@@ -674,17 +666,6 @@ namespace ReflexCore.Bridge
                 string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
                 Process.Start(new ProcessStartInfo { FileName=ps, Arguments="-NoProfile -ExecutionPolicy Bypass -File \"" + center + "\"",WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true });
             });
-            if(!isolated)
-            {
-                hud.ConfigureCompanion(()=>studioAction.PerformClick(),()=>{if(hudEnabled)ToggleHud();});
-                var widgetOptions=new ToolStripMenuItem("Widget");
-                widgetOptions.DropDownOpening+=delegate {
-                    while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
-                    hud.AddWidgetActions(widgetOptions.DropDownItems);
-                };
-                widgetOptions.DropDownItems.Add("Settings");
-                menu.Items.Add(widgetOptions);
-            }
             menu.Items.Add("Stop task · Ctrl+Alt+P", null, delegate(object s, EventArgs e) { StopJob(); });
             var toolsMenu=new ToolStripMenuItem("More");
             toolsMenu.DropDownItems.Add("Run next pending job", null, delegate(object s, EventArgs e) { StartPending(true); });
@@ -899,7 +880,6 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 catch(UnauthorizedAccessException) {}
             }
             if(hud.Visible) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
-            if(hud.Visible) hud.RefreshCompanion(lastPending<0?0:lastPending,currentState);
         }
 
         private bool RenderActivity(string json,DateTime now)
