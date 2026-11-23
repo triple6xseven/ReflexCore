@@ -32,9 +32,14 @@ var rig: RefCounted
 var model_file := ""
 var model_error := ""
 var model_attempt_at := 0.0
+var cached_path := ""
+var cached_mtime := 0
+var cached_rig: RefCounted
+var perch_offset := 0.0
 var model_mtime := 0
 var motion := DesktopMotion.new()
 var windows: Array[Rect2i] = []
+var foreground := Rect2i()
 var status_clock := 0.0
 var poll_clock := 0.0
 var now := 0.0
@@ -226,19 +231,27 @@ func _load_avatar() -> void:
 	var touched := FileAccess.get_modified_time(path)
 	if path==model_file and touched==model_mtime:
 		return
-	if now < model_attempt_at:
+	var cache_hit := path==cached_path and touched==cached_mtime
+	if not cache_hit and (now < model_attempt_at or menu.visible):
 		return
-	model_attempt_at=now+3.0
-	model_file=path
-	model_mtime=touched
-	var candidate := Rig.new()
-	if not candidate.load_file(path):
+	if not cache_hit:
+		model_attempt_at=now+3.0
+	var previous_file := model_file
+	var previous_mtime := model_mtime
+	var candidate = cached_rig if cache_hit else Rig.new()
+	if not cache_hit and not candidate.load_file(path):
 		model_error=candidate.error
 		return
+	model_file=path
+	model_mtime=touched
 	# Import first. An invalid replacement never removes the working character.
 	if rig!=null and is_instance_valid(rig.scene):
 		pivot.remove_child(rig.scene)
-		rig.free_scene()
+		if candidate!=cached_rig and cached_rig!=null:
+			cached_rig.free_scene()
+		cached_rig=rig
+		cached_path=previous_file
+		cached_mtime=previous_mtime
 	rig=candidate
 	pivot.add_child(rig.scene)
 	var size_factor:=1.65/float(rig.height)
@@ -247,6 +260,23 @@ func _load_avatar() -> void:
 	rig.scene.rotation.y=PI if rig.legacy else 0
 	model_error=""
 	_camera_layout()
+
+func _warm_outfit() -> void:
+	if not dress_model or rig==null or cached_rig!=null or now<model_attempt_at+2 or menu.visible:
+		return
+	var current:bool=options.stockings
+	options.stockings=not current
+	var alternative := _pick_model()
+	options.stockings=current
+	if alternative.is_empty() or alternative==model_file:return
+	var candidate := Rig.new()
+	if candidate.load_file(alternative):
+		cached_rig=candidate
+		cached_path=alternative
+		cached_mtime=FileAccess.get_modified_time(alternative)
+	else:
+		candidate.free_scene()
+		model_attempt_at=now+20
 
 func _apply_options() -> void:
 	var window := get_window()
@@ -312,6 +342,7 @@ func _poll() -> void:
 		if pos_changed:
 			_restore_position()
 	_load_avatar()
+	_warm_outfit()
 	var live := _read_json(bridge.path_join("live.json"),32*1024)
 	var timestamp := float(live.get("at_unix_ms",0))
 	if timestamp>0 and absf(Time.get_unix_time_from_system()*1000.0-timestamp)>6000.0:
@@ -323,6 +354,7 @@ func _poll() -> void:
 			metrics.clear()
 			pending=0
 			windows.clear()
+			foreground=Rect2i()
 		return
 	host_seen=true
 	paused=live.get("paused",false)==true and smoke_time==0.0
@@ -344,6 +376,8 @@ func _poll() -> void:
 				metrics.append(metric.replace("\n"," ").left(110))
 	show_metrics=live.get("show_metrics",false)==true and live.get("classic_visible",false)!=true
 	var bounds: Variant = live.get("bounds",[])
+	var focused: Variant = live.get("foreground",[])
+	foreground=Rect2i(int(focused[0]),int(focused[1]),int(focused[2]),int(focused[3])) if focused is Array and focused.size()==4 else Rect2i()
 	windows.clear()
 	if bounds is Array:
 		for rect in bounds:
@@ -399,16 +433,15 @@ func _process(delta: float) -> void:
 		var wanted := Vector2(pointer)-contact
 		# Follow the cursor between displays while leaving all applications untouched.
 		motion.drag_to(wanted,throw_velocity,dt)
-	var physical: String = motion.update(dt,now,area,window.size,pointer,options,windows)
-	var actual:=Vector2i(motion.position)
-	if actual!=last_window_position:
-		window.position=actual
-		last_window_position=actual
+	var physical: String = motion.update(dt,now,area,window.size,pointer,options,windows,foreground)
 	if had_motion and not motion.falling and not motion.held:
 		_write_position()
 	had_motion=motion.falling or motion.held
 	avatar_state=_choose_pose(physical,local)
 	if rig!=null:
+		var moving := physical in ["walk","run"]
+		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.27 if physical=="sit" else 0.0
+		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,minf(10*dt,1))
 		for role in rig.roles:
 			projected_bones[role]=camera.unproject_position(rig.world_bone(role))
 		head=projected_bones["head"]
@@ -417,12 +450,20 @@ func _process(delta: float) -> void:
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
 		if stage=="warning":
 			gaze.y=-0.55
-		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate))
-		var yaw := (gaze.x*0.08 + clampf(motion.velocity.x/1150.0,-0.23,0.23))
-		pivot.rotation.y=lerpf(pivot.rotation.y,yaw,minf(5*dt,1))
+		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),physical=="sit")
+		if physical=="sit":
+			var hips := camera.unproject_position(rig.world_bone("hips")).y
+			var edge := motion.support.position.y
+			perch_offset=lerpf(perch_offset,edge-motion.position.y-hips-12*float(options.zoom),minf(12*dt,1))
+		else:
+			perch_offset=lerpf(perch_offset,0,minf(15*dt,1))
+	var actual:=Vector2i(motion.position+Vector2(0,perch_offset))
+	if actual!=last_window_position:
+		window.position=actual
+		last_window_position=actual
 	_update_bubble()
 	_track_input(local,dt)
-	var interactive := pressed or motion.falling or avatar_state in ["walk","run","landing","petted"] or _near_model(local,25)
+	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted"] or _near_model(local,25)
 	Engine.max_fps=clampi(int(options.fps),15,60) if interactive else mini(24,int(options.fps))
 	if status_clock>=1.8:
 		_publish()
@@ -451,7 +492,8 @@ func _choose_pose(physical: String, local: Vector2) -> String:
 
 func _update_bubble() -> void:
 	var window_size := Vector2(get_window().size)
-	var visible := bool(options.bubble) or rig==null
+	var text := _bubble_message()
+	var visible := (bool(options.bubble) and not text.is_empty()) or rig==null
 	bubble.visible=visible
 	if not visible:
 		return
@@ -462,7 +504,6 @@ func _update_bubble() -> void:
 		bubble_label.add_theme_font_size_override("font_size",clampi(roundi(13*scale_value),10,26))
 	var anchor := head if rig!=null else window_size*0.5
 	bubble.position=Vector2(clampf(anchor.x-bubble.size.x/2,4,window_size.x-bubble.size.x-4),maxf(4,anchor.y-bubble.size.y-50*scale_value))
-	var text := _bubble_message()
 	if text!=bubble_label.text:
 		bubble_label.text=text
 		bubble.modulate.a=0.66
@@ -473,6 +514,10 @@ func _bubble_message() -> String:
 		return "Choose a rigged VRM or GLB in Studio."
 	if now-pet_at<1.6:
 		return "✦"
+	if stage=="idle" and pending==0:
+		return ""
+	if stage=="success" and pending==0 and now-stage_at>4.2:
+		return ""
 	var slot := int(now/5)%3
 	if slot==2 and show_metrics and not metrics.is_empty():
 		return metrics[int(now/15.0)%metrics.size()]
@@ -481,7 +526,7 @@ func _bubble_message() -> String:
 	if not message.is_empty() and stage!="idle":
 		return message
 	return {"thinking":"Thinking…","working":"Working…","observing":"Observing",
-		"success":"Task complete","warning":"Task needs attention"}.get(stage,"Idle")
+		"success":"Task complete","warning":"Task needs attention"}.get(stage,"")
 
 func _head_circle(local: Vector2, padding: float) -> bool:
 	if rig==null:
@@ -611,7 +656,8 @@ func _menu_action(id: int) -> void:
 		values.bubble=not options.bubble
 	elif id==11:
 		values.stockings=not options.stockings
-	_write_json("settings.json",values)
+	if _write_json("settings.json",values):
+		poll_clock=0.0
 
 func _runtime_status() -> Dictionary:
 	return {
@@ -624,6 +670,9 @@ func _runtime_status() -> Dictionary:
 		"outfit_variant":dress_model,"fps":Engine.get_frames_per_second(),"frame_ms":snappedf(sample_ms,0.1),
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
 		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,
+		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs"),"bubble_visible":bubble.visible,
+		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
+		"seat_contact_y":roundi(get_window().position.y+camera.unproject_position(rig.world_bone("hips")).y+12*float(options.zoom)) if rig!=null and motion.support.has_area() else -1,
 		"interactions":interaction_count,"drags":drag_count
 	}
 
@@ -634,22 +683,30 @@ func _publish() -> void:
 func _write_position() -> void:
 	if bool(options.physics) and motion.falling:
 		return
-	_write_json("position.json",{"x":get_window().position.x,"y":get_window().position.y})
+	_write_json("position.json",{"x":roundi(motion.position.x),"y":roundi(motion.position.y)})
 
-func _write_json(name: String,value: Dictionary) -> void:
+func _write_json(name: String,value: Dictionary) -> bool:
 	var dest := bridge.path_join(name)
 	var scratch := dest+"."+str(OS.get_process_id())+".next"
 	var file := FileAccess.open(scratch,FileAccess.WRITE)
 	if file==null:
-		return
+		return false
 	file.store_string(JSON.stringify(value))
 	file.close()
-	DirAccess.rename_absolute(scratch,dest)
+	if DirAccess.rename_absolute(scratch,dest)==OK:
+		return true
+	# Some Windows file readers briefly lock the destination. Retry the
+	# pending settings after the menu releases native focus.
+	if name=="settings.json":
+		get_tree().create_timer(0.15).timeout.connect(func(): DirAccess.rename_absolute(scratch,dest))
+		poll_clock=0.18
+	return false
 
 func _shutdown() -> void:
 	if stopping:
 		return
 	stopping=true
+	if cached_rig!=null:cached_rig.free_scene()
 	_write_position()
 	_publish()
 	get_tree().quit()

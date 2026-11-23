@@ -115,7 +115,8 @@ namespace ReflexCore.Bridge
                 bool geometry=physics||mode=="windows"||mode=="roam";
                 bool pause=capture||WindowSurfaces.ForegroundFullscreen(child.Id);
                 WriteText("live.json",json.Serialize(hud.CompanionSnapshot(pending,queueState,!classic,pause,
-                    geometry&&!pause?WindowSurfaces.Scan(child.Id):new int[0][])));
+                    geometry&&!pause?WindowSurfaces.Scan(child.Id):new int[0][],
+                    geometry&&!pause?WindowSurfaces.Foreground(child.Id):null)));
             }
             catch(IOException){} catch(UnauthorizedAccessException){}
             catch(ArgumentException){} catch(InvalidOperationException){}
@@ -237,6 +238,17 @@ namespace ReflexCore.Bridge
             var screen=Screen.FromRectangle(bounds).Bounds;
             return bounds.Left<=screen.Left+1 && bounds.Top<=screen.Top+1 &&
                 bounds.Right>=screen.Right-1 && bounds.Bottom>=screen.Bottom-1;
+        }
+
+        internal static int[] Foreground(int renderer)
+        {
+            var hwnd=GetForegroundWindow();
+            uint pid;
+            Rect frame;
+            if(GetWindowThreadProcessId(hwnd,out pid)==0 || pid==renderer ||
+                GetWindowTextLength(hwnd)==0 || DwmRect(hwnd,9,out frame,16)!=0)
+                return null;
+            return new[]{frame.Left,frame.Top,frame.Right-frame.Left,frame.Bottom-frame.Top};
         }
 
         internal static int[][] Scan(int renderer)

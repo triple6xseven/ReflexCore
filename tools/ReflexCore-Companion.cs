@@ -281,13 +281,13 @@ namespace ReflexCore.Bridge
         internal bool ClassicVisible {get{return Visible&&(!companionMode||combined);}}
         internal bool LegacyOnly {get{return companionMode&&!combined;}}
         internal bool feedWhenHidden;
-        internal object CompanionSnapshot(int pending,string queueState,bool metrics,bool paused,int[][] bounds)
+        internal object CompanionSnapshot(int pending,string queueState,bool metrics,bool paused,int[][] bounds,int[] foreground)
         {
             string stage=EffectiveStage(queueState);
             return new {
                 schema="reflexcore.companion.live.v1",stage=CompanionStateMachine.Resolve(stage).ToString().ToLowerInvariant(),
                 message=stage,pending=pending,metrics=new[]{hostLabel.Text,gpuLabel.Text,speedLabel.Text},
-                show_metrics=metrics,classic_visible=!metrics,paused=paused,bounds=bounds,
+                show_metrics=metrics,classic_visible=!metrics,paused=paused,bounds=bounds,foreground=foreground,
                 at_unix_ms=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
         }

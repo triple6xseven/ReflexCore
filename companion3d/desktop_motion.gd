@@ -11,9 +11,6 @@ var supported := false
 var lock_until := 0.0
 var active := Rect2i()
 var active_seen := 0.0
-var floor_bit := 0.0
-var next_hop := 0.0
-var roam_target := 0.0
 var mode := ""
 var last_position := Vector2.ZERO
 
@@ -43,31 +40,28 @@ func release(push: Vector2, physics: bool, now: float) -> void:
 	lock_until = now + 3.2
 	rest_at = now
 
-func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector2i, options: Dictionary, windows: Array[Rect2i]) -> String:
+func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector2i, options: Dictionary, windows: Array[Rect2i], foreground := Rect2i()) -> String:
 	var desired_mode: String = options.get("mode", "taskbar")
 	if mode != desired_mode:
 		mode = desired_mode
 		supported = false
 		lock_until = 0.0
-		roam_target = position.x
 	var margin := 5.0
 	var foot := float(size.y) - 25.0
 	var floor := float(desk.end.y) - 3
 	var min_x := float(desk.position.x) + margin
 	var max_x := maxf(min_x, float(desk.end.x-size.x) - margin)
 	var min_y := float(desk.position.y) + margin
+	if mode in ["windows","roam"] and not falling:
+		# Logical motion uses the standing sole; the view lifts the overlay
+		# by the sole-to-seat offset while perched.
+		min_y -= size.y * 0.47
 	var max_y := maxf(min_y, floor-foot)
 	var sole_x := position.x + size.x*0.5
 	if held:
 		_last(dt)
 		return "dragged"
 
-	var ground := floor
-	var chosen := Rect2i()
-	if mode in ["windows", "roam"] or falling:
-		chosen = _valid_support(windows, desk, sole_x)
-		if chosen.has_area():
-			ground = minf(ground, chosen.position.y)
 	if supported and support.has_area():
 		if not lock_until > 0.0 or options.get("physics", true):
 			var follow := _matching(support,windows)
@@ -78,7 +72,6 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			else:
 				support=follow
 				position.y=lerpf(position.y,float(follow.position.y)-foot,minf(22*dt,1))
-				ground=float(follow.position.y)
 
 	if falling:
 		# Semi-implicit integration with explicit step bound and swept foot crossing.
@@ -136,36 +129,36 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			if absf(dx)>216:
 				path.x = float(pointer.x)-float(size.x)*0.5-signf(dx)*165
 			path.y = max_y
-		"windows":
-			var target := _first_surface(windows,desk)
-			if active!=target:
+		"windows", "roam":
+			# The tray supplies the active window first. Wait briefly before
+			# changing targets, and leave the avatar parked between events.
+			var target := _first_surface(windows,desk,size)
+			if mode=="windows" and foreground.has_area():
+				target=foreground if _perchable(foreground,desk,size) else Rect2i()
+			if not target.has_area() and supported and _perchable(support,desk,size):
+				target=support
+			if active!=target and (not target.has_area() or active.intersection(target).get_area()<target.get_area()*0.72):
 				active=target
 				active_seen=now
+				if target.has_area() and _matching(support,[target])!=target:
+					supported=false
+					support=Rect2i()
 			if target.has_area() and now-active_seen>0.42:
-				path.x = clampf(position.x, float(target.position.x) + 52 - size.x*0.5, float(target.end.x) - 52 - size.x*0.5)
+				var low := maxf(min_x,float(target.position.x)+56-size.x*0.5)
+				var high := minf(max_x,float(target.end.x)-56-size.x*0.5)
+				path.x = clampf(position.x,low,high)
 				var target_y:=float(target.position.y)-foot
 				# Approach the surface horizontally before settling from above.
-				if absf(path.x-position.x) < 19:
+				if absf(path.x-position.x) < 5:
 					path.y=target_y
-					sitting = absf(position.y-target_y) < 5
+					sitting = absf(position.y-target_y) < 2
 				if sitting:
 					supported=true
 					support=target
 			elif not target.has_area():
 				path.y=max_y
-		"roam":
-			if now >= next_hop:
-				next_hop=now+4.4
-				roam_target=clampf(position.x+sin(now*1.1)*210,min_x,max_x)
-				if supported and support.has_area() and options.get("physics",true):
-					falling=true
-					velocity=Vector2(signf(roam_target-position.x)*120,-215)
-					supported=false
-			path.x=roam_target
-			path.y=ground-foot
 		"taskbar":
 			path.y=max_y
-			sitting=now-rest_at>5
 	var walk_speed := float(options.get("walk_speed",58))
 	path.x=clampf(path.x,min_x,max_x)
 	path.y=clampf(path.y,min_y,max_y)
@@ -197,16 +190,13 @@ func _matching(old: Rect2i, windows: Array[Rect2i]) -> Rect2i:
 			return window
 	return Rect2i()
 
-func _valid_support(windows: Array[Rect2i], desk: Rect2i, x: float) -> Rect2i:
-	if supported and support.has_area():
-		return _matching(support,windows)
-	for window in windows:
-		if _walkable(window,desk,x) and absf(float(window.position.y)-floor_bit)<5:
-			return window
-	return Rect2i()
+func _perchable(window: Rect2i,desk: Rect2i,size: Vector2i) -> bool:
+	return desk.intersection(window).size.x>150 && window.size.y>80 \
+		and window.position.y>desk.position.y+size.y*0.53 \
+		and window.position.y<desk.end.y-size.y*0.46
 
-func _first_surface(windows: Array[Rect2i],desk: Rect2i) -> Rect2i:
+func _first_surface(windows: Array[Rect2i],desk: Rect2i,size: Vector2i) -> Rect2i:
 	for window in windows:
-		if _walkable(window,desk,window.get_center().x):
+		if _perchable(window,desk,size):
 			return window
 	return Rect2i()

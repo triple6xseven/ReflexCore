@@ -341,12 +341,12 @@ func _morph(key: String, value: float) -> void:
 		var mesh: MeshInstance3D = binding[0]
 		mesh.set_blend_shape_value(binding[1], value * binding[2])
 
-func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool) -> void:
+func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false) -> void:
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
 	var moving := state in ["walk", "run"]
 	gait = lerpf(gait, 1.0 if moving and enabled else 0.0, blend)
-	stance = lerpf(stance, 1.0 if state == "sit" and enabled else 0.0, blend)
+	stance = lerpf(stance, 1.0 if seated and enabled else 0.0, blend)
 	posture = lerpf(posture, float({"thinking": 0.16, "working": 0.08, "sleepy": 0.24, "falling": -0.13,
 		"dragged": -0.22, "landing": 0.25, "recovering": 0.12, "petted": 0.08}.get(state, 0.0)) if enabled else 0.0, blend)
 	step_phase += dt * (10.0 if state == "run" else 6.8) * gait
@@ -367,8 +367,10 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	for side in ["left", "right"]:
 		var side_sign := -1.0 if side == "left" else 1.0
 		var swing := sin(step_phase) * gait * side_sign
-		_pose(side + "UpperArm", Vector3(swing * -0.24, 0, arm_lift * side_sign * sign), blend)
-		_pose(side + "LowerArm", Vector3(-swing * 0.12 - 0.13, side_sign * arm_lift * 0.24, 0), blend)
+		var wave := sin(now*14)*0.22 if state=="happy" and side=="right" and enabled else 0.0
+		var relax := 0.16 if state=="petted" and enabled else 0.0
+		_pose(side + "UpperArm", Vector3(swing * -0.24 - relax, 0, (arm_lift+wave) * side_sign * sign), blend)
+		_pose(side + "LowerArm", Vector3(-swing * 0.12 - 0.13 - absf(wave)*1.7, side_sign * arm_lift * 0.24, 0), blend)
 		_pose(side + "UpperLeg", Vector3((swing * 0.27 - stance * 1.40) * sign, 0, stance * side_sign * 0.05), blend)
 		_pose(side + "LowerLeg", Vector3((maxf(0, -swing) * 0.27 + stance * 0.91) * sign, 0, 0), blend)
 	var hips := int(roles["hips"])

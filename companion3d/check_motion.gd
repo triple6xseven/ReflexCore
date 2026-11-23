@@ -40,4 +40,31 @@ func _initialize() -> void:
 			quit(1)
 			return
 	print("Companion physics: window landing, moving support, support removal and negative monitor coordinates passed.")
+	body.place(Vector2(-1000,410))
+	options.mode="taskbar"
+	for frame in range(1,601):
+		if body.update(1.0/60,frame/60.0,desk,size,Vector2i.ZERO,options,bounds)=="sit":
+			push_error("Taskbar mode sat without a window perch.")
+			quit(1)
+			return
+	options.mode="roam"
+	var original_x:float=body.position.x
+	for frame in range(601,1201):
+		body.update(1.0/60,frame/60.0,desk,size,Vector2i.ZERO,options,bounds)
+	if body.position.x!=original_x:
+		push_error("Roam moved without a usable window.")
+		quit(1)
+		return
+	options.mode="windows"
+	var background:=Rect2i(-1240,450,460,320)
+	var focused:=Rect2i(-1010,410,520,480)
+	bounds.assign([background,focused])
+	var pose: String
+	for frame in range(1201,1651):
+		pose=body.update(1.0/60,frame/60.0,desk,size,Vector2i.ZERO,options,bounds,focused)
+	if pose!="sit" or body.support!=focused:
+		push_error("Window mode did not perch on the foreground window.")
+		quit(1)
+		return
+	print("Companion behavior: standing taskbar, quiet roam and foreground-window perch passed.")
 	quit(0)

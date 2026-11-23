@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Hide the 3D companion's bubble while idle, turn the avatar in its walking direction and remove periodic random pacing. Anchor the seated pose to a reachable window edge.
+* Apply clothing changes during the current Godot session. Keep one alternate outfit in memory for switching and defer model imports while the context menu is open.
+
 * Add a private Godot ReflexCompanion 3D renderer, rigged avatar import, desktop physics and independent widget settings in Studio. Allow dragging the existing Classic widget and keep its location across restarts.
 * Verify the Windows renderer on the GTX 1650 Ti. Inspect desktop transparency and confirm a real avatar drag and landing. Cover moving and disappearing supports in a deterministic physics test. Document remaining installed UI checks and renderer limits in [ReflexCompanion](docs/REFLEXCOMPANION.md).
 
