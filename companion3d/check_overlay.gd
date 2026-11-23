@@ -13,6 +13,7 @@ func _verify() -> void:
 	if avatar.rig==null:
 		quit(2)
 		return
+	_check_cloud_turn(avatar)
 	var rig = avatar.rig
 	for pose in ["petted","dragged","thrown","hard_collision","landing","thinking","working","reach","sit","cloud_sit"]:
 		var classic := Vector3.ZERO
@@ -117,6 +118,21 @@ func _verify() -> void:
 		print("Windows overlay: full alpha bounds at both extreme tilts; immediate re-grab, dismissible menu, background passthrough and close action passed.")
 	avatar.queue_free()
 	quit(1 if failed else 0)
+
+func _check_cloud_turn(avatar: Node) -> void:
+	avatar.pivot.rotation.y=-.77
+	avatar.cloud_turn_target=-.77
+	for direction in [1.0,-1.0]:
+		for tick in 100:
+			var before: float=avatar.pivot.rotation.y
+			avatar._update_facing(1.0/60,true,direction*240,0)
+			var step: float=(avatar.pivot.rotation.y-before)*direction
+			_expect(step>=-.00001 and step<.063,"Discontinuous cloud turn")
+		_expect(absf(avatar.pivot.rotation.y-direction*.77)<.006,"Failed to face cursor")
+		avatar._update_facing(1.0/60,true,-direction*12,0)
+		_expect(avatar.cloud_look_side==direction,"Cloud seat flickered near its centre")
+	avatar._update_facing(1.0/60,false,240,0)
+	_expect(not avatar.cloud_turning,"Cloud turn leaked into another state")
 
 func _expect(ok: bool, message: String) -> void:
 	if not ok:

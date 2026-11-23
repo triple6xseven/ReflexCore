@@ -91,6 +91,9 @@ var last_drag_motion := 0.0
 var release_count := 0
 var contact := Vector2.ZERO
 var previous_pointer := Vector2.ZERO
+var cloud_look_side := -1.0
+var cloud_turn_target := -0.77
+var cloud_turning := false
 var gesture_direction := 0.0
 var gesture_extent := 0.0
 var gesture_turns := 0
@@ -600,8 +603,9 @@ func _process(delta: float) -> void:
 		var cloud_pose: bool=motion.cloud_seated
 		var rising := physical=="stand_up"
 		var seated: bool=not rising and (physical in ["sit","settle","cloud_sit"] or cloud_pose)
-		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else clampf(motion.velocity.x/160.0,-.78,.78) if hovering else -0.77 if cloud_pose else -0.64 if seated or rising else 0.0
-		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,minf(10*dt,1))
+		var center_x := float(projected_bones.get("hips",Vector2(window.size)*.5).x)
+		var yaw := signf(motion.velocity.x)*PI*.46 if moving else clampf(motion.velocity.x/160.0,-.78,.78) if hovering else -.64 if seated or rising else 0.0
+		_update_facing(dt,cloud_pose,local.x-center_x,yaw)
 		if physical=="dragged" and bool(options.animate):
 			pivot.rotation.x=lerpf(pivot.rotation.x,clampf(motion.velocity.y/4500.0,-0.19,0.19),1-exp(-9*dt))
 		else:
@@ -614,6 +618,8 @@ func _process(delta: float) -> void:
 		var gaze := (local-head)/145.0
 		if not _near_model(local,52):
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
+		if cloud_pose:
+			gaze.x=clampf((local.x-head.x)/(150.0*float(options.zoom)),-1,1)
 		if stage=="warning" and now>=motion.operator_until:
 			gaze.y=-0.55
 		var touch_time := maxf(click_at,pet_at)
@@ -665,7 +671,7 @@ func _process(delta: float) -> void:
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
 	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and (fmod(rig.cloud_clock,4.8)<1.6 or fmod(rig.cloud_clock,4.8)>3.08)
 	var changing_window_pose: bool = rig!=null and rig.crossed>0 and rig.crossed<1
-	if physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose:
+	if physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose or cloud_turning:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
 	interactive=interactive or physical=="portal"
@@ -680,6 +686,18 @@ func _process(delta: float) -> void:
 				image.save_png(smoke_path)
 		print(JSON.stringify(_runtime_status()))
 		_shutdown()
+
+func _update_facing(dt: float, on_cloud: bool, cursor_dx: float, yaw: float) -> void:
+	cloud_turning=false
+	if on_cloud:
+		if absf(cursor_dx)>48.0*float(options.zoom):
+			cloud_look_side=signf(cursor_dx)
+		cloud_turn_target=lerp_angle(cloud_turn_target,.77*cloud_look_side,1-exp(-5.5*dt))
+		yaw=cloud_turn_target
+		cloud_turning=absf(angle_difference(pivot.rotation.y,.77*cloud_look_side))>.025
+	else:
+		cloud_turn_target=pivot.rotation.y
+	pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,1-exp(-(5.5 if on_cloud else 10.0)*dt))
 
 func _update_contact_effect() -> void:
 	var age: float=now-motion.impact_at

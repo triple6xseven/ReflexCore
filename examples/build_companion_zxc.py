@@ -1,7 +1,7 @@
 """Build ZXC locally from its 1024x1536 A-pose illustration and a VRM skeleton.
 
 Each profile row is (image y, horizontal center, half-width, depth in metres).
-Only skeleton nodes, humanoid mapping and inverse bind data come from the rig.
+The anatomical cache is authored against the same humanoid skeleton and bind matrices.
 """
 import argparse
 from copy import deepcopy
@@ -12,12 +12,12 @@ from pathlib import Path
 import struct
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from build_companion_avatar import decode_glb
 from build_companion_midnight import append_accessor
 
 
-def build(source, illustration, back, stockings):
+def build(source, illustration, back, stockings, anatomy=None):
     template, raw = decode_glb(source)
     body = next(n for n in template["nodes"] if n.get("name")=="Body")
     skin = deepcopy(template["skins"][body["skin"]])
@@ -65,6 +65,32 @@ def build(source, illustration, back, stockings):
                 strip=rgb[y,base+375:base+661]
                 strip[:]=(strip*[.37,.27,.42]).astype(np.uint8)
         im=Image.fromarray(rgb)
+    if anatomy is not None:
+        # An opaque satin panel with an embroidered repeat and a scalloped waistband.
+        paint=ImageDraw.Draw(im)
+        paint.rectangle((0,0,122,124), fill=(54,29,66))
+        for y in range(48,125,8):
+            for x in range(0,124,8):
+                cx=x+4*(y%16==0)
+                paint.line([(cx-3,y),(cx,y-3),(cx+3,y),(cx,y+3),(cx-3,y)],fill=(68,41,81))
+                paint.ellipse((cx-1,y-1,cx+1,y+1),fill=(101,72,117))
+        paint.line([(x,67+int(2*cos(x*pi/7))) for x in range(124)],fill=(195,143,197),width=2)
+        paint.rectangle((140,24,188,68),fill=(248,215,214))
+        # A cylindrical leg chart avoids projecting straps, dress panels or rear
+        # artwork onto the calf when a seated leg turns towards the camera.
+        for v in range(144,575):
+            h=1.0-(v-150)/410
+            blush=.54*exp(-((h-.62)/.083)**2)+.30*exp(-((h-.14)/.045)**2)
+            for u in range(5,115):
+                angle=(u-8)/100*2*pi
+                shade=(1-cos(angle))*.5
+                color=(248-10*shade,216-12*shade-8*blush,216-10*shade-4*blush)
+                if stockings and h<.875:
+                    color=(83-13*shade,58-10*shade,85-12*shade)
+                trim=.867<h<.883 or .883<=h and (abs(angle-2.20)<.11 or abs(angle-4.18)<.11)
+                if trim:
+                    color=(84,56,91) if .870<h<.878 or h>=.883 else (137,104,144)
+                paint.point((u,v),fill=tuple(int(c) for c in color))
     stream=BytesIO()
     im.save(stream,"JPEG",quality=96,subsampling=0)
     doc["images"].append({"bufferView":view(stream.getvalue()),"mimeType":"image/jpeg"})
@@ -72,8 +98,9 @@ def build(source, illustration, back, stockings):
     doc["materials"].append({"name":"ZXC painted satin","doubleSided":True,
         "pbrMetallicRoughness":{"baseColorTexture":{"index":0},"metallicFactor":0,"roughnessFactor":.9}})
     pieces=[]
+    panel_indices=[]
     def joint(name):
-        return names.index("J_Bip_"+name)
+        return names.index(name if name.startswith("J_Sec_") else "J_Bip_"+name)
     def influences(y, chain):
         heights,roles=zip(*chain)
         high=min(max(1,np.searchsorted(heights,y)),len(roles)-1)
@@ -98,6 +125,14 @@ def build(source, illustration, back, stockings):
                 wx=(512-x)*.00112*side
                 wy=altitude(y)
                 wz=depth_offset-rz*cos(angle)
+                if kind=="panel":
+                    # Thin folded silk hangs behind the outside of the thigh.
+                    # Its hem is shorter at the front corner of the opening.
+                    t=np.clip((y-559)/771,0,1)
+                    across=sin(angle)
+                    wx=-side*((cx-512)*.00112+rx*.00091*across+.014*t)
+                    wz=.011+.125*t+.042*t*across+.009*sin(across*pi*1.7+t*3)-.004*cos(angle)
+                    wy+=t*(.125+.055*(1-across))
                 if kind=="face":
                     wz-=.019*exp(-((x-512)/12)**2-((y-192)/11)**2)*max(0,cos(angle))
                 if kind=="arm":
@@ -164,19 +199,24 @@ def build(source, illustration, back, stockings):
             strips[:,left]=shared
             strips[:,right]=shared
         norms/=np.maximum(np.linalg.norm(norms,axis=1,keepdims=True),1e-8)
+        if kind=="panel":
+            panel_indices.append(len(pieces))
         pieces.append((points,norms,tex,joints,weights,tris,blink,smile))
     head=[(0,"C_Head"),(1550,"C_Head")]
     trunk=[(235,"C_Neck"),(300,"C_UpperChest"),(410,"C_Chest"),(525,"C_Spine"),(615,"C_Hips"),(750,"C_Hips")]
     shell([(28,512,2,.01),(43,512,60,.063),(80,512,95,.10),(129,512,101,.113),(175,512,89,.111),(201,512,78,.092),(224,512,49,.076),(243,512,8,.024)],head,kind="face",depth_offset=-.018)
-    shell([(226,512,26,.032),(258,512,38,.04),(282,512,81,.061),(306,512,115,.073),(350,512,112,.101),(397,512,116,.132),(449,512,93,.09),(500,512,80,.072),(547,512,91,.082),(603,512,117,.102),(653,512,120,.099),(693,512,88,.074),(725,512,20,.032)],trunk)
+    if anatomy is None:
+        shell([(226,512,26,.032),(258,512,38,.04),(282,512,81,.061),(306,512,115,.073),(350,512,112,.101),(397,512,116,.132),(449,512,93,.09),(500,512,80,.072),(547,512,91,.082),(603,512,117,.102),(653,512,120,.099),(693,512,88,.074),(725,512,20,.032)],trunk)
     for side,letter in [(1,"L"),(-1,"R")]:
         def limb(parts):
             return [(y,letter+"_"+bone) for y,bone in parts]
         leg=limb([(630,"UpperLeg"),(927,"UpperLeg"),(1040,"LowerLeg"),(1380,"LowerLeg"),(1445,"Foot"),(1510,"Foot")])
-        shell([(650,582,47,.07),(711,586,73,.081),(791,585,70,.079),(887,580,57,.065),(1007,573,44,.051),(1053,576,43,.049),(1124,578,51,.057),(1212,579,48,.052),(1320,579,33,.037),(1420,579,24,.031),(1450,580,26,.032),(1492,580,34,.04),(1507,580,26,.028),(1511,580,1,.008)],leg,side,"foot")
+        if anatomy is None:
+            shell([(650,582,47,.07),(711,586,73,.081),(791,585,70,.079),(887,580,57,.065),(1007,573,44,.051),(1053,576,43,.049),(1124,578,51,.057),(1212,579,48,.052),(1320,579,33,.037),(1420,579,24,.031),(1450,580,26,.032),(1492,580,34,.04),(1507,580,26,.028),(1511,580,1,.008)],leg,side,"foot")
         arm=limb([(276,"UpperArm"),(428,"UpperArm"),(492,"LowerArm"),(664,"LowerArm"),(711,"Hand"),(790,"Hand")])
-        shell([(277,612,8,.015),(292,620,31,.041),(351,651,30,.037),(405,677,33,.041),(454,696,36,.042),(520,721,43,.05),(608,776,67,.062),(633,804,53,.053),(651,820,27,.036),(687,847,21,.023),(727,876,20,.014),(739,882,17,.012),(744,884,3,.008)],arm,side,"arm")
-        for finger in range(5):
+        sleeve=[(277,612,8,.015),(292,620,31,.041),(351,651,30,.037),(405,677,33,.041),(454,696,36,.042),(520,721,43,.05),(608,776,67,.062),(633,804,53,.053),(651,820,27,.036),(687,847,21,.023),(727,876,20,.014),(739,882,17,.012),(744,884,3,.008)]
+        shell(sleeve if anatomy is None else sleeve[1:10],arm,side,"arm")
+        for finger in range(5 if anatomy is None else 0):
             # Rounded independent digit tips overlap the skinned palm at the base.
             x=877+finger*2
             shell([(727,x,5,.007),(746,x+5,5,.006),(766,x+10,4,.005),
@@ -186,8 +226,16 @@ def build(source, illustration, back, stockings):
         for i in range(5):
             x=572+7*i
             shell([(53+i*2,x-25,2,.006),(93,x,21,.033),(166,x+16,26,.044),(243,x+17,22,.038),(353,x+40+i*5,24,.035),(466,x+65+i*6,22,.029),(565,x+48+i*5,19,.022),(657+i*12,x+36+i*4,11,.018),(696+i*13,x+19+i*3,1,.003)],head,side,"lock",.041+i*.011)
-        # Distinct left and right cascades, with hip/thigh blending for seated poses.
-        shell([(559,614,5,.016),(612,636,21,.032),(665,659,36,.055),(745,674,36,.058),(844,681,29,.052),(972,698,38,.05),(1084,711,29,.043),(1177,730,37,.044),(1250,729,21,.032),(1330,736,3,.008)],[(550,"C_Hips"),(780,letter+"_UpperLeg"),(1000,letter+"_LowerLeg"),(1350,letter+"_LowerLeg")],side,depth_offset=.018)
+        # Independent fabric panels blend from the pelvis onto skirt joints.
+        shell([(559,614,5,.016),(612,636,21,.032),(665,659,36,.055),(745,674,36,.058),(844,681,29,.052),(972,698,38,.05),(1084,711,29,.043),(1177,730,37,.044),(1250,729,21,.032),(1330,736,3,.008)],[(550,"C_Hips"),(700,"C_Hips"),(925,"J_Sec_"+letter+"_SkirtSide1"),(1200,"J_Sec_"+letter+"_SkirtSide2"),(1350,"J_Sec_"+letter+"_SkirtSide2")],side,"panel")
+    if anatomy is not None:
+        with np.load(anatomy,allow_pickle=False) as body_mesh:
+            if body_mesh["names"].tolist()!=names:
+                raise ValueError("Body cache belongs to another skeleton")
+            points=body_mesh["pos"]
+            morph=np.zeros_like(points)
+            pieces.append((points,body_mesh["normal"],body_mesh["uv"],body_mesh["joints"],
+                           body_mesh["weights"],body_mesh["tri"],morph,morph))
     attributes={}
     for index,(name,shape,typ) in enumerate([("POSITION","VEC3",5126),("NORMAL","VEC3",5126),("TEXCOORD_0","VEC2",5126),("JOINTS_0","VEC4",5123),("WEIGHTS_0","VEC4",5126)]):
         attributes[name]=append_accessor(doc,data,np.concatenate([p[index] for p in pieces]),shape,typ)
@@ -196,7 +244,23 @@ def build(source, illustration, back, stockings):
         indices.extend((piece[5]+offset).flatten());offset+=len(piece[0])
     primitive={"attributes":attributes,"indices":append_accessor(doc,data,np.reshape(indices,(-1,1)),"SCALAR",5125),"material":0}
     primitive["targets"]=[{"POSITION":append_accessor(doc,data,np.concatenate([p[col] for p in pieces]),"VEC3",5126)} for col in (6,7)]
-    doc["meshes"]=[{"name":"ZXC","weights":[0,0],"extras":{"targetNames":["blink","happy"]},"primitives":[primitive]}]
+    shape_names=["blink","happy"]
+    if anatomy is not None:
+        drape=[]
+        for i,piece in enumerate(pieces):
+            points=piece[0]
+            delta=np.zeros_like(points)
+            if i in panel_indices:
+                # Roll the side opening over the ledge as the hips settle. The
+                # upper fastening stays put; the lower silk clears the seat lip.
+                drop=np.clip((1.108-points[:,1])/.19,0,1)
+                roll=drop*drop*(3-2*drop)
+                delta[:,2]=-roll*(.14+.09*np.clip(1.05-points[:,1],0,.7))
+                delta[:,1]=.025*roll
+            drape.append(delta)
+        primitive["targets"].append({"POSITION":append_accessor(doc,data,np.concatenate(drape),"VEC3",5126)})
+        shape_names.append("WindowDrape")
+    doc["meshes"]=[{"name":"ZXC","weights":[0]*len(shape_names),"extras":{"targetNames":shape_names},"primitives":[primitive]}]
     data.extend(bytes(-len(data)%4))
     doc["buffers"]=[{"byteLength":len(data)}]
     tree=json.dumps(doc,separators=(",",":")).encode();tree+=b" "*(-len(tree)%4)
@@ -208,7 +272,8 @@ if __name__=="__main__":
     for name in ("skeleton","front","back","output"):
         parser.add_argument(name,type=Path)
     parser.add_argument("--stockings",action="store_true")
+    parser.add_argument("--anatomy",type=Path,help="Surface cache authored in Blender by sculpt_zxc_body.py")
     args=parser.parse_args()
-    content=build(args.skeleton.read_bytes(),args.front,args.back,args.stockings)
+    content=build(args.skeleton.read_bytes(),args.front,args.back,args.stockings,args.anatomy)
     with args.output.open("xb") as target:
         target.write(content)

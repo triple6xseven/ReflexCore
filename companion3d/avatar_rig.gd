@@ -34,6 +34,9 @@ var bottom := 0.0
 var legacy := false
 var atelier := false
 var refined := false
+var window_drape: Array = []
+var drape_weight := 0.0
+var zxc := false
 var nocturne := false
 var sole_y := 0.0
 var attentive := 0.0
@@ -170,12 +173,18 @@ func load_file(path: String) -> bool:
 			return false
 	license_data = vrm0.get("meta", {}) if legacy else vrm1.get("meta", {})
 	var title := str(license_data.get("title",""))
+	zxc=legacy and title=="ZXC"
 	nocturne=legacy and title in ["Lumen - ReflexCompanion Midnight Nocturne","Lumen - ReflexCompanion Lunar Temptation","Lumen - ReflexCompanion Velvet Enchantress","ZXC"]
 	refined=nocturne or legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
 	sole_y=_measure_sole()
 	atelier=refined or legacy and title=="Lumen - ReflexCompanion Midnight Atelier"
 	if atelier:
 		_apply_atelier_materials()
+	if zxc:
+		for mesh in meshes:
+			var index := mesh.find_blend_shape_by_name("WindowDrape")
+			if index>=0:
+				window_drape.append([mesh,index])
 	_setup_expressions(source, vrm0, vrm1, gltf)
 	_setup_secondary(source, vrm0, extensions)
 	var head := bone_position("head")
@@ -562,6 +571,12 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		skeleton.set_bone_pose_rotation(bone, (rest * movement).normalized())
 	for bone in skirt_roots:
 		_drape_skirt(bone,blend)
+	if not window_drape.is_empty():
+		var weight := lerpf(drape_weight,stance if not cloudy else 0.0,blend)
+		if absf(weight-drape_weight)>.0001:
+			drape_weight=weight
+			for bind in window_drape:
+				bind[0].set_blend_shape_value(bind[1],weight)
 	var blink_phase := fmod(now + sin(now * 0.37) * 0.7, 4.9)
 	var blink := 1.0 - clampf(absf(blink_phase - 4.72) / 0.12, 0, 1)
 	if state in ["petted", "sleepy"]:
@@ -622,6 +637,8 @@ func _drape_skirt(bone: int, blend: float) -> void:
 
 	if not front:
 		flow+=outward*0.46
+		if zxc:
+			flow=Vector3.DOWN+outward*.34+seat_forward*.48
 	var from := (_parent_basis(bone,true).inverse()*direction).normalized()
 	var to := (_parent_basis(bone).inverse()*flow).normalized()
 	var rest: Quaternion=rotations[bone]
@@ -697,6 +714,12 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	if atelier and (not cloudy or refined):
 		var tip := leg_motion*(0.08+0.1*sin(phase-0.48)) + (0.11 if cloudy else 0.16)
 		neutral = Basis(seat_right, tip) * neutral
+	if zxc and alternate_seat and sit_style=="relaxed":
+		# On the second visit, extend one foot and trace a small arc with the ankle.
+		var beat := fmod(sit_elapsed+(.0 if side=="left" else 3.4),6.8)
+		var extension := smoothstep(.2,1.25,beat)*(1.0-smoothstep(1.65,2.7,beat))
+		extension*=leg_motion*(1.0-knee_hug)*(1.0-crossed)
+		neutral=Basis(seat_right,-.24*extension)*Basis(seat_forward,.115*side_sign*extension)*neutral
 	var seated_rotation := (basis.inverse()*neutral).get_rotation_quaternion()
 	_blend_joint(ankle,standing_foot,seated_rotation,blend)
 

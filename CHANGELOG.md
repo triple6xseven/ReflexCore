@@ -1,3 +1,7 @@
+## ZXC dress, feet and cloud turns
+
+- Fit the ZXC body to the humanoid rig in Blender, join shins and forefeet, fit an opaque velvet underlayer and weight the dress panels to the skirt bones. Add an alternating seated ankle stretch and a continuous cursor-directed turn on the cloud.
+
 ## Cloud knee-hug transitions
 
 - Lift and lower each leg along a phased arc, guide wrists around the shins on Original as well as the other editions, and settle back to the standard seat before the next variation.
