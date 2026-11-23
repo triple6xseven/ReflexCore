@@ -138,7 +138,7 @@ public sealed partial class StudioWindow : Window
     }
     void SizeRail()
     {
-        bool compact=ActualWidth<1000;railWidth.Width=new GridLength(compact?72:204);brand.Text=compact?"RC":"ReflexCore";
+        bool compact=ActualWidth<1000;railWidth.Width=new GridLength(compact?72:220);brand.Text=compact?"RC":"ReflexCore";
         foreach(var label in navLabels)label.Visibility=compact?Visibility.Collapsed:Visibility.Visible;
     }
     public void SelectPage(int index)=>SwitchPage(index,true);

@@ -108,7 +108,9 @@ namespace ReflexCore.Control
             else if(initialTab=="Diagnostics")tabs.SelectedTab=diagnosticsTab;
             else tabs.SelectedTab=agent;
             if(tabs.SelectedTab==diagnosticsTab)diagnosticView.Show();
-            bridgeText=Info("Bridge: waiting",18,20,680);agent.Controls.Add(bridgeText);
+            bridgeText=Info("Bridge: waiting",18,20,680);
+            bridgeText.Height=32;
+            agent.Controls.Add(bridgeText);
             AddButton(agent,"RUN AGENT DEMO",18,68,222,38,()=>RunTask("agent-demo"),true);
             AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
             AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);

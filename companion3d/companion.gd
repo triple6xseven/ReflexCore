@@ -634,7 +634,10 @@ func _process(delta: float) -> void:
 	_update_window_region()
 	_track_input(Vector2(pointer-window.position),dt)
 	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","stand_up","hover","cloud_fly","cloud_summon"] or _near_model(local,25)
-	Engine.max_fps=clampi(int(options.fps),15,60) if interactive else mini(24,int(options.fps))
+	var frame_limit := clampi(int(options.fps),15,60)
+	if physical=="cloud_fly":
+		frame_limit=maxi(frame_limit,48)
+	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
 	if status_clock>=1.8 or avatar_state!=last_reported_pose:
 		last_reported_pose=avatar_state
 		_publish()

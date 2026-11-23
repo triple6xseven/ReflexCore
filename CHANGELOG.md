@@ -1,3 +1,7 @@
+## Studio layout and cloud flight
+
+- Keep Agent status above the action buttons, widen the sidebar, and target at least 48 FPS while the cloud is travelling.
+
 ## Lunar wardrobe and desktop motion update
 
 - Tailor the Lunar neckline, sleeves and side panels, add an opaque lavender liner and sculpt barefoot toes. The dark stocking variant has a higher scalloped hem.
