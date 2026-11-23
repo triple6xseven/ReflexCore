@@ -34,6 +34,9 @@
 !/ui/Art/*.png
 /ui/bin/
 /ui/obj/
+/companion3d/.godot/
+*.vrm
+*.glb
 
 !/tasks/notepad-save.ps1
 !/tasks/notepad-visual.ps1

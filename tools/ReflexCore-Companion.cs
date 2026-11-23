@@ -245,16 +245,71 @@ namespace ReflexCore.Bridge
                 }
             }
             catch(IOException){} catch(UnauthorizedAccessException){}
-            companion.MouseDown+=(s,e)=>{if(e.Button==MouseButtons.Left){dragStart=Cursor.Position;if(!pinned){dragging=true;windowStart=Location;companion.Capture=true;}}};
-            companion.MouseMove+=(s,e)=>{if(dragging){Location=new Point(windowStart.X+Cursor.Position.X-dragStart.X,windowStart.Y+Cursor.Position.Y-dragStart.Y);positioned=true;}};
-            companion.MouseUp+=(s,e)=>{
-                if(!dragging && e.Button!=MouseButtons.Left)return;
-                dragging=false;companion.Capture=false;
-                if(e.Button==MouseButtons.Left && Cursor.Position==dragStart){companion.Compact=!companion.Compact;if(!muted)System.Media.SystemSounds.Asterisk.Play();SetWidgetMode();}
-                SaveWidget();
-            };
+            foreach(Control control in Controls)BindWidgetDrag(control,ReferenceEquals(control,companion));
+            BindWidgetDrag(this,false);
             companion.ContextMenuStrip=new ContextMenuStrip();
             companion.ContextMenuStrip.Opening+=(s,e)=>{while(companion.ContextMenuStrip.Items.Count>0)companion.ContextMenuStrip.Items[0].Dispose();AddWidgetActions(companion.ContextMenuStrip.Items,true);};
+            SetWidgetMode();
+        }
+
+        private void BindWidgetDrag(Control surface,bool reacts)
+        {
+            surface.MouseDown+=(s,e)=>{
+                if(e.Button!=MouseButtons.Left)return;
+                dragStart=Cursor.Position;
+                if(pinned)return;
+                dragging=true;windowStart=Location;surface.Capture=true;
+            };
+            surface.MouseMove+=(s,e)=>{
+                if(!dragging || !surface.Capture || Cursor.Position==dragStart)return;
+                Location=new Point(windowStart.X+Cursor.Position.X-dragStart.X,windowStart.Y+Cursor.Position.Y-dragStart.Y);
+                positioned=true;
+            };
+            surface.MouseCaptureChanged+=(s,e)=>{if(!surface.Capture)dragging=false;};
+            surface.MouseUp+=(s,e)=>{
+                if(e.Button!=MouseButtons.Left || (!dragging && !pinned))return;
+                dragging=false;surface.Capture=false;
+                if(reacts && Cursor.Position==dragStart){
+                    companion.Compact=!companion.Compact;
+                    if(!muted)System.Media.SystemSounds.Asterisk.Play();
+                    SetWidgetMode();
+                }
+                Reposition();SaveWidget();
+            };
+        }
+
+        internal bool ClassicVisible {get{return Visible&&(!companionMode||combined);}}
+        internal bool LegacyOnly {get{return companionMode&&!combined;}}
+        internal bool feedWhenHidden;
+        internal object CompanionSnapshot(int pending,string queueState,bool metrics,bool paused,int[][] bounds)
+        {
+            string stage=EffectiveStage(queueState);
+            return new {
+                schema="reflexcore.companion.live.v1",stage=CompanionStateMachine.Resolve(stage).ToString().ToLowerInvariant(),
+                message=stage,pending=pending,metrics=new[]{hostLabel.Text,gpuLabel.Text,speedLabel.Text},
+                show_metrics=metrics,classic_visible=!metrics,paused=paused,bounds=bounds,
+                at_unix_ms=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+        }
+
+        private string EffectiveStage(string queueState)
+        {
+            if(stageLabel.Text!="Idle")return stageLabel.Text;
+            if(queueState=="running")return "Running queued task";
+            if(queueState=="completed")return "Task completed";
+            if(queueState=="failed" || queueState=="error")return "Task failed";
+            return "Idle";
+        }
+        internal void ShowClassicOnly()
+        {
+            companionMode=false;combined=false;SetWidgetMode();SaveWidget();
+        }
+        internal void ResetWidgetPosition(){positioned=false;Reposition();SaveWidget();}
+
+        internal void ConfigureClassic(double opacity,bool host,bool gpus,bool ollama)
+        {
+            if(Math.Abs(Opacity-opacity)>.01)Opacity=opacity;
+            hostMetric=host;gpuMetric=gpus;ollamaMetric=ollama;
             SetWidgetMode();
         }
 
@@ -290,7 +345,14 @@ namespace ReflexCore.Bridge
         private void SetWidgetMode()
         {
             if(companion==null)return;
-            foreach(Control control in Controls)if(!ReferenceEquals(control,companion))control.Visible=!companionMode||combined;
+            foreach(Control control in Controls)if(!ReferenceEquals(control,companion))
+                control.Visible=(!companionMode||combined)
+                    && (!ReferenceEquals(control,hostLabel)||hostMetric)
+                    && (!ReferenceEquals(control,gpuLabel)||gpuMetric)
+                    && (!ReferenceEquals(control,speedLabel)||ollamaMetric);
+            gpuLabel.Top=hostMetric?79:55;
+            speedLabel.Top=gpuMetric?gpuLabel.Bottom+2:gpuLabel.Top;
+            int classicBottom=ollamaMetric?speedLabel.Bottom+7:gpuMetric?gpuLabel.Bottom+7:gpuLabel.Top;
             companion.Visible=companionMode;
             companion.BringToFront();
             companion.Model.ShowTelemetry=!combined;
@@ -301,10 +363,10 @@ namespace ReflexCore.Bridge
             {
                 companion.Size=new Size(companion.Compact?224:292,companion.Compact?218:271);
                 int width=combined?420:companion.Width;
-                companion.Location=new Point((width-companion.Width)/2,combined?speedLabel.Bottom+7:0);
+                companion.Location=new Point((width-companion.Width)/2,combined?classicBottom:0);
                 ClientSize=new Size(width,companion.Bottom);
             }
-            else ClientSize=new Size(420,speedLabel.Bottom+7);
+            else ClientSize=new Size(420,classicBottom);
             Reposition();
         }
 
@@ -321,7 +383,7 @@ namespace ReflexCore.Bridge
         {
             if(companion==null || !companionMode)return;
             var model=companion.Model;
-            model.Stage=stageLabel.Text=="Idle" && queueState=="running"?"Running queued task":stageLabel.Text;
+            model.Stage=EffectiveStage(queueState);
             model.Host=hostLabel.Text;model.Gpus=gpuLabel.Text;model.Throughput=speedLabel.Text;model.Pending=pending;
         }
     }

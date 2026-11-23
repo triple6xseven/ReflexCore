@@ -64,7 +64,7 @@ namespace ReflexCore.Control
             pages.Parent=null;
             studio=new ReflexCore.Studio.StudioWindow(pages,ReflexThemeCatalog.Load().Name,
                 delegate(string name){ReflexThemeCatalog.Save(ReflexThemeCatalog.Find(name));},
-                delegate{WriteControl("stop");},ShellModernizer.CurrentStage);
+                delegate{WriteControl("stop");},ShellModernizer.CurrentStage,root);
             Exception failure=null;
             if(test)studio.ContentRendered+=delegate{
                 try{VerifyQueueControls();studio.VerifyView();}

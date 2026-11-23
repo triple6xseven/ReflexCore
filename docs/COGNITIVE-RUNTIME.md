@@ -18,6 +18,8 @@ Both mechanisms learn on task completion. Model weights stay fixed. The calibrat
 
 ## Interface and resource use
 
+Companion & Widgets can launch an isolated Godot renderer and manage Classic independently. The renderer receives the tray's existing status and privacy-bounded window geometry. See [ReflexCompanion](REFLEXCOMPANION.md).
+
 ReflexVision publishes bounded visual observations to the existing CS16 CLI and displays the same tracks in a live preview. The isolated Plant Drill derives navigation and completion from game-engine state. Studio exposes both tools independently. The tray HUD samples system CPU and RAM, NVIDIA GPU and VRAM when NVML is available, and recent generation throughput. See [ReflexVision](REFLEXVISION.md).
 
 A WPF Studio window hosts the six existing WinForms operator pages through one WindowsFormsHost. The native tray/HUD remains independent. The appearance gallery constructs its controls on first use. See [Studio](STUDIO.md). The native diagnostics counters use GetSystemTimes and GlobalMemoryStatusEx. Their timer follows the embedded dashboard's visibility. Whole-system CPU is the busy fraction between samples, and available RAM is a system counter. The named process table has a narrower scope. Existing GPU polling runs when the diagnostics view is visible. No kernel driver is required.

@@ -430,6 +430,7 @@ namespace ReflexCore.Bridge
         private readonly object gpuLock = new object();
         private long nextHostSample, nextGpuSample;
         private bool gpuBusy, releasing;
+        private bool hostMetric=true,gpuMetric=true,ollamaMetric=true;
         private volatile TimestampedGpu gpuSample;
         private TimestampedGpu displayedGpuSample;
 
@@ -447,6 +448,7 @@ namespace ReflexCore.Bridge
         public ActivityHud()
         {
             FormBorderStyle=FormBorderStyle.None;
+            Text="ReflexCore Live Status";
             ClientSize=new Size(368,132); TopMost=true;
             StartPosition=FormStartPosition.Manual; ShowInTaskbar=false;
             BackColor=Color.FromArgb(14,24,27); Opacity=0.94;
@@ -469,7 +471,7 @@ namespace ReflexCore.Bridge
 
         public void Reposition()
         {
-            if(companionMode && positioned)
+            if(positioned)
             {
                 Rectangle screen=Screen.FromPoint(Location).WorkingArea;
                 Location=new Point(Math.Max(screen.Left,Math.Min(Left,screen.Right-Width)),
@@ -497,7 +499,7 @@ namespace ReflexCore.Bridge
 
         public void RefreshResources()
         {
-            if (!Visible) return;
+            if (!Visible && !feedWhenHidden) return;
             long now=Stopwatch.GetTimestamp();
             if(now>=nextHostSample)
             {
@@ -524,7 +526,7 @@ namespace ReflexCore.Bridge
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
             speedLabel.Top=gpuLabel.Bottom+2;
-            if(combined)SetWidgetMode();
+            if(companion!=null)SetWidgetMode();
             else if(!companionMode){ClientSize=new Size(420,speedLabel.Bottom+7);Reposition();}
             foreach(System.Windows.Forms.Control label in Controls)if(!ReferenceEquals(label,companion))label.Width=396;
         }
@@ -608,6 +610,7 @@ namespace ReflexCore.Bridge
         private readonly ActivityHud hud;
         private readonly ToolStripMenuItem hudMenu;
         private bool hudEnabled=true;
+        private readonly CompanionHost companionHost;
         private readonly string captureSignalPath;
         private readonly ContextMenuStrip menu;
         private readonly ToolStripMenuItem statusMenu;
@@ -677,10 +680,18 @@ namespace ReflexCore.Bridge
             if(!isolated)
             {
                 hud.ConfigureCompanion(()=>studioAction.PerformClick(),()=>{if(hudEnabled)ToggleHud();});
+                companionHost=new CompanionHost(root,bridge,hud);
                 var widgetOptions=new ToolStripMenuItem("Widget");
                 widgetOptions.DropDownOpening+=delegate {
                     while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
-                    hud.AddWidgetActions(widgetOptions.DropDownItems);
+                    var entries=widgetOptions.DropDownItems;
+                    entries.Add("Show Classic",null,(s,e)=>{hud.ShowClassicOnly();SetHudVisible(true);});
+                    entries.Add("Show ReflexCompanion 3D",null,(s,e)=>companionHost.Show3D(false,SetHudVisible));
+                    entries.Add("Show Both",null,(s,e)=>companionHost.Show3D(true,SetHudVisible));
+                    if(companionHost.Running)entries.Add("Stop 3D",null,(s,e)=>companionHost.Hide3D());
+                    var legacy=new ToolStripMenuItem("Legacy widget options");
+                    hud.AddWidgetActions(legacy.DropDownItems);
+                    entries.Add(legacy);
                 };
                 widgetOptions.DropDownItems.Add("Settings");
                 menu.Items.Add(widgetOptions);
@@ -771,7 +782,12 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
 
         private void ToggleHud()
         {
-            hudEnabled=!hudEnabled;
+            SetHudVisible(!hudEnabled);
+        }
+
+        private void SetHudVisible(bool visible)
+        {
+            hudEnabled=visible;
             hudMenu.Text=hudEnabled?"Hide corner status widget":"Show corner status widget";
             if(hudEnabled)hud.Show();else hud.Hide();
         }
@@ -898,8 +914,9 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 catch(IOException) {} // A producer may be replacing the activity file.
                 catch(UnauthorizedAccessException) {}
             }
-            if(hud.Visible) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
+            if(hud.Visible||hud.feedWhenHidden) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
             if(hud.Visible) hud.RefreshCompanion(lastPending<0?0:lastPending,currentState);
+            if(companionHost!=null)companionHost.Update(lastPending<0?0:lastPending,currentState,capturing,SetHudVisible);
         }
 
         private bool RenderActivity(string json,DateTime now)
@@ -1124,6 +1141,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             if(!isolated)UnregisterHotKey(Handle,7814);
             icon.Visible = false;
             icon.Dispose();
+            if(companionHost!=null)companionHost.Dispose();
             hud.Close();hud.Dispose();
             toast.Close();
             toast.Dispose();

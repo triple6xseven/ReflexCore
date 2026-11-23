@@ -88,6 +88,9 @@ public sealed partial class StudioWindow
         category.SelectedIndex=3;
         if(gallery.Children.Count!=Theme.All.Count(theme=>theme.Dark))throw new InvalidOperationException("Theme category filter failed");
         category.SelectedIndex=0;
+        SelectPage(7);UpdateLayout();
+        if(!widgets.IsVisible || native.IsVisible || widgets.Content==null)throw new InvalidOperationException("Widget settings page unavailable");
+        SelectPage(6);
         foreach(var theme in Theme.All){ApplyTheme(theme,false);UpdateLayout();}
         Width=900;UpdateLayout();if(railWidth.Width.Value!=72)throw new InvalidOperationException("Compact navigation failed");
         Width=1180;UpdateLayout();ApplyCaption(true);ApplyCaption(false);

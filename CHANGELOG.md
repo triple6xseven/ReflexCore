@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Add a private Godot ReflexCompanion 3D renderer, rigged avatar import, desktop physics and independent widget settings in Studio. Allow dragging the existing Classic widget and keep its location across restarts.
+
 ### ReflexVision v0.1
 
 * Simplify the tray menu and add a combined Classic and AI Companion mode. Keep hardware metrics visible together and reserve the companion bubble for task activity in combined mode.
