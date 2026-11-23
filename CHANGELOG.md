@@ -1,3 +1,7 @@
+## Window edge crossed-leg animation
+
+- Alternate the existing window sit with a supported knee-over-knee pose and eased leg lift when sitting motion is enabled.
+
 ## Cloud sitting poses and Studio caption
 
 - Cycle through dangling legs, tucked knees and side sitting on the cloud. Rest the hands on the lap and raise the transition frame budget. Inset the custom caption when Studio is maximized.

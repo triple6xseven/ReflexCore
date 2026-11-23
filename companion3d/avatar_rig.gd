@@ -68,6 +68,8 @@ var alternate := false
 var surface := ""
 var alternate_seat := false
 var reaction_time := 0.0
+var window_clock := 0.0
+var crossed := 0.0
 var cloud_clock := 0.0
 var cloud_visit := -1
 var knee_hug := 0.0
@@ -475,6 +477,10 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_select_variant(next,seated,cloudy,dt,enabled,touch)
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
+	var window_cycle := enabled and seated and not cloudy and sit_style!="still" and window_swing
+	window_clock = window_clock+dt if window_cycle else 0.0
+	var phase_seconds := fmod(window_clock,12.0)
+	crossed = smoothstep(5.0,6.4,phase_seconds)*(1.0-smoothstep(10.5,12.0,phase_seconds))
 	var cycles := enabled and cloudy and seated and sit_style!="still"
 	if cycles:
 		cloud_clock += dt
@@ -513,7 +519,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_pose("leftEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("rightEye", Vector3(look.y * 0.13, look.x * -0.13 * sign, 0), blend)
 	_pose("spine", Vector3(posture * sign + breathe, 0.02 * sin(step_phase) * gait, 0.012 * sin(now * 1.7)), blend)
-	_pose("chest", Vector3(breathe+.12*knee_hug*sign, 0.04 * sin(step_phase) * gait+.16*side_sit, look.x * 0.025+.06*side_sit), blend)
+	_pose("chest", Vector3(breathe+.12*knee_hug*sign, 0.04 * sin(step_phase) * gait+.16*side_sit+.13*crossed, look.x * 0.025+.06*side_sit-.07*crossed), blend)
 	var arm_lift := 0.0
 	if enabled and not seated:
 		arm_lift = float({"happy": 0.18, "working": 0.32, "thinking": 0.48}.get(state, 0.0))
@@ -663,6 +669,13 @@ func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: floa
 	shin=shin.lerp(Vector3.DOWN-seat_forward*.42,knee_hug)
 	thigh=thigh.lerp(seat_forward+seat_right*(.44+side_sign*.14)-Vector3.UP*.19,side_sit)
 	shin=shin.lerp(Vector3.DOWN+seat_right*.19+seat_forward*(.48 if side_sign>0 else -.18),side_sit)
+	if crossed>0:
+		# Lift before moving across the supporting thigh. Reverse the path to release.
+		var across := smoothstep(.25,1.0,crossed)
+		var upper_leg := side=="left"
+		var lift := (.42*crossed+.21*sin(PI*crossed)) if upper_leg else -.08*crossed
+		thigh+=Vector3.UP*lift+seat_right*(.61 if upper_leg else -.09)*across
+		shin+=seat_forward*(.32 if upper_leg else -.09)*crossed+seat_right*(.18 if upper_leg else -.08)*across
 	_orient_segment(upper,lower,thigh,standing_thigh,blend)
 	_orient_segment(lower,foot,shin,standing_shin,blend)
 	var ankle := int(roles[foot])
@@ -736,6 +749,8 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					gesture=gesture.lerp(knee-torso+outward*.035+Vector3.UP*.043,knee_hug)
 					if side=="right":
 						gesture=gesture.lerp(hips-torso+outward*.21-forward*.06,side_sit)
+				if crossed>0 and side=="right":
+					gesture=gesture.lerp(hips-torso+outward*.265-forward*.045+Vector3.DOWN*.055,crossed)
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
 			"dragged","thrown","falling":

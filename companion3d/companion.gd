@@ -641,7 +641,8 @@ func _process(delta: float) -> void:
 	var frame_limit := clampi(int(options.fps),15,60)
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
 	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and fmod(rig.cloud_clock,4.8)<1.1
-	if physical=="cloud_fly" or seat_transition or changing_cloud_pose:
+	var changing_window_pose: bool = rig!=null and rig.crossed>0 and rig.crossed<1
+	if physical=="cloud_fly" or seat_transition or changing_cloud_pose or changing_window_pose:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
 	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
