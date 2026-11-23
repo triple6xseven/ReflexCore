@@ -186,7 +186,8 @@ namespace ReflexCore.Control
             AddButton(shared,"▶ OPEN CS 1.6 SHARED CONTROL LAB",18,160,746,54,()=>OpenSharedControl(),true);
             AddButton(shared,"START REFLEXVISION",18,385,365,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1",""),true);
             AddButton(shared,"START OFFLINE PLANT DRILL",401,385,363,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart"),false);
-            shared.Controls.Add(Info("ReflexVision shows live boxes next to a windowed local match. The plant drill runs the ReflexCore player in the isolated lab and shows its measured progress.",18,452,748));
+            AddButton(shared,"PLAY OFFLINE MATCH",18,450,746,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart -Match"),true);
+            shared.Controls.Add(Info("Play Offline Match tracks the kill, plant and round result. ReflexVision shows purple tracks beside the windowed game.",18,517,748));
             shared.Controls.Add(Info("Start a local CS 1.6 game, join the Terrorists and obtain C4. Use the Plant C4 drill at a bombsite or record a demonstration.",18,244,750));
             shared.Controls.Add(Info("Press F12 or Ctrl+Alt+P to stop. The controller uses public game signals and a limited set of inputs. Recordings capture local game controls.",18,336,750));
             var apiFlow=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,

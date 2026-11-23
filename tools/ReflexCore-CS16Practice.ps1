@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param([switch]$AutoStart,[switch]$SelfTest)
+param([switch]$AutoStart,[switch]$Match,[switch]$SelfTest)
 
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
@@ -11,4 +11,4 @@ if($SelfTest){
     [ReflexCore.Practice.PracticePanel]::SelfTest()
     exit 0
 }
-[ReflexCore.Practice.PracticePanel]::Run($root,[bool]$AutoStart)
+[ReflexCore.Practice.PracticePanel]::Run($root,[bool]$AutoStart,[bool]$Match)

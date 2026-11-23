@@ -23,7 +23,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&route)?);
             Ok(())
         }
-        _ => Err("Usage: cs16 benchmark <log> --player <userid> [--require-bot-win] | probe [--port <port>] [--pid <pid>] | vision | practice <mailbox> <route> --allow-offline | demo <demo> | route-draft <demo> <A|B> <start-seconds> <end-seconds> | route-check <route> <demo>".into()),
+        _ => Err("Usage: cs16 benchmark <log> --player <userid> [--require-bot-win|--require-plant-kill-win] | probe [--port <port>] [--pid <pid>] | vision | practice <mailbox> <route> --allow-offline | demo <demo> | route-draft <demo> <A|B> <start-seconds> <end-seconds> | route-check <route> <demo>".into()),
     }
 }
 

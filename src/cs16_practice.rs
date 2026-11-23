@@ -34,6 +34,7 @@ struct State {
     zone: bool,
     equipped: bool,
     planted: bool,
+    won: bool,
     bots: u8,
     status: String,
 }
@@ -63,7 +64,7 @@ impl State {
         {
             return Err("Invalid practice observation schema or map".into());
         }
-        flag(won)?;
+        let won = flag(won)?;
         let bots: u8 = bots.parse()?;
         if bots > 1 {
             return Err("Practice supports at most one stationary fixture opponent".into());
@@ -81,6 +82,7 @@ impl State {
             zone: flag(zone)?,
             equipped: flag(equipped)?,
             planted: flag(planted)?,
+            won,
             bots,
             status: (*status).to_owned(),
         };
@@ -100,6 +102,8 @@ impl State {
                     | "equipped"
                     | "restarting"
                     | "passive_ct"
+                    | "match_ct"
+                    | "fired"
             )
         {
             return Err("Invalid practice observation values".into());
@@ -115,6 +119,41 @@ impl State {
             z: self.pos[2],
             yaw_degrees: self.yaw.rem_euclid(360.0),
         }
+    }
+}
+
+struct MatchObservation {
+    sequence: u32,
+    opponent: u32,
+    visible: bool,
+    defeated: bool,
+    round_live: bool,
+}
+
+impl MatchObservation {
+    fn parse(text: &str) -> Result<Self> {
+        let mut fields = text.split_ascii_whitespace();
+        if fields.next() != Some("reflexcore_cs16_match_v1") {
+            return Err("Invalid offline match observation".into());
+        }
+        let sequence = fields.next().ok_or("Missing match sequence")?.parse()?;
+        let opponent = fields.next().ok_or("Missing opponent id")?.parse()?;
+        let visible = flag(fields.next().ok_or("Missing opponent visibility")?)?;
+        let defeated = flag(fields.next().ok_or("Missing opponent status")?)?;
+        let round_live = flag(fields.next().ok_or("Missing round start signal")?)?;
+        let pitch: f64 = fields.next().ok_or("Missing pitch")?.parse()?;
+        let yaw: f64 = fields.next().ok_or("Missing yaw")?.parse()?;
+        if opponent == 0 || !(pitch.abs() <= 90.0 && yaw.abs() <= 360.0) || fields.next().is_some()
+        {
+            return Err("Invalid offline match observation fields".into());
+        }
+        Ok(Self {
+            sequence,
+            opponent,
+            visible,
+            defeated,
+            round_live,
+        })
     }
 }
 
@@ -192,6 +231,20 @@ impl Mailbox {
             return Err("Incomplete or oversized practice observation".into());
         }
         State::parse(&text)
+    }
+
+    fn match_observation(&self, sequence: u32) -> Option<MatchObservation> {
+        let mut text = String::new();
+        File::open(self.dir.join("match-state.txt"))
+            .ok()?
+            .take(160)
+            .read_to_string(&mut text)
+            .ok()?;
+        if !text.ends_with('\n') {
+            return None;
+        }
+        let observed = MatchObservation::parse(&text).ok()?;
+        (observed.sequence == sequence).then_some(observed)
     }
 
     fn wait_for(&self, timeout: Duration, accept: impl Fn(&State) -> bool) -> Result<State> {
@@ -302,6 +355,10 @@ struct Report {
     plant_commands: u32,
     stationary_opponent: bool,
     verified_plant: bool,
+    match_mode: bool,
+    verified_bot_defeat: bool,
+    verified_round_win: bool,
+    match_shots: u32,
     outcome: &'static str,
 }
 
@@ -309,13 +366,18 @@ fn millis(start: Instant) -> u64 {
     start.elapsed().as_millis() as u64
 }
 
-fn practice_options(mut options: &[String]) -> Result<(bool, Option<PathBuf>)> {
+fn practice_options(mut options: &[String]) -> Result<(bool, bool, Option<PathBuf>)> {
     let mut stationary_opponent = false;
+    let mut match_mode = false;
     let mut cancel_file = None;
     while let Some((option, rest)) = options.split_first() {
         options = match option.as_str() {
             "--stationary-opponent" if !stationary_opponent => {
                 stationary_opponent = true;
+                rest
+            }
+            "--match" if !match_mode => {
+                match_mode = true;
                 rest
             }
             "--cancel-file" if cancel_file.is_none() => {
@@ -331,17 +393,20 @@ fn practice_options(mut options: &[String]) -> Result<(bool, Option<PathBuf>)> {
             _ => return Err("Invalid practice options".into()),
         };
     }
-    Ok((stationary_opponent, cancel_file))
+    if match_mode && stationary_opponent {
+        return Err("Select either a match or the stationary opponent fixture".into());
+    }
+    Ok((stationary_opponent, match_mode, cancel_file))
 }
 
 pub(crate) fn run(args: &[String]) -> Result<()> {
     let [verb, mailbox, route, consent, options @ ..] = args else {
-        return Err("Usage: cs16 practice <isolated-mailbox> <route.json> --allow-offline [--stationary-opponent] [--cancel-file <file>]".into());
+        return Err("Usage: cs16 practice <isolated-mailbox> <route.json> --allow-offline [--stationary-opponent|--match] [--cancel-file <file>]".into());
     };
     if verb != "practice" || consent != "--allow-offline" {
         return Err("The isolated CS 1.6 practice runner requires --allow-offline".into());
     }
-    let (stationary_opponent, cancel_file) = practice_options(options)?;
+    let (stationary_opponent, match_mode, cancel_file) = practice_options(options)?;
     let route = Route::load(Path::new(route))?;
     let box_ = Mailbox::open(Path::new(mailbox), cancel_file)?;
     let started = Instant::now();
@@ -362,6 +427,10 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         plant_commands: 0,
         stationary_opponent,
         verified_plant: false,
+        match_mode,
+        verified_bot_defeat: false,
+        verified_round_win: false,
+        match_shots: 0,
         outcome: "setup_failed",
     };
     let execution = attempt(&box_, &mut state, &mut nav, &mut report, started);
@@ -384,10 +453,19 @@ fn attempt(
     if state.id == 0 {
         *state = mail.command(state, 1, None)?;
     }
-    if state.bots == 0 && report.stationary_opponent {
+    if report.match_mode {
+        // A new match claims one known practice defender. Do not repurpose an
+        // arbitrary opponent already running on the server.
+        *state = mail.command(state, 7, None)?;
+        if state.status != "match_ct" || mail.match_observation(state.seq).is_none() {
+            return Err(
+                "Start this match on the isolated ReflexCore lab with the current plugin".into(),
+            );
+        }
+    } else if state.bots == 0 && report.stationary_opponent {
         *state = mail.command(state, 6, None)?;
     }
-    if state.bots != u8::from(report.stationary_opponent) {
+    if state.bots != u8::from(report.stationary_opponent || report.match_mode) {
         return Err("Server does not match the requested opponent fixture".into());
     }
     *state = mail.command(state, 5, None)?;
@@ -403,6 +481,7 @@ fn attempt(
             && s.c4
             && !s.planted
             && s.tick >= reset_at + 1.5
+            && (!report.match_mode || mail.match_observation(s.seq).is_some_and(|m| m.round_live))
     })?;
     report.engine_subject_id = state.id;
     report.setup_ms = millis(started);
@@ -484,10 +563,68 @@ fn attempt(
     report.plant_ms = millis(plant_start);
     if state.map == map && state.id == actor && state.planted {
         report.verified_plant = true;
+        if report.match_mode {
+            finish_match(mail, state, report)?;
+        }
         report.outcome = "verified";
         return Ok(());
     }
     Err("No actor-scoped C4 plant event was observed in the local game".into())
+}
+
+fn finish_match(mail: &Mailbox, state: &mut State, report: &mut Report) -> Result<()> {
+    let actor = state.id;
+    let original = mail
+        .match_observation(state.seq)
+        .ok_or("No owned practice opponent")?
+        .opponent;
+    report.outcome = "combat_equip_failed";
+    *state = mail.command(state, 8, None)?;
+    let started = Instant::now();
+    report.outcome = "bot_defeat_unverified";
+    while started.elapsed() < Duration::from_secs(28) && report.match_shots < 20 {
+        mail.check_cancel()?;
+        let state_now = mail.read();
+        let Ok(observed) = state_now else {
+            thread::sleep(WAIT);
+            continue;
+        };
+        if observed.id != actor
+            || !observed.alive
+            || observed.team != 1
+            || observed.map != state.map
+        {
+            return Err("The offline match lost its live terrorist".into());
+        }
+        let Some(opponent) = mail.match_observation(observed.seq) else {
+            thread::sleep(WAIT);
+            continue;
+        };
+        if opponent.opponent != original {
+            return Err("The isolated defender changed during the match".into());
+        }
+        *state = observed;
+        if opponent.defeated {
+            report.verified_bot_defeat = true;
+            break;
+        }
+        if opponent.visible {
+            *state = mail.command(state, 9, None)?;
+            report.match_shots += 1;
+        } else {
+            thread::sleep(WAIT);
+        }
+    }
+    if !report.verified_bot_defeat {
+        return Err("No actor-scoped Glock kill of the practice defender was observed".into());
+    }
+    report.outcome = "round_win_unverified";
+    let map = state.map.clone();
+    *state = mail.wait_for(Duration::from_secs(42), |s| {
+        s.id == actor && s.map == map && s.won && s.planted
+    })?;
+    report.verified_round_win = true;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -511,7 +648,7 @@ mod tests {
             let args = options.map(str::to_owned);
             assert_eq!(
                 practice_options(&args).unwrap(),
-                (true, Some(PathBuf::from("private-run.cancel")))
+                (true, false, Some(PathBuf::from("private-run.cancel")))
             );
         }
         let missing = ["--cancel-file", "--stationary-opponent"].map(str::to_owned);

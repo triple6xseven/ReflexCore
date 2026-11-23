@@ -16,6 +16,8 @@ cargo build --locked --release
 
 Plant success requires C4 evidence and a matching player plant event in the same round. The report distinguishes the time from confirmed spawn with C4 from the time after `Round_Start`, which marks the end of freeze time. The engine log has one-second resolution. A round or capture ending without the required evidence is reported separately. A positive easy-bot result also requires a CT bot kill by the actor, an explicit difficulty 0 setting in the log, a Terrorist win and a completed round.
 
+The Studio offline match requires `--require-plant-kill-win`. That flag requires a plant, the selected actor’s kill of a CT bot and a Terrorist win in the same completed round. It accepts the local AMX fixture and does not assign it a stock difficulty.
+
 The reader was tested with a real local `de_dust2` capture. It identified the only measured round, its C4 spawn and freeze end, and reported zero verified plants after the capture closed 83 seconds later. This is a baseline with incomplete objective evidence. It supplies no successful completion time.
 
 ## Read-only telemetry

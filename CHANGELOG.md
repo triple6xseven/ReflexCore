@@ -1,3 +1,8 @@
+## Verified local Counter-Strike match
+
+- Add a Studio action that runs an isolated bot round, verifies the C4 plant, bot defeat, and round win, and retains a finalized HLTV replay.
+- Render tracked color and HUD regions as purple rectangles in ReflexVision.
+
 ## Windows notifications and seated poses
 
 - Make native Windows activity notifications opt-in and keep Classic visibility independent of the 3D companion.

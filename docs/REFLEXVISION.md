@@ -8,6 +8,14 @@ Open **Shared Control**. **Start ReflexVision** opens a preview with purple trac
 
 **Start Offline Plant Drill** opens a second panel with the real position of the ReflexCore player, the route and the controller's progress. The fixture launches a dedicated loopback server with no human clients. The player moves through ordinary game ticks and holds Attack with C4 equipped inside an engine-confirmed plant zone. The Rust result requires the owned actor's plant event. The panel's Stop button cancels that run. The movement display is a route view, while ReflexVision displays video from a windowed client.
 
+### Replayable offline match
+
+**Play Offline Match** starts an owned loopback instance of the original de_reflex_lab. ReflexCore navigates the route, plants C4, and uses normal Glock input against a local AMX fixture defender. The defender patrols and attempts to retake the site after the plant. No stock difficulty is implied. The panel requires an independent GoldSrc log containing the selected actor's plant, CT bot kill and same-round Terrorist win.
+
+The match starts an HLTV recorder on the next port after the practice server. **Copy spectate command** copies the loopback-only console command for live viewing. **Recordings** opens the saved HLTV demo and its redacted result in the local replay directory. To replay from a separate client, place `de_reflex_lab.bsp` in `cstrike/maps`, place the recorded `.dem` in `cstrike` and run `viewdemo <recording-name>` in the game console. A recording is saved only after the game's HLTV recorder finalizes the directory.
+
+Build and enable the current practice plugin in the isolated lab. The match requires the Hamsandwich AMX Mod X module and the lab's `hltv.exe`. The existing Plant Drill uses the same private server settings and still supports the stationary fixture.
+
 ## Capture and observations
 
 The direct path scales the desktop client rectangle into a reusable top-down DIB, ready for the CPU detector. The comparison path captures full resolution and downsamples on the CPU. The WinForms preview uses the same scaled memory, draws tracked boxes and adjusts its cadence when load rises or the frame is empty. The process needs no model, image encoding, temporary video or Python service.
