@@ -1,3 +1,7 @@
+## Companion Dev previews
+
+- Add on-desktop animation previews for the active companion from the Studio Dev tab.
+
 ## Companion character editor and seated motion
 
 - Mix fitted outfits, hairstyles, heads, and legwear from the local wardrobe in Studio. Custom selections persist separately from the other presets.

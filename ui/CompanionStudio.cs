@@ -37,8 +37,8 @@ public sealed partial class StudioWindow
         page.Children.Add(widgetFeedback);
         var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
         page.Children.Add(toolbar);
-        var panels = new[] { new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel() };
-        var names = new[] { "Character", "Editor", "Movement", "Classic", "Advanced" };
+        var panels = new[] { new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel() };
+        var names = new[] { "Character", "Editor", "Movement", "Classic", "Advanced", "Dev" };
         var tabs = new List<Button>();
         Action reloadWardrobe = null;
         void Select(int index)
@@ -61,6 +61,41 @@ public sealed partial class StudioWindow
             toolbar.Children.Add(tab);
             page.Children.Add(panels[i]);
         }
+        var dev = Section(panels[5], "Animation preview");
+        var previewStatus = WidgetHint("Start the companion, then click a pose to preview it on the desktop.");
+        dev.Children.Add(previewStatus);
+        void Preview(string pose)
+        {
+            var runtime = WidgetSettings.Read(Path.Combine(WidgetSettings.Folder, "status.json"));
+            int pid = (int)WidgetSettings.Number(runtime, "pid", 0);
+            if (pid <= 0 || !WidgetSettings.Bool(runtime, "ready") || !WidgetSettings.Bool(runtime, "running"))
+            {
+                previewStatus.Text = "Open the companion first.";
+                return;
+            }
+            try
+            {
+                var request = new { pid, pose, token = Guid.NewGuid().ToString("N"),
+                    at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+                string json = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(request);
+                WidgetSettings.Write(Path.Combine(WidgetSettings.Folder, "animation-preview.json"), json);
+                previewStatus.Text = pose == "stop" ? "Resume requested." : "Preview requested.";
+            }
+            catch (IOException) { previewStatus.Text = "Could not send preview. Try again."; }
+            catch (UnauthorizedAccessException) { previewStatus.Text = "Preview file is unavailable."; }
+        }
+        WidgetButtons(dev, ("Show 3D", () => SendWidgetCommand("start-3d")), ("Resume behavior", () => Preview("stop")));
+        WidgetButtons(Section(dev, "Movement"),
+            ("Idle", () => Preview("idle")), ("Walk", () => Preview("walk")), ("Run", () => Preview("run")),
+            ("Hover", () => Preview("hover")), ("Drag", () => Preview("dragged")),
+            ("Throw", () => Preview("thrown")), ("Landing", () => Preview("landing")));
+        WidgetButtons(Section(dev, "Seating"),
+            ("Window sit", () => Preview("sit")), ("Cloud summon", () => Preview("cloud_summon")),
+            ("Cloud sit cycle", () => Preview("cloud_sit")));
+        WidgetButtons(Section(dev, "Reactions"),
+            ("Head pat", () => Preview("petted")), ("Smile", () => Preview("face_smile")),
+            ("Tickle", () => Preview("tickled")), ("Think", () => Preview("thinking")),
+            ("Work", () => Preview("working")), ("Celebrate", () => Preview("happy")));
         var classic = Section(panels[3], "Classic Live Status");
         classicStatus = WidgetHint("Waiting for tray status.");
         classic.Children.Add(classicStatus);

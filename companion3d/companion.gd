@@ -98,6 +98,13 @@ var cloud_look_side := -1.0
 var cloud_turn_hold := 0.0
 var cloud_turn_target := 0.0
 var cloud_turning := false
+const PREVIEW_LENGTH := {"idle":4.0,"walk":4.0,"run":4.0,"hover":4.0,
+	"dragged":3.0,"thrown":1.5,"landing":1.2,"sit":12.5,"cloud_summon":1.4,
+	"cloud_sit":15.0,"petted":2.0,"face_smile":2.0,"tickled":2.0,
+	"thinking":4.0,"working":4.0,"happy":2.0}
+var preview_token := ""
+var preview_pose := ""
+var preview_until := 0.0
 var gesture_direction := 0.0
 var gesture_extent := 0.0
 var gesture_turns := 0
@@ -510,6 +517,7 @@ func _poll() -> void:
 		_restore_position(true)
 		_write_position()
 	_load_avatar()
+	_poll_preview()
 	var live := _read_json(bridge.path_join("live.json"),32*1024)
 	var timestamp := float(live.get("at_unix_ms",0))
 	if timestamp>0 and absf(Time.get_unix_time_from_system()*1000.0-timestamp)>6000.0:
@@ -546,6 +554,25 @@ func _poll() -> void:
 		var focused: Variant = live.get("foreground",[])
 		foreground=Rect2i(int(focused[0]),int(focused[1]),int(focused[2]),int(focused[3])) if focused is Array and focused.size()==4 else Rect2i()
 		_set_surfaces(live.get("bounds",[]))
+
+func _poll_preview() -> void:
+	var request := _read_json(bridge.path_join("animation-preview.json"), 512)
+	var token := str(request.get("token", ""))
+	if token.length()!=32 or token==preview_token or int(request.get("pid",0))!=OS.get_process_id():
+		return
+	var age := Time.get_unix_time_from_system()*1000.0-float(request.get("at",0))
+	if age < -500.0 or age > 5000.0:
+		return
+	var pose := str(request.get("pose", ""))
+	if pose!="stop" and not PREVIEW_LENGTH.has(pose):
+		return
+	preview_token=token
+	preview_pose=pose
+	preview_until=now+float(PREVIEW_LENGTH.get(pose,0.0))
+	if rig!=null and pose!="stop":
+		rig.window_clock=0.0
+		rig.cloud_clock=0.0
+		rig.step_phase=0.0
 
 func _poll_surfaces(dt: float) -> void:
 	surface_clock+=dt
@@ -639,7 +666,10 @@ func _process(delta: float) -> void:
 		if distance<focus_distance:
 			focus=edge
 			focus_distance=distance
-	var physical: String = motion.update(dt,now,area,body_size,pointer,options,windows,focus,identities,stage in ["working","thinking","observing"] or pointer_distance<42.0)
+	if pressed or motion.held:
+		preview_until=0.0
+	var preview := now<preview_until and rig!=null
+	var physical: String = preview_pose if preview else motion.update(dt,now,area,body_size,pointer,options,windows,focus,identities,stage in ["working","thinking","observing"] or pointer_distance<42.0)
 	if had_motion and not motion.falling and not motion.held:
 		_write_position()
 	had_motion=motion.falling or motion.held
@@ -647,15 +677,15 @@ func _process(delta: float) -> void:
 	if window.position!=actual:
 		local=Vector2(pointer-actual)
 		pointer_distance=_model_distance(local)
-	avatar_state=_choose_pose(physical,pointer_distance)
+	avatar_state=physical if preview else _choose_pose(physical,pointer_distance)
 	if rig!=null:
 		var moving := physical in ["walk","run"]
 		var hovering := physical=="hover"
-		var cloud_pose: bool=motion.cloud_seated
+		var cloud_pose: bool=physical=="cloud_sit" if preview else motion.cloud_seated
 		var rising := physical=="stand_up"
 		var seated: bool=not rising and (physical in ["sit","settle","cloud_sit"] or cloud_pose)
 		var seat_delta := float(pointer.x)-motion.position.x-body_size.x*.5
-		var yaw := signf(motion.velocity.x)*PI*.46 if moving else clampf(motion.velocity.x/160.0,-.78,.78) if hovering else -.64 if seated or rising else 0.0
+		var yaw := (1.0 if preview else signf(motion.velocity.x))*PI*.46 if moving else clampf(motion.velocity.x/160.0,-.78,.78) if hovering else -.64 if seated or rising else 0.0
 		_update_facing(dt,cloud_pose and not rising,seat_delta,yaw,physical=="cloud_sit")
 		if physical=="dragged" and bool(options.animate):
 			pivot.rotation.x=lerpf(pivot.rotation.x,clampf(motion.velocity.y/4500.0,-0.19,0.19),1-exp(-9*dt))
@@ -676,8 +706,11 @@ func _process(delta: float) -> void:
 		var touch_time := maxf(click_at,pet_at)
 		var new_touch := touch_time != last_animated_touch
 		last_animated_touch = touch_time
-		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose,physical=="sit" and _is_midnight_loaded(),str(options.sit_style),float(options.intensity),new_touch)
-		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
+		var animation_velocity: Vector2 = motion.velocity
+		if preview:
+			animation_velocity=Vector2(350*sin(now*3),-80) if physical in ["hover","dragged","thrown"] else Vector2.ZERO
+		rig.animate(dt,now,avatar_state,gaze,animation_velocity,bool(options.hair),preview or bool(options.animate),seated,motion.impact,cloud_pose,physical=="sit" and (preview or _is_midnight_loaded()),"relaxed" if preview else str(options.sit_style),1.0 if preview else float(options.intensity),new_touch)
+		var edge := float(motion.support.position.y) if motion.seated and not preview else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
 		var hip_pad := 11*float(options.zoom)
 		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
 		var target_offset := (hip_y-(edge-actual.y))*camera.size/window.size.y if seated else 0.0
@@ -710,7 +743,11 @@ func _process(delta: float) -> void:
 			heart.scale=Vector2.ONE*(.18+.29*burst)*float(options.zoom)
 			heart.color=Color(.99,.44,.79,burst)
 	_update_contact_effect()
-	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha*motion.portal_scale,now,window.size.y)
+	if preview:
+		var seat := Vector2(motion.position.x+body_size.x*.5,motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)
+		cloud.show_at(camera,seat-Vector2(actual),float(options.zoom),1.0 if physical=="cloud_sit" else 0.0,now,window.size.y)
+	else:
+		cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha*motion.portal_scale,now,window.size.y)
 	if actual!=window.position:
 		window.position=actual
 	_update_bubble()
@@ -724,7 +761,7 @@ func _process(delta: float) -> void:
 	var seat_transition: bool = physical in ["settle","pull_up","cloud_summon"] or (rig!=null and (physical in ["sit","cloud_sit"] and rig.stance<.99))
 	var changing_cloud_pose: bool = rig!=null and motion.cloud_seated and options.sit_style!="still" and options.animate and (fmod(rig.cloud_clock,4.8)<1.6 or fmod(rig.cloud_clock,4.8)>3.08)
 	var changing_window_pose: bool = rig!=null and rig.crossed>0 and rig.crossed<1
-	if physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose or cloud_turning:
+	if preview or physical in ["cloud_fly","portal"] or seat_transition or changing_cloud_pose or changing_window_pose or cloud_turning:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
 	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
