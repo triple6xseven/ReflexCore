@@ -143,6 +143,8 @@ public sealed partial class StudioWindow
         WidgetNumber(movement, "Sitting motion intensity", "intensity", 0, 100, "%", 100);
         WidgetToggle(movement, "Animations", "animate");
         WidgetToggle(movement, "Hair motion", "hair");
+        WidgetToggle(appearanceGroup, "Keep companion above other windows", "top");
+        WidgetToggle(appearanceGroup, "Show companion over fullscreen apps", "fullscreen_overlay");
         WidgetToggle(appearanceGroup, "Thought bubble", "bubble");
         WidgetChoice(appearanceGroup, "Bubble style", "bubble_style", new[] { "Glass", "Minimal" }, new object[] { "glass", "minimal" });
         WidgetNumber(desktop, "Status refresh", "poll_ms", 200, 2500, "ms");
@@ -161,8 +163,6 @@ public sealed partial class StudioWindow
             SendWidgetCommand("reset-3d-position");
         }));
 
-        WidgetToggle(desktop, "Always on top", "top");
-        WidgetToggle(desktop, "Show over fullscreen apps", "fullscreen_overlay");
         WidgetToggle(desktop, "Click-through", "clickthrough");
         WidgetToggle(desktop, "Start with ReflexCore", "app_start");
         WidgetChoice(desktop, "Maximum edge smoothing", "msaa", new[] { "Off", "2× MSAA", "4× MSAA" }, new object[] { 0, 1, 2 });

@@ -112,7 +112,7 @@ namespace ReflexCore.Bridge
                 opacity=Math.Max(.4,Math.Min(1,Convert.ToDouble(opacityValue)));
             if(settings.TryGetValue("mode",out behavior) && behavior is string)mode=(string)behavior;
             physics=Boolean(settings,"physics",true);
-            fullscreenOverlay=Boolean(settings,"fullscreen_overlay",false);
+            fullscreenOverlay=Boolean(settings,"top",true) && Boolean(settings,"fullscreen_overlay",false);
             hud.ConfigureClassic(opacity,Boolean(settings,"classic_host",true),
                 Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true));
             bool revised=Boolean(settings,"app_start",false);

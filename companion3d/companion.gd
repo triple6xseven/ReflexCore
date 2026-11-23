@@ -380,7 +380,7 @@ func _apply_options(resize_window := true) -> void:
 		window.size=desired
 		if not initial:
 			motion.position+=Vector2(float(old_body.x-body_size.x)/2,float(old_body.y-body_size.y))
-	window.always_on_top=bool(options.top) or bool(options.fullscreen_overlay)
+	window.always_on_top=bool(options.top)
 	# A doubled window has four times the pixels. Keep the MSAA sample budget bounded.
 	var effective_msaa := int(options.msaa)
 	if float(options.zoom)>=1.40:

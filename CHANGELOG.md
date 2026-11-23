@@ -1,3 +1,7 @@
+## Companion window visibility
+
+- Place companion window controls on the Character page. Fullscreen visibility follows the companion topmost switch.
+
 ## Diagnostics navigation contrast
 
 - Replace native tab headers with themed section buttons and place the measurement note above the content.
