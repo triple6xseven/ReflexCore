@@ -1,3 +1,7 @@
+## ZXC leg silhouette and hands
+
+- Restore the first ZXC thigh and calf widths, shape knee and ankle depth, refine the heel and arch, and model separate fingers on both legwear variants.
+
 ## Remote window seats and ZXC anatomy
 
 - Free Roam and Window Companion alternate a cloud approach and a heart portal for distant visible ledges. Validate the destination throughout travel. Reshape ZXC arms, calves, heels and forefeet in both legwear variants.

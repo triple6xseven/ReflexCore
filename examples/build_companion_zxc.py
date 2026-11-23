@@ -108,17 +108,26 @@ def build(source, illustration, back, stockings):
                     wz*=1.12
                 if kind=="foot":
                     # Shape in anatomical space without moving the UV landmarks.
-                    width=np.interp(y,[650,755,900,1005,1124,1280,1420,1495,1511],
-                                      [1.10,1.18,1.20,1.15,1.26,1.20,1.18,1.27,1.18])
-                    wx=-side*((cx-512)*.00124+(x-cx)*.00112*width)
-                    depth=np.interp(y,[650,740,895,1005,1080,1160,1300,1415,1455,1485,1504,1511],
-                                      [.080,.109,.089,.068,.073,.089,.058,.039,.056,.078,.085,.018])
-                    center=np.interp(y,[650,890,1005,1140,1300,1420,1455,1495,1511],
-                                       [0,.003,-.014,.018,.023,.027,.012,-.023,-.038])
-                    wz=center-depth*cos(angle)
-                    if y>1420:
-                        wy=np.interp(y,[1420,1455,1490,1505,1511],[.14,.104,.072,.059,.056])
-                        wy+=.017*max(0,-cos(angle))*sin(pi*(y-1420)/91)
+                    # Retain the original thigh-to-ankle silhouette. Vary depth
+                    # locally for the kneecap and the back of the calf.
+                    kneecap=exp(-((y-997)/48)**2)
+                    calf=exp(-((y-1130)/100)**2)
+                    wz-=.006*kneecap*max(0,cos(angle))
+                    wz+=.006*calf*max(0,-cos(angle))
+                    if y>=1420:
+                        depth=np.interp(y,[1420,1455,1485,1504,1511],[.031,.047,.069,.078,.042])
+                        center=np.interp(y,[1420,1455,1485,1504,1511],[.018,.010,-.023,-.039,-.04])
+                        wz=center-depth*cos(angle)
+                        wy=np.interp(y,[1420,1455,1490,1505,1511],[.14,.100,.069,.058,.055])
+                        arch=max(0,-sin(angle))*max(0,1-abs(cos(angle)))
+                        wy+=.009*arch*sin(pi*(y-1420)/91)
+                if kind.startswith("digit"):
+                    finger=int(kind[-1])
+                    length=(.046,.058,.062,.055,.043)[finger]
+                    t=(y-727)/58
+                    wx=-side*(.591+length*t-(.023 if finger==0 else 0))
+                    wy=1.446+(finger-2)*.011*(1+.26*t)+rx*sin(angle)*.001
+                    wz=-.015-rz*cos(angle)-.010*t*t
                 u,v=x,y
                 if side==-1:
                     u=1024-u
@@ -166,7 +175,13 @@ def build(source, illustration, back, stockings):
         leg=limb([(630,"UpperLeg"),(927,"UpperLeg"),(1040,"LowerLeg"),(1380,"LowerLeg"),(1445,"Foot"),(1510,"Foot")])
         shell([(650,582,47,.07),(711,586,73,.081),(791,585,70,.079),(887,580,57,.065),(1007,573,44,.051),(1053,576,43,.049),(1124,578,51,.057),(1212,579,48,.052),(1320,579,33,.037),(1420,579,24,.031),(1450,580,26,.032),(1492,580,34,.04),(1507,580,26,.028),(1511,580,1,.008)],leg,side,"foot")
         arm=limb([(276,"UpperArm"),(428,"UpperArm"),(492,"LowerArm"),(664,"LowerArm"),(711,"Hand"),(790,"Hand")])
-        shell([(277,612,8,.015),(292,620,31,.041),(351,651,30,.037),(405,677,33,.041),(454,696,36,.042),(520,721,43,.05),(608,776,67,.062),(633,804,53,.053),(651,820,27,.036),(687,847,21,.023),(727,876,21,.017),(775,909,8,.008),(784,915,1,.003)],arm,side,"arm")
+        shell([(277,612,8,.015),(292,620,31,.041),(351,651,30,.037),(405,677,33,.041),(454,696,36,.042),(520,721,43,.05),(608,776,67,.062),(633,804,53,.053),(651,820,27,.036),(687,847,21,.023),(727,876,20,.014),(739,882,17,.012),(744,884,3,.008)],arm,side,"arm")
+        for finger in range(5):
+            # Rounded independent digit tips overlap the skinned palm at the base.
+            x=877+finger*2
+            shell([(727,x,5,.007),(746,x+5,5,.006),(766,x+10,4,.005),
+                   (780,x+13,3,.004),(785,x+14,.7,.001)],
+                  limb([(727,"Hand"),(785,"Hand")]),side,"digit"+str(finger))
         shell([(10,611,1,.003),(43,604,17,.022),(76,595,28,.029),(84,593,19,.023)],head,side,depth_offset=.012)
         for i in range(5):
             x=572+7*i
