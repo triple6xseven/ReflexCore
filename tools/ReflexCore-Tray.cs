@@ -982,7 +982,8 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             icon.Text="ReflexCore | "+label;
             bool changed=(stage!=lastActivityStage || source!=lastActivitySource);
             lastActivityStage=stage;lastActivitySource=source;
-            if(changed && (stage=="thinking"||stage=="awaiting_effect"||stage=="verified"||
+            bool showProgressToast=source!="citadel_rust" && (stage=="thinking"||stage=="awaiting_effect"||stage=="verified");
+            if(changed && (showProgressToast||
                            stage=="failed"||stage=="completed"||stage=="human_override"))
             {
                 string message=origin+": "+label;

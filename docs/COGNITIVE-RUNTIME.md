@@ -27,3 +27,18 @@ A WPF Studio window hosts the six existing WinForms operator pages through one W
 ## Boundaries of this release
 
 The Notepad route handles new scratch files and fixed text. The planner executes user-supplied manifests over supported flows. There is no general natural-language desktop team scheduler, autonomous installation of newly discovered tools, or Qwen weight training. Benchmark coverage is limited to the published fixtures. The visual diagnostics, third-party applications and older Windows/Notepad combinations need broader acceptance testing.
+
+### Citadel visible deployment diagnostics
+
+Agent Observability and the local Agent log show the failing stage and reason.
+**Export Trace** records the stage, error code, game phase, elapsed milliseconds
+and verified action count. It contains game coordinates and counters only.
+The first deployment is verified against the game snapshot captured when
+the unit is created. The 3D frame acknowledgement is checked separately.
+
+Windows pointer mode still requires an explicit click. The browser scrolls
+to expose the card and destination. Moving or zooming the window after
+calibration, covering a target with another window, or taking over the
+mouse terminates the session. Resize the window or zoom out if the deck
+and drop point cannot fit together. Browser PointerEvents are also
+available with the Windows pointer checkbox clear.

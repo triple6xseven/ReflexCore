@@ -1,3 +1,8 @@
+## Citadel visible deployment
+
+- Calibrate Windows cursor drags using the browser pixel ratio and keep the deck card and target on screen. Stop safely if the browser moves or either point is covered.
+- Verify deployments from a game snapshot taken at placement, before waiting for 3D frames. Record the failed stage and reason in Agent Observability and Export Trace.
+
 ## ReflexCompanion Midnight Edition
 
 - Add a separate skinned shorts and fitted-top VRM with bare feet and optional dark stockings.

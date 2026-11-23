@@ -125,7 +125,9 @@ function deployAt(type,x,y,source='PLAYER'){
  if($('launch'))$('launch').textContent='DEPLOYING · DRAG CARDS';
  $('ai-status').textContent='● LIVE COMBAT';
  stats.deployed++;fx(x,y,'deploy',t.color);eventLog(source+' → '+t.label+' ['+Math.round(x)+','+Math.round(y)+']','deploy');
- hit(x,y,t.color,12);drawPlan('DEPLOY');return true;
+ hit(x,y,t.color,12);drawPlan('DEPLOY');
+ window.dispatchEvent?.(new Event('citadel-unit-deployed'));
+ return true;
 }
 let pointerDrag=null;
 const zone=$('deployment-layer');

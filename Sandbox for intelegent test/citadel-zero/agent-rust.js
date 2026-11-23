@@ -25,11 +25,12 @@ async function call(op,snapshot){
  }else if(!session)throw Error('Rust bridge not started');
  const payload={schema:SCHEMA,seq:++sequence,world:world(snapshot)};
  if(session)payload.token=session;
+ const request=AbortSignal.any([controller.signal,AbortSignal.timeout(6000)]);
  let response;
- try {response=await fetch('/api/agent/rust/'+op,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller?.signal});}
- catch(e){throw Error('Rust bridge HTTP unavailable or cancelled: '+String(e.message||e));}
+ try {response=await fetch('/api/agent/rust/'+op,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:request});}
+ catch(e){throw Object.assign(Error('Rust bridge '+op+' request did not finish.'),{code:request.reason?.name==='TimeoutError'?'RUST_REQUEST_TIMEOUT':'RUST_REQUEST_CANCELLED'});}
  const data=await response.json();
- if(!response.ok||!data.ok||data.schema!==SCHEMA)throw Error('Rust bridge rejected operation: '+String(data.error||response.status));
+ if(!response.ok||!data.ok||data.schema!==SCHEMA)throw Object.assign(Error('Rust bridge rejected '+op+'.'),{code:data.error||'RUST_RESPONSE_INVALID'});
  if(op==='start'){
   if(typeof data.token!=='string'||!(/^[0-9a-f]{32}$/).test(data.token))throw Error('Rust bridge session token invalid');
   session=data.token;
@@ -45,7 +46,7 @@ async function call(op,snapshot){
 }
 async function stop(){
  controller?.abort();controller=null;session=null;sequence=0;
- try{await fetch('/api/agent/rust/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch{}
+ try{await fetch('/api/agent/rust/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(4500)});}catch{}
 }
 const client=Object.freeze({world,start:s=>call('start',s),next:s=>call('next',s),commit:s=>call('commit',s),finish:s=>call('finish',s),stop,get active(){return !!session;}});
 if(typeof module!=='undefined'&&module.exports)module.exports=client;

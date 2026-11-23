@@ -4,11 +4,11 @@ const game=window.ReflexCitadel,policy=window.ReflexCitadelPolicy,rust=window.Re
 if(!game||!policy){console.error('Citadel game or tactics API unavailable');return;}
 const $=id=>document.getElementById(id);
 const logArea=$('agent-log'),cursor=$('agent-cursor'),startButton=$('agent-start'),stopButton=$('agent-stop');
-let runId=0,running=false,headlessController=null;
+let runId=0,running=false,headlessController=null,stageCode='START';
 let trace=null,lastTrace=null,verifiedCount=0;
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function log(text){
-  const line='['+new Date().toLocaleTimeString('ru-RU')+'] '+String(text).slice(0,180);
+  const line='['+new Date().toLocaleTimeString('en-GB')+'] '+String(text).slice(0,180);
   logArea.textContent=(logArea.textContent==='The agent is waiting for a command.'?'':logArea.textContent+'\n')+line;
   const rows=logArea.textContent.split('\n');if(rows.length>24)logArea.textContent=rows.slice(-24).join('\n');
   logArea.scrollTop=logArea.scrollHeight;
@@ -23,6 +23,7 @@ function observer(stage,evidence='',level='normal'){
  $('agent-trace-count').textContent=verifiedCount+' / '+(trace?.steps?.filter(x=>x.action==='deploy'||x.action==='skill'||x.action==='focus').length||0)+' VERIFIED';
 }
 function startTrace(kind){
+ stageCode='START';
  verifiedCount=0;trace={schema:'reflexcore.citadel.agent-trace.v1',version:'0.4.5',mode:kind,mission:game.snapshot().mission,
   status:'running',result:'unknown',steps:[],total_ms:0};trace.started=performance.now();
  observer('OBSERVATION · '+kind,'No actions sent');
@@ -59,6 +60,17 @@ function downloadTrace(){
  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 $('agent-export').addEventListener('click',downloadTrace);
+function failTrace(error){
+ const code=String(error?.code||'STEP_FAILED');
+ const message=String(error?.message||error).slice(0,180);
+ trace.failure={stage:stageCode,code,message,phase:game.snapshot().phase,verified_actions:verifiedCount,total_ms:Math.round(performance.now()-trace.started)};
+ log('ERROR · '+stageCode+' · '+code+' · '+message);
+ finishTrace('failed','action_or_observation_failed');
+ observer('STOPPED · '+stageCode,code+' · '+message,'error');
+}
+function inputError(code,message){
+ return Object.assign(new Error(message),{code});
+}
 function dropPoint(x,y){
  const r=$('deployment-layer').getBoundingClientRect();
  if(r.width<=0||r.height<=0)throw Error('Deployment layer unavailable');
@@ -66,17 +78,24 @@ function dropPoint(x,y){
 }
 async function performDeployment(action,id,physical){
  const card=document.querySelector('.troop[data-type="'+action.type+'"]');
+ stageCode='DEPLOYMENT_INPUT';
  if(!card||card.disabled)throw Error('Card disabled or missing: '+action.type);
- const drop=dropPoint(action.x,action.y);
  const before=game.snapshot(),begin=performance.now();
+ const point=physical?preparePhysicalDrag(card,action):{drop:dropPoint(action.x,action.y)};
  observer('ACTION · '+action.type.toUpperCase(),action.reason+' → ['+action.x+','+action.y+']');
- if(physical)await physicalDrag(card,drop,id);else await browserDrag(card,drop,id);
- await wait(95);ensureActive(id);
- const after=game.snapshot(),proof=policy.proveDeploy(before,after,action);
+ let deployed=null;
+ const capture=()=>{if(!deployed)deployed=game.snapshot();};
+ window.addEventListener('citadel-unit-deployed',capture);
+ try{
+  if(physical)await physicalDrag(point,id);else await browserDrag(card,point.drop,id);
+  ensureActive(id);
+ }finally{window.removeEventListener('citadel-unit-deployed',capture);}
+ stageCode='DEPLOYMENT_READBACK';
+ const after=deployed||game.snapshot();
+ const proof=policy.proveDeploy(before,after,action);
  evidence(action,action.reason,before,after,proof,performance.now()-begin);
- if(proof.ok&&$('agent-brain').value==='rust')await confirm3DReadback(after.units.length,id);
- if(!proof.ok)throw Error('Deployment unverified · '+proof.code+'. Retry requires verification.');
- return proof;
+ if(!proof.ok)throw inputError(proof.code,'The arena did not confirm the expected placement. Check the deck and deployment area.');
+ return after;
 }
 
 // The 3D renderer must acknowledge a frame containing the deployed unit count.
@@ -102,8 +121,21 @@ function ensureActive(id){if(id!==runId)throw Error('Operation stopped');}
 const PHYSICAL_BASE='/api/agent/physical/';
 let nativeToken=null,physicalDriving=false;
 async function nativeCall(name,payload){
- const r=await fetch(PHYSICAL_BASE+name,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
- const result=await r.json();if(!r.ok||!result.ok)throw Error(result.error||'Native mouse bridge unavailable');return result;
+ let result;
+ try{
+  const r=await fetch(PHYSICAL_BASE+name,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(4500)});
+  result=await r.json();
+  if(r.ok&&result.ok)return result;
+ }catch{throw inputError('PHYSICAL_BRIDGE_UNAVAILABLE','The local cursor bridge timed out or returned an invalid response.');}
+ const code=result.error||'PHYSICAL_INPUT_FAILED';
+ const detail={
+  OUTSIDE_FOREGROUND_WINDOW:'The card or drop point is outside the browser window. Fit the arena to the browser and try again.',
+  PHYSICAL_CALIBRATION_CHANGED:'The browser window or zoom changed. Click Agent Deployment again to calibrate.',
+  PHYSICAL_TARGET_OCCLUDED:'Another window overlaps the card or drop point. Move it clear and try again.',
+  CANCELLED_OR_FOCUS_LOST:'The browser lost focus, the stop shortcut was pressed, or the pointer session expired.',
+  USER_OVERRIDE:'Mouse movement interrupted the drag.'
+ }[code]||code;
+ throw inputError(code,detail);
 }
 async function stopNative(){nativeToken=null;try{await nativeCall('stop',{});}catch{}}
 function center(el){const r=el.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};}
@@ -122,21 +154,39 @@ async function browserDrag(card,drop,id){
  window.dispatchEvent(pointer('pointerup',drop.x,drop.y));
  await wait(90);
 }
-async function physicalDrag(card,drop,id){
- if(!nativeToken)throw Error('Native mouse bridge not authorized');
- const from=center(card),r=$('deployment-layer').getBoundingClientRect();
+function preparePhysicalDrag(card,action){
+ card.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+ const from=center(card),drop=dropPoint(action.x,action.y);
+ const margin=8;
+ const minY=Math.min(from.y,drop.y),maxY=Math.max(from.y,drop.y);
+ if(maxY-minY>innerHeight-2*margin)
+  throw inputError('DEPLOYMENT_VIEWPORT_TOO_SHORT','Zoom out or enlarge the browser so the card and target fit on screen together.');
+ if(minY<margin||maxY>innerHeight-margin){
+  const dy=minY<margin?minY-margin:maxY-innerHeight+margin;
+  window.scrollBy({top:dy,behavior:'instant'});
+ }
+ const actualFrom=center(card),actualDrop=dropPoint(action.x,action.y);
+ const r=$('deployment-layer').getBoundingClientRect();
+ if(!card.contains(document.elementFromPoint(actualFrom.x,actualFrom.y))||
+    !$('deployment-layer').contains(document.elementFromPoint(actualDrop.x,actualDrop.y)))
+  throw inputError('DEPLOYMENT_POINT_NOT_VISIBLE','The card or target is clipped or covered in the browser.');
+ return {from:actualFrom,drop:actualDrop,r};
+}
+async function physicalDrag({from,drop,r},id){
+ if(!nativeToken)throw inputError('NO_ACTIVE_SESSION','Native mouse bridge not authorized');
  physicalDriving=true;
  try{await nativeCall('drag',{
    token:nativeToken,start_x:Math.round(from.x),start_y:Math.round(from.y),
    end_x:Math.round(drop.x),end_y:Math.round(drop.y),
-   viewport_x:Math.round(r.left),viewport_w:Math.round(r.width),viewport_y:Math.round(r.top),viewport_h:Math.round(r.height)
+   viewport_x:Math.round(r.left),viewport_w:Math.round(r.width),viewport_y:Math.round(r.top),viewport_h:Math.round(r.height),
+   scale:window.devicePixelRatio
  });}finally{physicalDriving=false;}
  ensureActive(id);
 }
 async function visible(id,physical){
  document.body.classList.remove('headless-run');const useRust=$('agent-brain').value==='rust';
  if(useRust&&!rust)throw Error('Rust bridge JavaScript not loaded');
- startTrace((physical?'VISIBLE_REAL_CURSOR':'VISIBLE_BROWSER_POINTER')+(useRust?'_RUST':'_JS'));
+ stageCode='PLANNING';
  if(trace)trace.planner=useRust?'rust_goal_agent':'browser_policy';
  let s=game.snapshot();
  if(s.phase!=='planning'){
@@ -155,18 +205,26 @@ async function visible(id,physical){
  spotlight($('launch'));await wait(220);ensureActive(id);game.launch();
  if(game.snapshot().phase!=='deploy')throw Error('Deployment phase unverified');
  log(physical?'INPUT · Windows pointer approved':'INPUT · Browser PointerEvents');
- if(useRust){const result=await rust.start(game.snapshot());ensureActive(id);log('RUST IPC: '+result.code+' · Decisions from the Rust Goal Agent');}
+ if(useRust){stageCode='RUST_START';const result=await rust.start(game.snapshot());ensureActive(id);log('RUST IPC: '+result.code+' · Decisions from the Rust Goal Agent');}
  clearSpotlight();let index=0;
  while(index<24){
   ensureActive(id);
   s=game.snapshot();
   if(useRust&&!Object.values(s.plan?.remaining||{}).some(n=>n>0))break;
+  stageCode='DEPLOYMENT_DECISION';
   const choice=useRust?(await rust.next(s)).action:policy.decideDeploy(s,index);
   ensureActive(id);if(!choice)break;
   if(choice.kind!=='deploy')throw Error('Rust returned non-deployment while units remain');
   log('DECISION '+(index+1)+': '+choice.type.toUpperCase()+' / '+choice.lane+' · '+choice.reason);
-  await performDeployment(choice,id,physical);
-  if(useRust){const confirmation=await rust.commit(game.snapshot());ensureActive(id);if(!confirmation.verified)throw Error('Rust readback did not verify deployment');}
+  const deployed=await performDeployment(choice,id,physical);
+  if(useRust){
+   stageCode='RUST_DEPLOYMENT_COMMIT';
+   const confirmation=await rust.commit(deployed);
+   ensureActive(id);
+   if(!confirmation.verified)throw inputError('RUST_DEPLOYMENT_UNVERIFIED','Rust did not confirm the arena placement.');
+   stageCode='RENDER_READBACK';
+   await confirm3DReadback(deployed.units.length,id);
+  }
   index++;
   await wait(260);ensureActive(id);
  }
@@ -174,6 +232,7 @@ async function visible(id,physical){
  if(Object.values(remainder).some(n=>n>0))throw Error('Deployment stopped with units still in the plan');
  log('DEPLOYMENT · '+index+' units verified by ID, position, energy and counters.');
  observer('COMBAT · OBSERVING', 'Tracking HP and tactical abilities');
+ stageCode='COMBAT';
  let memory={lastFocusAt:-100},prev=game.snapshot(),tick=0;
  while(tick++<700){
   await wait(390);ensureActive(id);const before=game.snapshot();
@@ -205,7 +264,7 @@ async function visible(id,physical){
  throw Error('Stopped after 700 battle checks');
 }
 async function headless(id){
-  startTrace('HEADLESS_NODE');document.body.classList.add('headless-run');
+  stageCode='HEADLESS_RUN';document.body.classList.add('headless-run');
   const mission=$('mission').value;
   log('HEADLESS · Node.js runs the simulation. Chrome shows the report.');
   const ctl=new AbortController();headlessController=ctl;
@@ -239,16 +298,24 @@ startButton.addEventListener('click',async(event)=>{
  if(physical&&$('agent-brain').value==='openai'){log('For pointer calibration, select Local or disable the Windows pointer.');return;}
  if(physical&&!event.isTrusted){log('Click the control yourself to approve moving the Windows pointer.');return;}
  const id=++runId;state(true);log('Starting · '+$('agent-mode').selectedOptions[0].textContent);
+ const label=visibleMode?(physical?'VISIBLE_REAL_CURSOR':'VISIBLE_BROWSER_POINTER')+( $('agent-brain').value==='rust'?'_RUST':'_JS'):'HEADLESS_NODE';
+ startTrace(label);
  try{
   if(physical){
+   stageCode='PHYSICAL_CALIBRATION';
    // Calibration must happen directly after the real user click, before any waits.
-   const session=await nativeCall('start',{anchor_x:Math.round(event.clientX),anchor_y:Math.round(event.clientY)});
+   const session=await nativeCall('start',{anchor_x:Math.round(event.clientX),anchor_y:Math.round(event.clientY),scale:window.devicePixelRatio});
    nativeToken=session.token;log('Windows pointer session limited to the Citadel window.');
   }
   ensureActive(id);
   if(visibleMode)await visible(id,physical);else await headless(id);
- }catch(err){if(id===runId){const msg=String(err?.message||err);log('ERROR · '+msg);finishTrace('failed','action_or_observation_failed');observer('STOPPED · FAILED',msg,'error');}}
- finally{if(id===runId){state(false);headlessController=null;clearSpotlight();document.body.classList.remove('headless-run');if(rust?.active)await rust.stop();if(physical)await stopNative();}}
+ }catch(err){if(id===runId)failTrace(err);}
+ finally{if(id===runId){
+  headlessController=null;clearSpotlight();document.body.classList.remove('headless-run');
+  if(physical)await stopNative();
+  if(rust?.active||stageCode==='RUST_START')await rust?.stop();
+  if(id===runId)state(false);
+ }}
 });
 stopButton.addEventListener('click',stop);
 async function replay(){
