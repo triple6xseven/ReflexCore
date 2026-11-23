@@ -4,6 +4,7 @@ const Rig = preload("res://avatar_rig.gd")
 const DesktopMotion = preload("res://desktop_motion.gd")
 const Cloud = preload("res://magic_cloud.gd")
 const BASE_SIZE := Vector2i(344, 500)
+const VIEW_MARGIN := Vector2i(80, 48)
 const STATUS_SCHEMA := "reflexcore.companion.runtime.v1"
 const DEFAULTS := {
 	"model": "", "mode": "taskbar", "x": -1, "y": -1, "zoom": 1.0, "physics": true,
@@ -38,6 +39,11 @@ var cached_mtime := 0
 var cached_rig: RefCounted
 var cloud: Node3D
 var seat_contact_y := -1
+var seat_offset := 0.0
+var body_size := BASE_SIZE
+var view_margin := VIEW_MARGIN
+var press_origin := Vector2.ZERO
+var can_click_until := -1.0
 var surface_clock := 0.0
 var last_geometry := ""
 var identities := {}
@@ -298,12 +304,14 @@ func _warm_outfit() -> void:
 
 func _apply_options() -> void:
 	var window := get_window()
-	var desired := Vector2i(Vector2(BASE_SIZE)*float(options.zoom))
-	var old_size := window.size
-	if old_size!=desired:
+	var old_body := body_size
+	body_size=Vector2i(Vector2(BASE_SIZE)*float(options.zoom))
+	view_margin=Vector2i(Vector2(VIEW_MARGIN)*float(options.zoom))
+	var desired := body_size+view_margin*2
+	if window.size!=desired:
 		window.size=desired
 		if not initial:
-			motion.position+=Vector2(float(old_size.x-desired.x)/2,float(old_size.y-desired.y))
+			motion.position+=Vector2(float(old_body.x-body_size.x)/2,float(old_body.y-body_size.y))
 	window.always_on_top=bool(options.top)
 	window.msaa_3d=int(options.msaa) as Viewport.MSAA
 	if rig!=null:rig.set_edition(options.edition=="midnight" and str(options.model).is_empty())
@@ -316,8 +324,8 @@ func _camera_layout() -> void:
 	if h < 170:
 		return
 	var horizontal_pad := 113.0 * float(options.zoom)
-	camera.size=1.65*h/(h-horizontal_pad)
-	camera.position.y=(0.5-39.0/h)*camera.size
+	camera.size=1.65*h/(body_size.y-horizontal_pad)
+	camera.position.y=(0.5-(39.0*float(options.zoom)+view_margin.y)/h)*camera.size
 
 func _screen_rect() -> Rect2i:
 	var screen := get_window().current_screen
@@ -328,7 +336,7 @@ func _screen_rect() -> Rect2i:
 
 func _restore_position() -> void:
 	var area := _screen_rect()
-	var size := get_window().size
+	var size := body_size
 	var fallback := Vector2i(area.end.x-size.x-18, area.end.y-size.y+20)
 	var saved := _read_json(bridge.path_join("position.json"),1024)
 	var x := int(options.x)
@@ -346,7 +354,7 @@ func _restore_position() -> void:
 		x=fallback.x
 		y=fallback.y
 	motion.place(Vector2(x,y))
-	get_window().position=Vector2i(motion.position)
+	get_window().position=Vector2i(motion.position)-view_margin
 	last_window_position=get_window().position
 	initial=false
 
@@ -478,6 +486,7 @@ func _process(delta: float) -> void:
 	var pointer := DisplayServer.mouse_get_position()
 	var local := Vector2(pointer-window.position)
 	_check_drag_release()
+	if pressed:_maybe_grab(Vector2(pointer))
 	var area := _screen_rect()
 	if motion.held:
 		var wanted := Vector2(pointer)-contact
@@ -490,33 +499,39 @@ func _process(delta: float) -> void:
 		if distance<focus_distance:
 			focus=edge
 			focus_distance=distance
-	var physical: String = motion.update(dt,now,area,window.size,pointer,options,windows,focus,identities)
+	var physical: String = motion.update(dt,now,area,body_size,pointer,options,windows,focus,identities)
 	if had_motion and not motion.falling and not motion.held:
 		_write_position()
 	had_motion=motion.falling or motion.held
 	avatar_state=_choose_pose(physical,local)
+	var actual:=Vector2i(motion.position)-view_margin
 	if rig!=null:
 		var moving := physical in ["walk","run"]
-		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.27 if physical in ["sit","settle","cloud_sit"] else 0.0
+		var cloud_pose: bool=motion.cloud_seated
+		var seated: bool=physical in ["sit","settle","cloud_sit"] or cloud_pose
+		var yaw := signf(motion.velocity.x)*PI*0.46 if moving else -0.77 if cloud_pose else -0.64 if seated else 0.0
 		pivot.rotation.y=lerp_angle(pivot.rotation.y,yaw,minf(10*dt,1))
 		pivot.rotation.z=lerpf(pivot.rotation.z,motion.angle,1-exp(-11*dt))
+		# Lean around the body, not around the feet at the scene origin.
+		var torso_center := Vector3(0,0.86,0)
+		pivot.position=torso_center-pivot.basis*torso_center
 		var gaze := (local-head)/145.0
 		if not _near_model(local,52):
 			gaze=Vector2(sin(now*0.48)*0.32,sin(now*0.28)*0.13)
 		if stage=="warning":
 			gaze.y=-0.55
-		var seated: bool = physical in ["sit","settle","cloud_sit"] or motion.cloud_seated
-		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact)
-		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+window.size.y*DesktopMotion.SEAT_RATIO
-		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+12*float(options.zoom)
-		var seat_shift := (hip_y-(edge-motion.position.y))*camera.size/window.size.y if seated else 0.0
-		pivot.position.y=lerpf(pivot.position.y,seat_shift,1-exp(-14*dt))
-		seat_contact_y=roundi(motion.position.y+camera.unproject_position(rig.world_bone("hips")).y+12*float(options.zoom)) if seated else -1
+		rig.animate(dt,now,avatar_state,gaze,motion.velocity,bool(options.hair),bool(options.animate),seated,motion.impact,cloud_pose)
+		var edge := float(motion.support.position.y) if motion.seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
+		var hip_pad := 11*float(options.zoom)
+		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
+		var target_offset := (hip_y-(edge-actual.y))*camera.size/window.size.y if seated else 0.0
+		seat_offset=lerpf(seat_offset,target_offset,1-exp(-14*dt))
+		pivot.position.y+=seat_offset
+		seat_contact_y=roundi(actual.y+camera.unproject_position(rig.world_bone("hips")).y+hip_pad) if seated else -1
 		for role in rig.roles:
 			projected_bones[role]=camera.unproject_position(rig.world_bone(role))
 		head=projected_bones["head"]
-	var actual:=Vector2i(motion.position)
-	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+window.size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now,window.size.y)
+	cloud.show_at(camera,Vector2(motion.cloud_x,motion.cloud_edge if not motion.cloud_seated else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)-Vector2(actual),float(options.zoom),motion.cloud_alpha,now,window.size.y)
 	if actual!=last_window_position:
 		window.position=actual
 		last_window_position=actual
@@ -536,13 +551,13 @@ func _process(delta: float) -> void:
 		_shutdown()
 
 func _choose_pose(physical: String, local: Vector2) -> String:
-	if physical in ["dragged","thrown","falling","landing","recovering","soft_collision","hard_collision"]:
+	if physical in ["dragged","thrown","falling","hard_collision"]:
 		return physical
 	if now-pet_at<1.6:
 		return "petted"
 	if now-click_at<1.65 or stage=="success" and now-stage_at<4.2:
 		return "happy"
-	if physical in ["run","walk","approach","reach","grip","pull_up","settle","look_around","cloud_summon"]:
+	if physical in ["run","walk","approach","reach","grip","pull_up","settle","look_around","cloud_summon","landing","recovering","soft_collision"]:
 		return physical
 	if stage=="warning" and now-stage_at<9.0:
 		return "warning"
@@ -613,8 +628,9 @@ func _near_model(local: Vector2,padding: float) -> bool:
 func _track_input(local: Vector2, dt: float) -> void:
 	# Leave the rendered pixels intact while letting clicks outside projected hit
 	# zones reach the desktop. No polling of other applications' input.
-	var can_click := _near_model(local,4) or (rig==null and bubble.get_rect().has_point(local))
-	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or menu.visible))
+	var can_click := _near_model(local,9) or (rig==null and bubble.get_rect().has_point(local))
+	if can_click:can_click_until=now+0.14
+	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or menu.visible or now<can_click_until))
 	if pressed:
 		var global := Vector2(DisplayServer.mouse_get_position())
 		if global.distance_squared_to(previous_pointer)>=1:last_drag_motion=now
@@ -663,7 +679,6 @@ func _input(event: InputEvent) -> void:
 	var mouse := event as InputEventMouseButton
 	var position := Vector2(get_window().position)+mouse.position
 	if mouse.button_index==MOUSE_BUTTON_LEFT and not mouse.pressed and pressed:
-		_maybe_grab(position)
 		_release()
 		return
 	if bool(options.clickthrough):
@@ -680,8 +695,11 @@ func _input(event: InputEvent) -> void:
 		return
 	if mouse.button_index!=MOUSE_BUTTON_LEFT:
 		return
-	if mouse.pressed and not pressed and _near_model(mouse.position,6):
+	if mouse.pressed and (_near_model(mouse.position,15) or pressed or now<can_click_until):
+		# A fresh press supersedes a stale capture even if the prior mouse-up was lost.
+		if pressed:_release(false)
 		pressed=true
+		press_origin=position
 		last_drag_motion=now
 		release_check_at=now+0.12
 		gesture_token=randi_range(1,2147483600)
@@ -690,7 +708,6 @@ func _input(event: InputEvent) -> void:
 			marker.store_string(str(gesture_token))
 			marker.close()
 		interaction_count+=1
-		contact=position-motion.position
 		previous_pointer=position
 		throw_velocity=Vector2.ZERO
 
@@ -720,17 +737,18 @@ func _release(react := true) -> void:
 		var speed:=throw_velocity if react else Vector2.ZERO
 		if speed.length()<90:
 			speed=Vector2.ZERO
-		motion.release(speed,bool(options.physics),now)
+		motion.release(speed,bool(options.physics),now,0.22)
 		_write_position()
 	elif react:
 		pet_at=-5.0
 		click_at=now
 
 func _maybe_grab(global: Vector2) -> void:
-	if pressed and not motion.held and (global-motion.position-contact).length()>7*float(options.zoom):
+	if pressed and not motion.held and global.distance_to(press_origin)>6*float(options.zoom):
 		pet_at=-5.0
 		click_at=-5.0
-		motion.grab(now,motion.position.y+get_window().size.y*DesktopMotion.SEAT_RATIO)
+		contact=global-motion.position
+		motion.grab(now,motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO)
 		drag_count+=1
 
 func _menu_action(id: int) -> void:
@@ -765,7 +783,7 @@ func _runtime_status() -> Dictionary:
 		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,
 		"cloud":motion.cloud_alpha>0.1,"cloud_seated":motion.cloud_seated,
 		"msaa":get_window().msaa_3d,"edition":options.edition,
-		"interactions":interaction_count,"drags":drag_count,"held":motion.held,"releases":release_count
+		"interactions":interaction_count,"drags":drag_count,"held":motion.held,"releases":release_count,"body_size":[body_size.x,body_size.y]
 	}
 
 func _publish() -> void:

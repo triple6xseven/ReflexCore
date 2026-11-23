@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Keep the full avatar inside the transparent viewport during throws. Allow immediate re-grabbing during falls, climbs and cloud seating.
+* Refine seated poses for window edges and clouds. Align the hips to the actual support in screen space.
+
 * Restore Classic and 3D widget visibility on launch, save pending widget changes on close and add top-level Restart and Exit to the tray.
 * Preserve a Preview 3D request sent while the previous renderer is still stopping.
 * Recover lost mouse releases during companion drags. Let newer gestures preempt older reactions and render magic platforms behind the avatar in 3D.

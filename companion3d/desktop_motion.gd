@@ -85,14 +85,14 @@ func drag_to(target: Vector2, observed: Vector2, dt: float) -> void:
 		remaining -= step
 	angle = lerpf(angle,clampf(observed.x/3400.0,-0.23,0.23),1-exp(-9*dt))
 
-func release(push: Vector2, physics: bool, now: float) -> void:
+func release(push: Vector2, physics: bool, now: float, recovery_delay := 1.4) -> void:
 	held = false
 	falling = physics
 	velocity = push.limit_length(1050) if physics else Vector2.ZERO
 	angular_speed = clampf(velocity.x/340.0,-3.0,3.0)
 	physics_time = 0.0
-	lock_until = now+1.4
-	cloud_deadline = now+1.8
+	lock_until = now+recovery_delay
+	cloud_deadline = now+recovery_delay+0.4
 	rest_at = now
 
 func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector2i,

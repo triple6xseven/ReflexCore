@@ -350,7 +350,7 @@ func _morph(key: String, value: float) -> void:
 		var mesh: MeshInstance3D = binding[0]
 		mesh.set_blend_shape_value(binding[1], value * binding[2])
 
-func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="") -> void:
+func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vector2, hair: bool, enabled: bool, seated: bool=false, impact: String="", cloudy: bool=false) -> void:
 	state = next
 	var blend := 1.0 - exp(-10.0 * dt)
 	var moving := state in ["walk", "run"]
@@ -386,11 +386,16 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var relax := 0.16 if state=="petted" and enabled else 0.0
 		_pose(side + "UpperArm", Vector3(swing * -0.24 - relax, 0, (arm_lift+wave) * side_sign * sign), blend)
 		_pose(side + "LowerArm", Vector3(-swing * 0.12 - 0.13 - absf(wave)*1.7, side_sign * arm_lift * 0.24, 0), blend)
-		_pose(side + "UpperLeg", Vector3((swing * 0.27 + stance * 1.04) * sign, 0, stance * side_sign * 0.05), blend)
+		var seat_thigh := 1.40 if side=="left" else 1.31
+		var seat_shin := 1.62 if side=="left" else 1.51
+		if cloudy:
+			seat_thigh+=0.22 if side=="left" else -0.14
+			seat_shin+=0.32 if side=="left" else -0.15
+		_pose(side + "UpperLeg", Vector3((swing * 0.27 + stance * seat_thigh) * sign, 0, stance * side_sign * 0.09), blend)
 		var tuck := 0.0
 		if enabled and state in ["dragged","thrown","falling","landing","hard_collision"]:
 			tuck=clampf(0.13+motion.length()/2100,0.13,0.64)
-		_pose(side + "LowerLeg", Vector3((maxf(0, -swing) * 0.27 - stance * 1.10 + tuck) * sign, 0, 0), blend)
+		_pose(side + "LowerLeg", Vector3((maxf(0, -swing) * 0.27 - stance * seat_shin + tuck) * sign, 0, 0), blend)
 		_pose(side + "Foot",Vector3((-stance*0.23-tuck*0.22)*sign,0,0),blend)
 	var hips := int(roles["hips"])
 	var hip_rest: Vector3 = starting_positions[hips]
@@ -410,7 +415,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		skeleton.set_bone_pose_rotation(bone, (rest * movement).normalized())
 	for bone in skirt_roots:
 		var rest: Quaternion = rotations[bone]
-		var vector := Vector3((stance*0.67+secondary_motion.y*0.09)*sign,0,secondary_motion.x*0.14)
+		var vector := Vector3((stance*0.9+secondary_motion.y*0.09)*sign,0,secondary_motion.x*0.14)
 		skeleton.set_bone_pose_rotation(bone,(rest*Quaternion.from_euler(vector)).normalized())
 	var blink_phase := fmod(now + sin(now * 0.37) * 0.7, 4.9)
 	var blink := 1.0 - clampf(absf(blink_phase - 4.72) / 0.12, 0, 1)

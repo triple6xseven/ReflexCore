@@ -1,9 +1,9 @@
 extends Node3D
 
 const LOBES := [
-	Vector3(-66,16,-9),Vector3(-28,7,-7),Vector3(-6,4,-10),
-	Vector3(17,8,-8),Vector3(39,12,-9),Vector3(66,18,-11),
-	Vector3(-47,27,5),Vector3(-17,30,8),Vector3(17,30,9),Vector3(47,27,5)
+	Vector3(-68,11,-10),Vector3(-45,4,-10),Vector3(-18,0,-13),
+	Vector3(13,0,-13),Vector3(43,5,-10),Vector3(66,12,-10),
+	Vector3(-54,18,13),Vector3(-21,22,12),Vector3(17,22,12),Vector3(51,19,13)
 ]
 var puffs: Array[MeshInstance3D] = []
 var sparks: Array[MeshInstance3D] = []
@@ -21,7 +21,7 @@ func _ready() -> void:
 		var puff := _part(sphere,material)
 		puff.position=Vector3(LOBES[i].x,-LOBES[i].y,LOBES[i].z)
 		var width := 32.0 if i in [0,5] else 39.0
-		puff.scale=Vector3(width,22 if i<6 else 17,22)
+		puff.scale=Vector3(width,25 if i<6 else 26,28)
 		puffs.append(puff)
 	var diamond := BoxMesh.new()
 	diamond.size=Vector3(3,3,2)
@@ -52,7 +52,7 @@ func show_at(camera: Camera3D,center: Vector2,zoom: float,alpha: float,clock: fl
 		return
 	# The cloud is real scene geometry behind the avatar. The skirt and legs
 	# can occlude it as they pass in front of the platform.
-	position=camera.project_position(center+Vector2(0,13*zoom),4.22)
+	position=camera.project_position(center+Vector2(-4*zoom,8*zoom),4.16)
 	var world_pixel := camera.size/maxf(view_height,1)
 	scale=Vector3.ONE*world_pixel*zoom*lerpf(0.74,1.0,alpha)
 	for i in cloud_materials.size():

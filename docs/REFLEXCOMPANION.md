@@ -34,6 +34,8 @@ A drag ends on button release, even when a non-activating overlay misses the rel
 
 Cloud lobes render in the avatar's 3D scene, so the skirt and legs can cover the platform from the front. Turning off magic clears its support immediately.
 
+Motion uses the original body footprint while the transparent viewport adds margins around it. Tilt pivots around the torso and the seated hip contact is aligned to the actual support in screen space. A fresh press replaces an older capture without waiting for the release watcher. Test with check_overlay.gd, using a scratch bridge directory containing the private avatar.
+
 ## Companion 2.0
 
 The renderer follows the actual support window while seated. A fast move, closed edge or new overlap breaks the attachment and releases the avatar. Only nearby ledges start the approach, reach, grip, pull-up and settle sequence. The sequence uses procedural joint targets. Lumen contains no authored animation clips. Arm IK positions wrists in front of the torso during grabs and over the lap when seated. A critically damped cursor spring, bounded throw impulses and 120 Hz collision substeps cover sustained dragging, edge rebounds and swept landings.
