@@ -838,20 +838,23 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 		return
 	var torso := world_bone("chest" if roles.has("chest") else "spine")
 	var hips := world_bone("hips")
+	var frame := skeleton.global_basis.orthonormalized()
+	var inverse_frame := frame.transposed()
+	var forward := frame*seat_forward
 	for side in ["left","right"]:
 		if not roles.has(side+"Hand") or not roles.has(side+"LowerArm"):
 			continue
 		var shoulder := world_bone(side+"UpperArm")
 		var side_sign := signf(shoulder.x-torso.x)
-		var frame := skeleton.global_basis.orthonormalized()
 		var outward := frame*seat_right*(-1.0 if side=="left" else 1.0)
-		var forward := frame*seat_forward
 		var gesture := Vector3(side_sign*0.135,-0.10,0.15)
 		var knee_grip := 0.0
 		var grip_direction := Vector3.ZERO
 		var grip_normal := Vector3.ZERO
 		match gesture_state:
 			"seated":
+				var has_knee := roles.has(side+"LowerLeg")
+				var knee := world_bone(side+"LowerLeg") if has_knee else Vector3.ZERO
 				gesture=hips-torso+Vector3(side_sign*0.117,0.081,0.16)
 				if atelier:
 					# Aim the wrist beside the hip in the actual rig frame as the avatar turns.
@@ -860,14 +863,12 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					if refined:
 						var palm_side := .215 if nocturne and state!="cloud_sit" else .195 if state!="cloud_sit" else .143
 						gesture=hips-torso+frame*(seat_right*local_side*lerpf(palm_side,.17,attentive) 							+seat_forward*lerpf(.035,.095,attentive))+Vector3.UP*lerpf(.012,.068,attentive)
-				if atelier and roles.has(side+"LowerLeg"):
-					var knee := world_bone(side+"LowerLeg")
+				if atelier and has_knee:
 					var lap := hips.lerp(knee,.56)-torso+Vector3.UP*.072
 					gesture=gesture.lerp(lap,.88)
 					if side=="right":
 						gesture=gesture.lerp(hips-torso+outward*.21-forward*.06,side_sit)
-				if hug_progress>0 and roles.has(side+"LowerLeg") and roles.has(side+"Foot"):
-					var knee := world_bone(side+"LowerLeg")
+				if hug_progress>0 and has_knee and roles.has(side+"Foot"):
 					var shin := (world_bone(side+"Foot")-knee).normalized()
 					var ahead := forward.slide(shin).normalized()
 					var pad := knee+shin*.04+ahead*.063+outward*.014
@@ -937,7 +938,7 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			pole=pole.lerp(outward*.95+Vector3.DOWN*.45-forward*.15,knee_grip)
 		# Keep targets in rig space, so turning the whole avatar carries both arms.
 		var wrist_goal := skeleton.to_local(torso+gesture)
-		var elbow_goal := frame.inverse()*pole
+		var elbow_goal := inverse_frame*pole
 		var follow := 1.0-exp(-lerpf(17.0,28.0,knee_grip)*dt)
 		var previous_wrist: Vector3 = wrist_targets.get(side,bone_position(side+"Hand"))
 		var elbow: Vector3 = elbow_targets.get(side,elbow_goal)
@@ -959,8 +960,8 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					_rotate_chain(hand,direction,forearm,gesture_weight*0.69)
 
 				if knee_grip>0.0:
-					_orient_knee_grip(side,hand,finger,frame.inverse()*grip_direction,frame.inverse()*grip_normal,knee_grip)
-		_curl_grip(side,frame.inverse()*grip_normal,knee_grip)
+					_orient_knee_grip(side,hand,finger,inverse_frame*grip_direction,inverse_frame*grip_normal,knee_grip)
+		_curl_grip(side,inverse_frame*grip_normal,knee_grip)
 
 
 func _curl_grip(side: String, normal: Vector3, amount: float) -> void:

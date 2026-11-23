@@ -1,3 +1,7 @@
+## Companion animation hot path
+
+- Reuse the rig frame and seated knee positions across arm calculations.
+
 ## Companion pose transitions and black stockings
 
 - Add black as a separate stocking color and smooth the shift from cloud seating to standing and walking.
