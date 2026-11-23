@@ -29,7 +29,11 @@ var camera: Camera3D
 var bubble: Panel
 var bubble_label: Label
 var bubble_style: StyleBoxFlat
-var menu: PopupMenu
+var menu: PanelContainer
+var menu_buttons: Dictionary = {}
+var outside_menu_since := -1.0
+var native_region := PackedVector2Array()
+var next_region_at := 0.0
 var rig: RefCounted
 var model_file := ""
 var model_error := ""
@@ -187,16 +191,64 @@ func _build_scene() -> void:
 	bubble_label.add_theme_color_override("font_color", Color("#f4f9ff"))
 	bubble_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bubble.add_child(bubble_label)
-	menu = PopupMenu.new()
-	add_child(menu)
+	# Keep the menu on the overlay canvas. A native popup can capture clicks
+	# from the non-activating owner and never give them back.
+	menu=PanelContainer.new()
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color=Color("#192336")
+	panel_style.border_color=Color("#667c97")
+	panel_style.set_border_width_all(1)
+	panel_style.set_corner_radius_all(8)
+	panel_style.content_margin_left=6
+	panel_style.content_margin_right=6
+	panel_style.content_margin_top=6
+	panel_style.content_margin_bottom=6
+	menu.add_theme_stylebox_override("panel",panel_style)
+	layer.add_child(menu)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation",2)
+	menu.add_child(rows)
 	for i in MODE_NAMES.size():
-		menu.add_radio_check_item(MODE_NAMES[i],i)
-	menu.add_separator()
-	menu.add_check_item("Show status bubble",10)
-	menu.add_check_item("Stockings",11)
-	menu.add_check_item("Magic Platforms",12)
-	menu.add_item("Close ReflexCompanion",20)
-	menu.id_pressed.connect(_menu_action)
+		_add_menu_button(rows,i,false)
+	rows.add_child(HSeparator.new())
+	for id in [10,11,12]:
+		_add_menu_button(rows,id,true)
+	rows.add_child(HSeparator.new())
+	_add_menu_button(rows,20,false)
+	menu.hide()
+
+func _add_menu_button(rows: VBoxContainer, id: int, check: bool) -> void:
+	var button := CheckButton.new() if check else Button.new()
+	button.custom_minimum_size=Vector2(186,26)
+	button.alignment=HORIZONTAL_ALIGNMENT_LEFT
+	button.focus_mode=Control.FOCUS_NONE
+	button.pressed.connect(_menu_action.bind(id))
+	rows.add_child(button)
+	menu_buttons[id]=button
+
+func _show_menu(anchor: Vector2) -> void:
+	for i in MODE_NAMES.size():
+		menu_buttons[i].text=("●  " if MODE_VALUES[i]==options.mode else "    ")+MODE_NAMES[i]
+	for entry in [[10,"Show status bubble",options.bubble],[11,"Stockings",options.stockings],[12,"Magic Platforms",options.magic]]:
+		var button: CheckButton=menu_buttons[entry[0]]
+		button.text=entry[1]
+		button.set_pressed_no_signal(entry[2])
+	menu_buttons[20].text="Close ReflexCompanion"
+	menu.reset_size()
+	var limit := Vector2(get_window().size)-menu.get_combined_minimum_size()
+	menu.position=anchor.clamp(Vector2.ZERO,limit.max(Vector2.ZERO))
+	outside_menu_since=-1
+	menu.show()
+	_set_cursor_passthrough(false)
+	_publish()
+
+func _hide_menu() -> void:
+	menu.hide()
+	outside_menu_since=-1
+	can_click_until=-1
+	next_region_at=0.0
+	_update_window_region()
+	_publish()
 
 func _read_json(path: String, limit: int) -> Dictionary:
 	var file := FileAccess.open(path,FileAccess.READ)
@@ -471,6 +523,7 @@ func _process(delta: float) -> void:
 		return
 	var window := get_window()
 	if paused:
+		if menu.visible:_hide_menu()
 		if pressed:_release(false)
 		window.visible=false
 		shown=false
@@ -536,6 +589,7 @@ func _process(delta: float) -> void:
 		window.position=actual
 		last_window_position=actual
 	_update_bubble()
+	_update_window_region()
 	_track_input(Vector2(pointer-window.position),dt)
 	var interactive := menu.visible or pressed or motion.falling or avatar_state in ["walk","run","landing","petted","approach","reach","grip","pull_up","settle","cloud_summon"] or _near_model(local,25)
 	Engine.max_fps=clampi(int(options.fps),15,60) if interactive else mini(24,int(options.fps))
@@ -628,9 +682,19 @@ func _near_model(local: Vector2,padding: float) -> bool:
 func _track_input(local: Vector2, dt: float) -> void:
 	# Leave the rendered pixels intact while letting clicks outside projected hit
 	# zones reach the desktop. No polling of other applications' input.
-	var can_click := _near_model(local,9) or (rig==null and bubble.get_rect().has_point(local))
+	if menu.visible:
+		var over_menu := menu.get_rect().has_point(local)
+		if over_menu:
+			outside_menu_since=-1
+		elif outside_menu_since<0:
+			outside_menu_since=now
+		if bool(options.clickthrough) or (outside_menu_since>=0 and now-outside_menu_since>0.20):
+			_hide_menu()
+		_set_cursor_passthrough(not over_menu or bool(options.clickthrough))
+		return
+	var can_click := _near_model(local,9)
 	if can_click:can_click_until=now+0.14
-	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or menu.visible or now<can_click_until))
+	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or now<can_click_until))
 	if pressed:
 		var global := Vector2(DisplayServer.mouse_get_position())
 		if global.distance_squared_to(previous_pointer)>=1:last_drag_motion=now
@@ -664,6 +728,37 @@ func _track_input(local: Vector2, dt: float) -> void:
 			click_at=-5.0
 			gesture_turns=0
 
+func _update_window_region() -> void:
+	if OS.get_name()!="Windows" or now<next_region_at or projected_bones.is_empty():
+		return
+	next_region_at=now+0.042
+	var zoom := float(options.zoom)
+	var points := PackedVector2Array()
+	for role in ["head","chest","hips","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand","leftLowerLeg","rightLowerLeg","leftFoot","rightFoot"]:
+		if not projected_bones.has(role):
+			continue
+		var center: Vector2=projected_bones[role]
+		var radius := Vector2(68,73) if role=="head" else Vector2(89,74) if role=="hips" else Vector2(47,53) if role.ends_with("Foot") else Vector2(46,47)
+		for i in 8:
+			var radial := Vector2.from_angle(i*TAU/8.0)*radius*zoom
+			points.append((center+radial).snapped(Vector2(3,3)))
+	var outline := Geometry2D.convex_hull(points)
+	if bubble.visible:
+		outline=_add_region_rect(outline,bubble.get_rect().grow(2))
+	if cloud.visible:
+		var base := Vector2(motion.cloud_x,motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO if motion.cloud_seated else motion.cloud_edge)-Vector2(get_window().position)
+		outline=_add_region_rect(outline,Rect2(base-Vector2(106,35)*zoom,Vector2(212,94)*zoom))
+	if menu.visible:
+		outline=_add_region_rect(outline,menu.get_rect().grow(1))
+	if outline!=native_region:
+		native_region=outline
+		get_window().mouse_passthrough_polygon=native_region
+
+func _add_region_rect(outline: PackedVector2Array, rect: Rect2) -> PackedVector2Array:
+	var corners := PackedVector2Array([rect.position,Vector2(rect.end.x,rect.position.y),rect.end,Vector2(rect.position.x,rect.end.y)])
+	var merged := Geometry2D.merge_polygons(outline,corners)
+	return merged[0] if merged.size()==1 else Geometry2D.convex_hull(outline+corners)
+
 func _set_cursor_passthrough(value: bool) -> void:
 	if value==passthrough:
 		return
@@ -678,20 +773,19 @@ func _input(event: InputEvent) -> void:
 		return
 	var mouse := event as InputEventMouseButton
 	var position := Vector2(get_window().position)+mouse.position
+	if menu.visible:
+		if mouse.pressed and (mouse.button_index==MOUSE_BUTTON_RIGHT or not menu.get_rect().has_point(mouse.position)):
+			_hide_menu()
+			_set_cursor_passthrough(not _near_model(mouse.position,9))
+		return
 	if mouse.button_index==MOUSE_BUTTON_LEFT and not mouse.pressed and pressed:
 		_release()
 		return
 	if bool(options.clickthrough):
 		return
-	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and _near_model(mouse.position,6):
+	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_near_model(mouse.position,15) or now<can_click_until):
 		if pressed:_release(false)
-		for i in MODE_VALUES.size():
-			menu.set_item_checked(i,MODE_VALUES[i]==options.mode)
-		menu.set_item_checked(menu.get_item_index(10),bool(options.bubble))
-		menu.set_item_checked(menu.get_item_index(11),bool(options.stockings))
-		menu.set_item_checked(menu.get_item_index(12),bool(options.magic))
-		menu.position=Vector2i(position)
-		menu.popup()
+		_show_menu(mouse.position)
 		return
 	if mouse.button_index!=MOUSE_BUTTON_LEFT:
 		return
@@ -752,6 +846,7 @@ func _maybe_grab(global: Vector2) -> void:
 		drag_count+=1
 
 func _menu_action(id: int) -> void:
+	_hide_menu()
 	if id==20:
 		_shutdown()
 		return
@@ -777,7 +872,7 @@ func _runtime_status() -> Dictionary:
 		"secondary_bones":rig.secondary.size() if rig!=null else 0,"triangles":rig.triangle_count if rig!=null else 0,
 		"outfit_variant":dress_model,"fps":Engine.get_frames_per_second(),"frame_ms":snappedf(sample_ms,0.1),
 		"dpi":DisplayServer.screen_get_dpi(get_window().current_screen),"pid":OS.get_process_id(),
-		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,
+		"position":[get_window().position.x,get_window().position.y],"passthrough":passthrough,"menu_open":menu.visible,
 		"bare_legs_loaded":model_file.get_basename().ends_with("-bare-legs"),"bubble_visible":bubble.visible,
 		"seat_edge":motion.support.position.y if motion.support.has_area() else -1,
 		"seat_contact_y":seat_contact_y,"edge_count":windows.size(),"impact":motion.impact,

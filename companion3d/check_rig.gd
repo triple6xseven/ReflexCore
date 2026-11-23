@@ -19,8 +19,12 @@ func _verify() -> void:
 	for i in 45:
 		rig.animate(1.0/60,i/60.0,"sit",Vector2.ZERO,Vector2.ZERO,true,true,true)
 	var hips := rig.world_bone("hips")
-	ok=ok and rig.world_bone("leftLowerLeg").z>hips.z+0.12
-	ok=ok and rig.world_bone("rightLowerLeg").z>hips.z+0.12
+	for side in ["left","right"]:
+		var thigh: Vector3=rig.bone_position(side+"LowerLeg")-rig.bone_position(side+"UpperLeg")
+		var shin: Vector3=rig.bone_position(side+"Foot")-rig.bone_position(side+"LowerLeg")
+		ok=ok and thigh.normalized().dot(rig.seat_forward)>0.94
+		ok=ok and shin.normalized().dot(Vector3.DOWN)>0.97
+		ok=ok and absf(shin.normalized().dot(rig.seat_right))<0.09
 	for frame in 45:
 		rig.animate(1.0/60,0.75+frame/60.0,"happy",Vector2.ZERO,Vector2.ZERO,true,true,true)
 	for side in ["left","right"]:
@@ -32,5 +36,5 @@ func _verify() -> void:
 	if not ok:
 		push_error("Default avatar skirt or hand positioning failed.")
 	else:
-		print("Default avatar rig: forward seated knees, skirt defaults and visible hands passed.")
+		print("Default avatar rig: forward seated knees, aligned shins, skirt defaults and visible hands passed.")
 	quit(0 if ok else 1)

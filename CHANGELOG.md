@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* Replace the companion's native context popup with an overlay menu that releases clicks outside its controls.
+* Limit native hit-testing to the visible companion area on Windows. Align the seated legs and ankles to the avatar's forward axis.
+
 * Keep the full avatar inside the transparent viewport during throws. Allow immediate re-grabbing during falls, climbs and cloud seating.
 * Refine seated poses for window edges and clouds. Align the hips to the actual support in screen space.
 

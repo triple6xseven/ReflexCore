@@ -36,6 +36,8 @@ var expression_binds := 0
 var triangle_count := 0
 var state := "idle"
 var stance := 0.0
+var seat_forward := Vector3.FORWARD
+var seat_right := Vector3.RIGHT
 var posture := 0.0
 var step_phase := 0.0
 var gait := 0.0
@@ -139,6 +141,7 @@ func load_file(path: String) -> bool:
 		rotations[bone] = skeleton.get_bone_pose_rotation(bone)
 	for side in ["left","right"]:
 		_lower_arm(side)
+	_find_seat_axes()
 	return true
 
 func free_scene() -> void:
@@ -386,17 +389,10 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var relax := 0.16 if state=="petted" and enabled else 0.0
 		_pose(side + "UpperArm", Vector3(swing * -0.24 - relax, 0, (arm_lift+wave) * side_sign * sign), blend)
 		_pose(side + "LowerArm", Vector3(-swing * 0.12 - 0.13 - absf(wave)*1.7, side_sign * arm_lift * 0.24, 0), blend)
-		var seat_thigh := 1.40 if side=="left" else 1.31
-		var seat_shin := 1.62 if side=="left" else 1.51
-		if cloudy:
-			seat_thigh+=0.22 if side=="left" else -0.14
-			seat_shin+=0.32 if side=="left" else -0.15
-		_pose(side + "UpperLeg", Vector3((swing * 0.27 + stance * seat_thigh) * sign, 0, stance * side_sign * 0.09), blend)
 		var tuck := 0.0
 		if enabled and state in ["dragged","thrown","falling","landing","hard_collision"]:
 			tuck=clampf(0.13+motion.length()/2100,0.13,0.64)
-		_pose(side + "LowerLeg", Vector3((maxf(0, -swing) * 0.27 - stance * seat_shin + tuck) * sign, 0, 0), blend)
-		_pose(side + "Foot",Vector3((-stance*0.23-tuck*0.22)*sign,0,0),blend)
+		_seat_leg(side,side_sign,swing,tuck,sign,blend,cloudy)
 	var hips := int(roles["hips"])
 	var hip_rest: Vector3 = starting_positions[hips]
 	hip_rest.y += (-stance * 0.12 + breathe * 0.14 - posture * 0.03) * height
@@ -414,9 +410,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var movement := Quaternion.from_euler(Vector3((secondary_motion.y * 0.16 + drift - stance*cloth) * sign, 0, secondary_motion.x * 0.225))
 		skeleton.set_bone_pose_rotation(bone, (rest * movement).normalized())
 	for bone in skirt_roots:
-		var rest: Quaternion = rotations[bone]
-		var vector := Vector3((stance*0.9+secondary_motion.y*0.09)*sign,0,secondary_motion.x*0.14)
-		skeleton.set_bone_pose_rotation(bone,(rest*Quaternion.from_euler(vector)).normalized())
+		_drape_skirt(bone,blend)
 	var blink_phase := fmod(now + sin(now * 0.37) * 0.7, 4.9)
 	var blink := 1.0 - clampf(absf(blink_phase - 4.72) / 0.12, 0, 1)
 	if state in ["petted", "sleepy"]:
@@ -426,6 +420,87 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 	_morph("blink", blink if enabled else 0)
 	_morph("happy", face.x)
 	_morph("warning", face.y)
+
+func _drape_skirt(bone: int, blend: float) -> void:
+	var children := skeleton.get_bone_children(bone)
+	if children.is_empty():
+		return
+	var joint := children[0]
+	var rest_pose := skeleton.get_bone_global_rest(bone)
+	var direction := skeleton.get_bone_global_rest(joint).origin-rest_pose.origin
+	if direction.length_squared()<0.000001:
+		return
+	var front := "skirtfront" in String(skeleton.get_bone_name(bone)).to_lower()
+	var outward := seat_right*signf(rest_pose.origin.dot(seat_right))
+	var flow := seat_forward*(0.97 if front else 0.58)+Vector3.DOWN*(0.25 if front else 0.78)
+	if not front:
+		flow+=outward*0.46
+	var from := (_parent_basis(bone,true).inverse()*direction).normalized()
+	var to := (_parent_basis(bone).inverse()*flow).normalized()
+	var rest: Quaternion=rotations[bone]
+	var target := (Quaternion(from,to)*rest).normalized()
+	_blend_joint(bone,Vector3(secondary_motion.y*0.09,0,secondary_motion.x*0.14),target,blend)
+
+func _find_seat_axes() -> void:
+	var left := skeleton.get_bone_global_rest(int(roles["leftUpperLeg"])).origin
+	var right := skeleton.get_bone_global_rest(int(roles["rightUpperLeg"])).origin
+	seat_right=(right-left).slide(Vector3.UP).normalized()
+	var forward := Vector3.FORWARD if legacy else Vector3.BACK
+	if roles.has("leftEye") and roles.has("rightEye"):
+		var a := skeleton.get_bone_global_rest(int(roles["leftEye"])).origin
+		var b := skeleton.get_bone_global_rest(int(roles["rightEye"])).origin
+		var skull := skeleton.get_bone_global_rest(int(roles["head"])).origin
+		var projected := ((a+b)*0.5-skull).slide(Vector3.UP).slide(seat_right)
+		if projected.length()>0.005:
+			forward=projected.normalized()
+	seat_forward=forward
+
+func _seat_leg(side: String,side_sign: float,swing: float,tuck: float,sign: float,blend: float,cloudy: bool) -> void:
+	var upper := side+"UpperLeg"
+	var lower := side+"LowerLeg"
+	var foot := side+"Foot"
+	var standing_thigh := Vector3(swing*0.27*sign,0,0)
+	var standing_shin := Vector3((maxf(0,-swing)*0.27+tuck)*sign,0,0)
+	var standing_foot := Vector3(-tuck*0.22*sign,0,0)
+	if stance<0.015 or not roles.has(lower) or not roles.has(foot):
+		_pose(upper,standing_thigh,blend)
+		_pose(lower,standing_shin,blend)
+		_pose(foot,standing_foot,blend)
+		return
+	var knee_drop := (0.16 if cloudy else 0.12)+side_sign*0.035
+	var thigh := seat_forward-seat_right*side_sign*0.07-Vector3.UP*knee_drop
+	var shin := Vector3.DOWN+seat_forward*(0.09+side_sign*0.02)
+	_orient_segment(upper,lower,thigh,standing_thigh,blend)
+	_orient_segment(lower,foot,shin,standing_shin,blend)
+	var ankle := int(roles[foot])
+	var basis := _parent_basis(ankle)
+	var neutral := skeleton.get_bone_global_rest(ankle).basis.orthonormalized()
+	var seated_rotation := (basis.inverse()*neutral).get_rotation_quaternion()
+	_blend_joint(ankle,standing_foot,seated_rotation,blend)
+
+func _parent_basis(bone: int, rest := false) -> Basis:
+	var parent := skeleton.get_bone_parent(bone)
+	if parent<0:
+		return Basis.IDENTITY
+	return (skeleton.get_bone_global_rest(parent) if rest else skeleton.get_bone_global_pose(parent)).basis.orthonormalized()
+
+func _orient_segment(role: String, child: String, direction: Vector3, idle: Vector3, blend: float) -> void:
+	var bone := int(roles[role])
+	var joint := int(roles[child])
+	var rest_axis := skeleton.get_bone_global_rest(joint).origin-skeleton.get_bone_global_rest(bone).origin
+	if rest_axis.length_squared()<0.000001:
+		_pose(role,idle,blend)
+		return
+	var from := (_parent_basis(bone,true).inverse()*rest_axis).normalized()
+	var to := (_parent_basis(bone).inverse()*direction).normalized()
+	var rest_rotation: Quaternion=rotations[bone]
+	_blend_joint(bone,idle,(Quaternion(from,to)*rest_rotation).normalized(),blend)
+
+func _blend_joint(bone: int, idle: Vector3, target: Quaternion, blend: float) -> void:
+	var rest: Quaternion=rotations[bone]
+	var standing := (rest*Quaternion.from_euler(idle)).normalized()
+	var pose := standing.slerp(target,stance)
+	skeleton.set_bone_pose_rotation(bone,skeleton.get_bone_pose_rotation(bone).slerp(pose,blend))
 
 func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String, motion: Vector2) -> void:
 	var active := seated or enabled and state in ["dragged","thrown","falling","soft_collision","hard_collision",

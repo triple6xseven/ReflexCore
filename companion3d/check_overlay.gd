@@ -20,9 +20,16 @@ func _verify() -> void:
 			avatar.motion.angle=tilt
 			avatar._process(1.0/60)
 		await RenderingServer.frame_post_draw
-		var pixels := root.get_texture().get_image().get_used_rect()
+		var image := root.get_texture().get_image()
+		var pixels := image.get_used_rect()
 		_expect(pixels.has_area() and root.get_visible_rect().grow(-10).encloses(Rect2(pixels)),
 			"An extreme tilt clipped the rendered model: "+str(pixels))
+		var outside := 0
+		for y in range(pixels.position.y,pixels.end.y,4):
+			for x in range(pixels.position.x,pixels.end.x,4):
+				if image.get_pixel(x,y).a>0.55 and not Geometry2D.is_point_in_polygon(Vector2(x,y),avatar.native_region):
+					outside+=1
+		_expect(outside==0,"The Windows input region cut into the silhouette: "+str(outside))
 
 	for previous in ["fall","climb","cloud"]:
 		avatar.motion.falling=previous=="fall"
@@ -46,8 +53,24 @@ func _verify() -> void:
 		down.pressed=false
 		avatar._input(down)
 		_expect(not avatar.motion.held and not avatar.pressed,"Mouse-up did not clear the current drag.")
+	var right := InputEventMouseButton.new()
+	right.button_index=MOUSE_BUTTON_RIGHT
+	right.position=avatar.projected_bones["chest"]
+	right.pressed=true
+	avatar._input(right)
+	_expect(avatar.menu.visible,"Right click must open the overlay menu.")
+	var far_corner := Vector2.ZERO
+	avatar._track_input(far_corner,1.0/60)
+	_expect(avatar.passthrough,"An open menu must pass through the background immediately.")
+	avatar.now+=0.25
+	avatar._track_input(far_corner,1.0/60)
+	_expect(not avatar.menu.visible and avatar.passthrough,"Leaving the menu did not return control.")
+	avatar._input(right)
+	_expect(avatar.menu.visible,"The menu did not reopen after dismissing it.")
+	avatar.menu_buttons[20].pressed.emit()
+	_expect(avatar.stopping and not avatar.menu.visible,"The menu close action did not stop the overlay.")
 	if not failed:
-		print("Windows overlay: full alpha bounds at both extreme tilts; immediate re-grab during fall, climb and cloud seating passed.")
+		print("Windows overlay: full alpha bounds at both extreme tilts; immediate re-grab, dismissible menu, background passthrough and close action passed.")
 	avatar.queue_free()
 	quit(1 if failed else 0)
 
