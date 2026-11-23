@@ -215,6 +215,7 @@ public sealed partial class StudioWindow : Window
             if(c.BackColor.A!=0)c.BackColor=bg;c.ForeColor=ink;
         }
         foreach(Forms.Control child in c.Controls)PaintPages(child,theme);
+        if(c.Tag is Action<System.Drawing.Color,System.Drawing.Color,System.Drawing.Color> paintChart)paintChart(card,ink,accent);
     }
     public void RestorePage(int page){SelectPage(page);if(WindowState==WindowState.Minimized)WindowState=WindowState.Normal;Activate();}
 }

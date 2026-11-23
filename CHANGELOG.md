@@ -1,3 +1,7 @@
+## Diagnostics theme
+
+- Theme Diagnostics tabs and chart from the Studio palette and fit the embedded dashboard footer to the available height.
+
 ## Studio layout and cloud flight
 
 - Keep Agent status above the action buttons, widen the sidebar, and target at least 48 FPS while the cloud is travelling.

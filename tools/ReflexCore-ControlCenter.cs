@@ -100,7 +100,7 @@ namespace ReflexCore.Control
             // The WPF window hosts these six live WinForms pages in one process.
             modelsTab.Controls.Add(new ModelPanel(root));
             // Embed the original 0.6.1 Measurement Lab without opening an overlapping top-level window.
-            var diagnosticView=new ReflexCore.Diagnostics.Dashboard(root){TopLevel=false,FormBorderStyle=FormBorderStyle.None,Dock=DockStyle.Fill,ShowInTaskbar=false};
+            var diagnosticView=new ReflexCore.Diagnostics.Dashboard(root){TopLevel=false,MinimumSize=Size.Empty,FormBorderStyle=FormBorderStyle.None,Dock=DockStyle.Fill,ShowInTaskbar=false};
             diagnosticsTab.Controls.Add(diagnosticView);
             tabs.SelectedIndexChanged+=(sender,args)=>{if(tabs.SelectedTab==diagnosticsTab)diagnosticView.Show();};
             diagnosticsTab.Enter+=(sender,args)=>{if(!diagnosticView.Visible)diagnosticView.Show();};

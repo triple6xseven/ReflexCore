@@ -43,20 +43,21 @@ namespace ReflexCore.Diagnostics
     }
     internal sealed class TimeBars : System.Windows.Forms.Control
     {
+        public Color AccentColor = Color.FromArgb(55,201,121);
         public List<double> Values = new List<double>();
         public TimeBars(){DoubleBuffered=true;BackColor=Color.FromArgb(14,24,20);ForeColor=Color.FromArgb(108,236,154);}
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); Graphics g=e.Graphics; g.Clear(BackColor);
-            using(Brush muted=new SolidBrush(Color.FromArgb(134,162,149)))
+            using(Brush muted=new SolidBrush(ForeColor))
                 g.DrawString("Verified goal time · recent successful runs (ms; lower is better)",Font,muted,12,8);
             if(Values.Count==0){g.DrawString("No verified benchmark samples yet",Font,Brushes.Gray,12,40);return;}
             int count=Math.Min(Values.Count,24), left=20, right=Width-16, top=43, bottom=Height-26;
             if(right<=left || bottom<=top)return;
             double max=Values.Skip(Math.Max(0,Values.Count-count)).DefaultIfEmpty(1).Max(); if(max<=0)max=1;
             int cell=Math.Max(3,(right-left)/count), barW=Math.Max(2,cell-4);
-            using(Brush b=new SolidBrush(Color.FromArgb(55,201,121)))
-            using(Pen p=new Pen(Color.FromArgb(54,90,74)))
+            using(Brush b=new SolidBrush(AccentColor))
+            using(Pen p=new Pen(ForeColor))
             {
                 g.DrawLine(p,left,bottom,right,bottom);
                 for(int i=0;i<count;i++){
@@ -84,6 +85,14 @@ namespace ReflexCore.Diagnostics
         string selectedRun="",lastHistorySignature="";
         int pulse=0;
         static readonly Color bg=Color.FromArgb(11,19,16),fg=Color.FromArgb(194,233,205),accent=Color.FromArgb(89,231,143),panel=Color.FromArgb(20,32,26);
+        private void ApplyChartTheme(Color surface,Color text,Color highlight)
+        {
+            chart.BackColor=surface;
+            chart.ForeColor=text;
+            chart.AccentColor=highlight;
+            chart.Invalidate();
+        }
+
         public Dashboard(string project)
         {
             root=Path.GetFullPath(project);
@@ -115,12 +124,25 @@ namespace ReflexCore.Diagnostics
             n=new NumericUpDown{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=53,Height=28};tools.Controls.Add(n);
             var open=new Button{Text="OPEN REPORTS",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg,Width=135,Height=33};
             open.Click+=delegate{Directory.CreateDirectory(dir);Process.Start("explorer.exe","\""+dir+"\"");};tools.Controls.Add(open);
-            var tabs=new TabControl{Dock=DockStyle.Fill,Font=new Font("Segoe UI",10)};outer.Controls.Add(tabs,0,1);
+            var tabs=new TabControl{Dock=DockStyle.Fill,Font=new Font("Segoe UI",10),
+                BackColor=bg,ForeColor=fg,DrawMode=TabDrawMode.OwnerDrawFixed,Padding=new Point(11,6)};
+            tabs.DrawItem+=delegate(object sender,DrawItemEventArgs args){
+                bool selected=args.Index==tabs.SelectedIndex;
+                Color fill=selected?launch.BackColor:tabs.BackColor;
+                using(var brush=new SolidBrush(fill))args.Graphics.FillRectangle(brush,args.Bounds);
+                TextRenderer.DrawText(args.Graphics,tabs.TabPages[args.Index].Text,tabs.Font,args.Bounds,tabs.ForeColor,
+                    TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
+                if(selected){using(var pen=new Pen(launch.FlatAppearance.BorderColor.IsEmpty?tabs.ForeColor:launch.FlatAppearance.BorderColor))
+                    args.Graphics.DrawLine(pen,args.Bounds.Left,args.Bounds.Bottom-2,args.Bounds.Right,args.Bounds.Bottom-2);}
+                if((args.State&DrawItemState.Focus)!=0)args.DrawFocusRectangle();
+            };
+            outer.Controls.Add(tabs,0,1);
             TabPage overview=new TabPage("Benchmark / history"){BackColor=bg,ForeColor=fg};tabs.TabPages.Add(overview);
             summary=MakeLabel("No benchmark results recorded.",new Font("Consolas",11),accent);
             var overviewLayout=Rows(62,155);overview.Controls.Add(overviewLayout);
             summary.Dock=DockStyle.Fill;overviewLayout.Controls.Add(summary,0,0);
             chart=new TimeBars{Dock=DockStyle.Fill};overviewLayout.Controls.Add(chart,0,1);
+            Tag=new Action<Color,Color,Color>(ApplyChartTheme);
             runs=Grid();runs.Dock=DockStyle.Fill;overviewLayout.Controls.Add(runs,0,2);
             runs.Columns.Add("at","Local time");runs.Columns.Add("number","Iteration");runs.Columns.Add("outcome","Verified");
             runs.Columns.Add("ms","Task ms");runs.Columns.Add("flow","UIA flow ms");runs.Columns.Add("cpu","Rust CPU ms");runs.Columns.Add("ram","Rust peak MB");runs.Columns.Add("id","Run ID");
