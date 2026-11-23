@@ -239,6 +239,8 @@ func _show_menu(anchor: Vector2) -> void:
 	menu.position=anchor.clamp(Vector2.ZERO,limit.max(Vector2.ZERO))
 	outside_menu_since=-1
 	menu.show()
+	next_region_at=0
+	_update_window_region()
 	_set_cursor_passthrough(false)
 	_publish()
 
@@ -704,7 +706,7 @@ func _track_input(local: Vector2, dt: float) -> void:
 			outside_menu_since=now
 		if bool(options.clickthrough) or (outside_menu_since>=0 and now-outside_menu_since>0.20):
 			_hide_menu()
-		_set_cursor_passthrough(not over_menu or bool(options.clickthrough))
+		_set_cursor_passthrough(bool(options.clickthrough) or not (over_menu or _pointer_on_character(local)))
 		return
 	var can_click := _pointer_on_character(local)
 	if can_click:can_click_until=now+0.14
@@ -788,10 +790,14 @@ func _input(event: InputEvent) -> void:
 	var mouse := event as InputEventMouseButton
 	var position := Vector2(get_window().position)+mouse.position
 	if menu.visible:
-		if mouse.pressed and (mouse.button_index==MOUSE_BUTTON_RIGHT or not menu.get_rect().has_point(mouse.position)):
+		if mouse.pressed and mouse.button_index==MOUSE_BUTTON_LEFT and not menu.get_rect().has_point(mouse.position):
+			_hide_menu()
+		elif mouse.pressed and mouse.button_index==MOUSE_BUTTON_RIGHT:
 			_hide_menu()
 			_set_cursor_passthrough(not _pointer_on_character(mouse.position))
-		return
+			return
+		else:
+			return
 	if mouse.button_index==MOUSE_BUTTON_LEFT and not mouse.pressed and pressed:
 		_release()
 		return

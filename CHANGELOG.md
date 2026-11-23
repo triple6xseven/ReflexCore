@@ -1,3 +1,7 @@
+## Companion menu and seated hem
+
+- Allow an outside body press to dismiss the menu and start a drag immediately. Shape each seated front and side skirt segment independently.
+
 ## Companion seating reactions
 
 - Preserve mounting and landing poses during clicks and reduce seated skirt lift.

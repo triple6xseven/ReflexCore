@@ -239,7 +239,7 @@ func _setup_secondary(source: Dictionary, vrm0: Dictionary, extensions: Dictiona
 				candidates.append(i)
 	for i in skeleton.get_bone_count():
 		var display := String(skeleton.get_bone_name(i)).to_lower()
-		if display.ends_with("0") and ("skirtfront" in display or "skirtside" in display):
+		if display.right(1) in ["0","1","2"] and ("skirtfront" in display or "skirtside" in display):
 			skirt_roots.append(i)
 	for bone in candidates:
 		if secondary.size() >= 22:
@@ -433,6 +433,11 @@ func _drape_skirt(bone: int, blend: float) -> void:
 	var front := "skirtfront" in String(skeleton.get_bone_name(bone)).to_lower()
 	var outward := seat_right*signf(rest_pose.origin.dot(seat_right))
 	var flow := seat_forward*(0.86 if front else 0.52)+Vector3.DOWN*(0.55 if front else 0.85)
+	var segment := String(skeleton.get_bone_name(bone)).right(1).to_int()
+	if segment==0 and front:
+		flow=seat_forward*0.98+Vector3.DOWN*0.12
+	elif segment>0:
+		flow=flow.lerp(Vector3.DOWN,0.42 if segment==1 else 0.82)
 	if not front:
 		flow+=outward*0.46
 	var from := (_parent_basis(bone,true).inverse()*direction).normalized()
