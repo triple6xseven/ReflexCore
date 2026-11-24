@@ -138,6 +138,29 @@ Start-Sleep -Seconds 30
         Assert-Queue ($result.Verification -ceq 'verified' -and $result.Reason -ceq 'verified_goal') 'Verified Goal receipt was missing'
         Write-Output 'Owned UIA fixture passed independent output readback and delivered a verified queue receipt.'
     }
+    if($UiaFixture){
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class ReflexForegroundProbe
+{
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+}
+"@
+        Copy-Item -LiteralPath (Join-Path $root 'tasks/agent-background.ps1') -Destination (Join-Path $fixture 'tasks')
+        $foreground=[ReflexForegroundProbe]::GetForegroundWindow()
+        Assert-Queue ($foreground -ne [IntPtr]::Zero) 'No foreground window available for the background fixture'
+        $id=$store.Submit('agent-background',$true)
+        Wait-Queue {
+            Assert-Queue ([ReflexForegroundProbe]::GetForegroundWindow() -eq $foreground) 'Foreground changed while the background fixture ran'
+            $row=$store.Snapshot()|Where-Object Id -ceq $id
+            if($row.State -eq 'failed'){throw ('Background fixture failed: '+$row.Reason)}
+            $row.State -ceq 'completed'
+        } 'Background fixture did not finish'
+        $row=$store.Snapshot()|Where-Object Id -ceq $id
+        Assert-Queue ($row.Verification -ceq 'verified' -and $row.Task -ceq 'uia-background') 'Background receipt was not verified'
+        Write-Output 'Background UIA fixture verified disk output while the foreground window stayed unchanged at each queue poll.'
+    }
     if($AllowInput){
         foreach($file in 'ReflexCore-VisionHost.cs','ReflexCore-VisionLoop.ps1','ReflexCore-SkillMemory.ps1'){
             Copy-Item -LiteralPath (Join-Path $root ('tools/'+$file)) -Destination (Join-Path $fixture 'tools')

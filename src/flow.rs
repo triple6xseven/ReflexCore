@@ -377,11 +377,11 @@ fn demo(execute: bool) -> Result<()> {
         println!("[ReflexCore] To run against a temporary test window: flow demo --execute");
         return Ok(());
     }
-    let (fixture, hwnd) = start_fixture(None)?;
+    let (fixture, hwnd) = start_fixture(None, false)?;
     execute_flow(&flow, Some((&hwnd, fixture.0.id())))
 }
 
-fn start_fixture(save_to: Option<&Path>) -> Result<(FixtureProcess, String)> {
+fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixtureProcess, String)> {
     task_integrity::check_cancel()?;
     if fixture_window(None).is_some() {
         return Err("A ReflexCore Test Window already exists; close it before demo".into());
@@ -396,7 +396,14 @@ fn start_fixture(save_to: Option<&Path>) -> Result<(FixtureProcess, String)> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .env_remove("REFLEXCORE_FIXTURE_SAVE_PATH");
+        .env_remove("REFLEXCORE_FIXTURE_SAVE_PATH")
+        .env_remove("REFLEXCORE_FIXTURE_BACKGROUND");
+    if background {
+        use std::os::windows::process::CommandExt;
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        command.creation_flags(CREATE_NO_WINDOW.0);
+        command.env("REFLEXCORE_FIXTURE_BACKGROUND", "1");
+    }
     if let Some(path) = save_to {
         command.env("REFLEXCORE_FIXTURE_SAVE_PATH", path);
     }
@@ -478,7 +485,7 @@ fn verify_transition<T>(
     }
 }
 
-pub(crate) fn verified_demo() -> Result<()> {
+pub(crate) fn verified_demo(background: bool) -> Result<()> {
     let skills = [
         ("prepare-editor", FixtureState::Empty, FixtureState::Prepared, 0),
         ("save-document", FixtureState::Prepared, FixtureState::Saved, 2),
@@ -488,13 +495,16 @@ pub(crate) fn verified_demo() -> Result<()> {
     let _lock = FlowLock::acquire()?;
     let artifact = FixtureArtifact::new()?;
     let path = artifact.path();
-    let (fixture, hwnd) = start_fixture(Some(&path))?;
+    let (fixture, hwnd) = start_fixture(Some(&path), background)?;
     let owned = (&*hwnd, fixture.0.id());
     let flow = parse_flow(include_str!("../examples/smoke_flow.json"))?;
     let expected = flow.steps[0].value.as_deref().ok_or("Missing fixture text")?;
     let run = task_integrity::run_id();
     let mut next = 0;
     let mut action = |step: &Step| -> Result<serde_json::Value> {
+        if background && !matches!(step.action.as_str(), "set-value" | "invoke" | "assert-value") {
+            return Err(Fault::PreconditionFailed.into());
+        }
         if fixture_window(Some(owned.1)).as_deref() != Some(owned.0) {
             return Err(Fault::FocusLost.into());
         }

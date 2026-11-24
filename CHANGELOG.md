@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Add a persistent Agent execution mode with a non-activating background UIA fixture and native folder tasks.
 - Chain a verified folder check and an explicitly approved extension rename, with a run-bound Studio result and queue cancellation.
 - Record bulk extension changes in a private, timestamped journal and stop before a move if its intent cannot be logged.
 - Add a visible folder task input and previewed bulk extension changes with English and Russian commands.

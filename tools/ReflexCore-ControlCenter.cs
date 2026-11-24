@@ -28,7 +28,7 @@ namespace ReflexCore.Control
             string fixture=Path.Combine(Path.GetTempPath(),"ReflexCore-StudioQueue-"+Guid.NewGuid().ToString("N"));
             var tasks=Directory.CreateDirectory(Path.Combine(fixture,"tasks"));
             try{
-                foreach(string task in new[]{"agent-demo","notepad-save","notepad-visual","verify-handoff"})
+                foreach(string task in new[]{"agent-demo","agent-background","notepad-save","notepad-visual","verify-handoff"})
                     File.WriteAllText(Path.Combine(tasks.FullName,task+".ps1"),"");
                 using(var form=new Dashboard(root,"Agent",new ReflexCore.Bridge.QueueStore(fixture)))form.ShowStudio(true);
             }finally{Directory.Delete(fixture,true);}
@@ -157,9 +157,15 @@ namespace ReflexCore.Control
             bridgeText=Info("Bridge: waiting",18,20,680);
             bridgeText.Height=32;
             agent.Controls.Add(bridgeText);
-            AddButton(agent,"RUN AGENT DEMO",18,68,222,38,()=>RunTask("agent-demo"),true);
-            AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
-            AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
+            var executionMode=new ComboBox{Location=new Point(558,211),Width=209,DropDownStyle=ComboBoxStyle.DropDownList,
+                AccessibleName="Agent execution mode"};
+            executionMode.Items.AddRange(new object[]{"Active window","Background"});
+            string modePath=Path.Combine(root,"data","settings","agent-execution-mode.txt");
+            executionMode.SelectedIndex=testQueue==null && LoadBackgroundMode(modePath)?1:0;
+            AddButton(agent,"RUN AGENT DEMO",18,68,222,38,
+                ()=>RunTask(executionMode.SelectedIndex==1?"agent-background":"agent-demo"),true);
+            var nativeNotepad=AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
+            var visualNotepad=AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
             agent.Controls.Add(Info("Describe a folder task · English or Russian",18,112,748));
             var folderRequest=new TextBox{Location=new Point(18,144),Width=565,MaxLength=8192,
                 AccessibleName="Describe a folder task",BackColor=surface,ForeColor=text};
@@ -168,6 +174,23 @@ namespace ReflexCore.Control
             agent.Controls.Add(Info("Check README.md and docs/install.pdf.    /    Поменяй расширения всех файлов на .log",18,175,748));
             AddButton(agent,"VERIFY A HANDOFF FOLDER",18,207,260,34,SelectHandoff,false);
             AddButton(agent,"CHANGE FILE EXTENSIONS",288,207,260,34,()=>ShowExtensionRename("",""),false);
+            agent.Controls.Add(executionMode);
+            var modeHint=Info("",245,250,523);
+            modeHint.Height=30;
+            agent.Controls.Add(modeHint);
+            Action updateMode=delegate {
+                bool background=executionMode.SelectedIndex==1;
+                nativeNotepad.Enabled=visualNotepad.Enabled=!background;
+                modeHint.Text=background
+                    ?"Background: folder tasks and the owned UIA demo. Notepad requires Active window."
+                    :"Notepad tasks may activate their own test window.";
+            };
+            updateMode();
+            executionMode.SelectedIndexChanged+=delegate {
+                updateMode();
+                if(testQueue==null && !SaveBackgroundMode(modePath,executionMode.SelectedIndex==1))
+                    modeHint.Text+=" Could not save this preference.";
+            };
             agent.Controls.Add(Header("Task queue",18,250));
             var jobs=new QueueListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
                 OwnerDraw=true,BorderStyle=BorderStyle.None,
@@ -302,7 +325,7 @@ namespace ReflexCore.Control
                             string hour=DateTime.TryParseExact(row.Id.Substring(0,17),"yyyyMMddHHmmssfff",
                                 System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AssumeUniversal|System.Globalization.DateTimeStyles.AdjustToUniversal,out created)
                                 ?created.ToLocalTime().ToString("dd.MM HH:mm:ss"):"—";
-                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":row.Task=="handoff"?"Verify a handoff folder":row.Task=="rename"?"Change file extensions":"Local task";
+                            string task=row.Task=="uia-background"?"UI Automation (background)":row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":row.Task=="handoff"?"Verify a handoff folder":row.Task=="rename"?"Change file extensions":"Local task";
                             string state=row.State=="pending"?"Pending":row.State=="running"?"Running":
                                 row.State=="stopping"?"Stopping":row.State=="completed"?(row.Verification=="verified"?"Verified":"Finished without verification"):
                                 row.State=="cancelled"?(row.Verification=="unknown"?"Cancelled · effect unknown":"Cancelled"):
@@ -460,12 +483,36 @@ namespace ReflexCore.Control
         TabPage Page(string name,TabControl tabs){var p=new TabPage(name){BackColor=bg,ForeColor=text,AutoScroll=true};tabs.TabPages.Add(p);return p;}
         Label Header(string value,int x,int y){return new Label{Text=value,Font=new Font("Consolas",17,FontStyle.Bold),ForeColor=accent,Location=new Point(x,y),AutoSize=true};}
         Label Info(string value,int x,int y,int width){return new Label{Text=value,Location=new Point(x,y),Width=width,Height=62,ForeColor=muted,Font=new Font("Segoe UI",10),AutoSize=false};}
-        void AddButton(System.Windows.Forms.Control parent,string caption,int x,int y,int w,int h,Action action,bool prominent)
+        Button AddButton(System.Windows.Forms.Control parent,string caption,int x,int y,int w,int h,Action action,bool prominent)
         {
             var b=new Button{Text=caption,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,Font=new Font("Segoe UI",10,FontStyle.Bold),BackColor=prominent?Color.FromArgb(36,72,48):surface,ForeColor=prominent?accent:text};
             b.FlatAppearance.BorderColor=prominent?accent:Color.FromArgb(49,90,80);
             b.Click+=(s,e)=>{try{action();}catch(Exception exc){MessageBox.Show(exc.Message,"ReflexCore",MessageBoxButtons.OK,MessageBoxIcon.Warning);}};
             parent.Controls.Add(b);
+            return b;
+        }
+        static bool LoadBackgroundMode(string path)
+        {
+            try { return File.Exists(path) && File.ReadAllText(path).Trim()=="background"; }
+            catch(IOException) { return false; }
+            catch(UnauthorizedAccessException) { return false; }
+        }
+        static bool SaveBackgroundMode(string path,bool background)
+        {
+            var staging=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllText(staging,background?"background":"active");
+                if(File.Exists(path))File.Replace(staging,path,null);
+                else File.Move(staging,path);
+                return true;
+            } catch(IOException) { return false; }
+              catch(UnauthorizedAccessException) { return false; }
+            finally {
+                try { File.Delete(staging); }
+                catch(IOException) {}
+                catch(UnauthorizedAccessException) {}
+            }
         }
         void UpdateStatus()
         {
@@ -741,6 +788,12 @@ namespace ReflexCore.Control
             buttons["RUN AGENT DEMO"].PerformClick();
             buttons["NOTEPAD · CREATE FILE"].PerformClick();
             buttons["NOTEPAD · CHECK WITH MODEL"].PerformClick();
+            var mode=page.Controls.OfType<ComboBox>().Single(input=>input.AccessibleName=="Agent execution mode");
+            mode.SelectedIndex=1;
+            if(buttons["NOTEPAD · CREATE FILE"].Enabled || buttons["NOTEPAD · CHECK WITH MODEL"].Enabled)
+                throw new InvalidOperationException("Background mode permits a foreground-only task.");
+            buttons["RUN AGENT DEMO"].PerformClick();
+            mode.SelectedIndex=0;
             refreshQueue();
             var jobs=page.Controls.OfType<ListView>().Single();
             if(!buttons["VERIFY A HANDOFF FOLDER"].Visible || !buttons["CHANGE FILE EXTENSIONS"].Visible ||
@@ -749,7 +802,7 @@ namespace ReflexCore.Control
                 throw new InvalidOperationException("Folder actions are missing from the Agent page");
             queue.SubmitHandoff(root,Path.Combine(root,"examples","handoff-checklist.json"),Path.Combine(root,"smoke-report.json"));
             refreshQueue();
-            if(jobs.Items.Count!=4 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=4)
+            if(jobs.Items.Count!=5 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=5)
                 throw new InvalidOperationException("Queued tasks missing from Studio");
             if(jobs.Columns.Cast<ColumnHeader>().Sum(column=>column.Width)!=jobs.ClientSize.Width)
                 throw new InvalidOperationException("Queue header does not fill its viewport");

@@ -54,3 +54,11 @@ available with the Windows pointer checkbox clear.
 ## Native handoff verification
 
 [Verify a Handoff Folder](HANDOFF-FOLDER.md) runs from the CLI or the supervised Studio queue. Rust checks a typed checklist through native filesystem I/O and independently verifies the local report. The task needs zero model calls.
+
+## Agent execution mode
+
+Studio **Agent** offers **Active window** and **Background**. The preference is saved in local project settings. The default is Active window. A queued job retains its selected route. In Background, folder checks and approved renames continue through the existing native filesystem workers. **Run Agent Demo** starts a transparent, non-activating owned WinForms fixture. UI Automation targets its window handle and process ID through Value and Invoke patterns, then independently reads the saved file. The worker uses no screen capture, pointer or keyboard injection, or model calls. Both Notepad demo buttons require Active window. Changing the setting affects future submissions.
+
+The background fixture uses the current unlocked Windows session. It does not add background support to arbitrary applications or create an isolated desktop. Applications with a reliable native API or an explicitly tested UIA adapter are candidates for future background routes. Shared Control and user-defined UIA flows keep their existing foreground checks.
+
+Run `tasks/Test-Queue.ps1 -UiaFixture` after building the release executable. The test compares the foreground window at each poll and requires a verified receipt from the background fixture.

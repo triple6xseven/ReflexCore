@@ -4,7 +4,28 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
-$form = New-Object System.Windows.Forms.Form
+if ($env:REFLEXCORE_FIXTURE_BACKGROUND -ceq '1') {
+    Add-Type -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll -TypeDefinition @"
+using System.Windows.Forms;
+public sealed class ReflexNoActivateFixture : Form
+{
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override CreateParams CreateParams
+    {
+        get {
+            var parameters = base.CreateParams;
+            parameters.ExStyle |= 0x08000080; // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+            return parameters;
+        }
+    }
+}
+"@
+    $form = New-Object ReflexNoActivateFixture
+    $form.ShowInTaskbar = $false
+    $form.Opacity = 0
+} else {
+    $form = New-Object System.Windows.Forms.Form
+}
 $form.Text = 'ReflexCore Test Window'
 $form.Name = 'RcFixture'
 $form.Width = 520

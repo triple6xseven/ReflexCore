@@ -49,3 +49,4 @@
 !/tasks/Measure-TaskStop.ps1
 !/tasks/Test-ExtensionRename.ps1
 !/tasks/rename-extensions.ps1
+!/tasks/agent-background.ps1

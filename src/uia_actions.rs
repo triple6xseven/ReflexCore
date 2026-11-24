@@ -198,7 +198,10 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
     let mut wire = req.to_wire();
     wire["fixture_owner"] = json!(owner);
     wire["require_foreground"] = json!(foreground);
+    use std::os::windows::process::CommandExt;
+    use windows::Win32::System::Threading::CREATE_NO_WINDOW;
     let mut child = Command::new(std::env::current_exe()?)
+        .creation_flags(CREATE_NO_WINDOW.0)
         .arg("uia-act-worker")
         .arg(hwnd.to_string())
         .arg(&temp)

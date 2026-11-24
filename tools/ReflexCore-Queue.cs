@@ -142,6 +142,7 @@ namespace ReflexCore.Bridge
                     case "verify-handoff.ps1":return "handoff";
                     case "rename-extensions.ps1":return "rename";
                     case "agent-demo.ps1":return "uia";
+                    case "agent-background.ps1":return "uia-background";
                     case "notepad-save.ps1":return "notepad";
                     case "notepad-visual.ps1":return "visual";
                 }
@@ -205,7 +206,7 @@ namespace ReflexCore.Bridge
                 if(kind=="rename" && value.stage=="rename" && value.run_id==IdOf(claim) &&
                    value.renamed.HasValue && value.renamed.Value>=0 && value.renamed.Value<=4096 &&
                    (value.outcome=="verified" || value.outcome=="partial" || value.outcome=="cancelled" || value.outcome=="failed"))return value;
-                if(kind=="uia" && value.stage=="goal")return value;
+                if((kind=="uia" || kind=="uia-background") && value.stage=="goal")return value;
                 if((kind=="notepad" || kind=="visual") && value.stage=="notepad" && value.reason=="disk_readback")return value;
             } catch(IOException) { }
             return null;
