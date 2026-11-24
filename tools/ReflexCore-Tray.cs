@@ -646,9 +646,9 @@ namespace ReflexCore.Bridge
         private readonly QueueStore queue;
         private bool notepadActive;
         private bool cancelled;
-        private bool hotkeyRegistered;
+        private bool hotkeyRegistered, emergencyHotkeyRegistered;
         private bool exiting;
-        private DateTime shutdownUntil;
+        private DateTime shutdownUntil, lastEmergencyStopUtc;
         private bool shutdownRestart;
         internal bool RestartRequested {get;private set;}
         private string currentState;
@@ -750,6 +750,7 @@ namespace ReflexCore.Bridge
             toolsMenu.DropDownItems.Add("Open ReflexCore folder", null, delegate(object s, EventArgs e) {
                 Process.Start("explorer.exe", root);
             });
+            toolsMenu.DropDownItems.Add("Emergency stop · Ctrl+Alt+F10", null, delegate { EmergencyStopAgents(); });
             menu.Items.Add(toolsMenu);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Restart",null,(s,e)=>RequestShutdown(true));
@@ -790,6 +791,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             IntPtr hwnd = Handle;
             hotkeyRegistered = !isolated && RegisterHotKey(hwnd, HotkeyId, 0x4003u, 0x50u); // ALT+CTRL+NOREPEAT, P
             if(!isolated)RegisterHotKey(hwnd,7814,0x4003u,0x48u); // Ctrl+Alt+H
+            emergencyHotkeyRegistered = !isolated && RegisterHotKey(hwnd, 7815, 0x4003u, 0x79u);
             WriteStatus(-1);
             if(!isolated)SetHudVisible(companionHost.ClassicPreferred);
 
@@ -810,6 +812,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
 
         protected override void WndProc(ref Message m)
         {
+            if(m.Msg==WmHotkey && m.WParam.ToInt32()==7815){EmergencyStopAgents();return;}
             if(m.Msg==WmHotkey && m.WParam.ToInt32()==7814){ToggleHud();return;}
             if (m.Msg == WmHotkey && m.WParam.ToInt32() == HotkeyId)
             {
@@ -1129,6 +1132,18 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             SetState("stopping", -1, "Stop requested; terminating job tree");
         }
 
+        private void EmergencyStopAgents()
+        {
+            try {
+                string signal = Path.Combine(bridge,"global-stop.signal");
+                File.WriteAllText(signal,TimeUtc());
+                lastEmergencyStopUtc = File.GetLastWriteTimeUtc(signal);
+            }
+            catch (IOException) { SetState("error",-1,"Could not broadcast emergency stop"); }
+            catch (UnauthorizedAccessException) { SetState("error",-1,"Could not broadcast emergency stop"); }
+            StopAllJobs();
+        }
+
         private void StopAllJobs()
         {
             // These manifests belong to this tray supervisor only. Do not touch other Windows processes.
@@ -1140,6 +1155,12 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         }
         private void Pump()
         {
+            var stopAt = File.GetLastWriteTimeUtc(Path.Combine(bridge,"global-stop.signal"));
+            if (stopAt >= sessionStartedUtc && stopAt > lastEmergencyStopUtc)
+            {
+                lastEmergencyStopUtc = stopAt;
+                StopAllJobs();
+            }
             queue.CancelPending();
             if (File.Exists(controlPath))
             {
@@ -1225,6 +1246,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             tick.Stop();
             if (active != null) StopJob();
             if (hotkeyRegistered) UnregisterHotKey(Handle, HotkeyId);
+            if(emergencyHotkeyRegistered)UnregisterHotKey(Handle,7815);
             if(!isolated)UnregisterHotKey(Handle,7814);
             icon.Visible = false;
             icon.Dispose();

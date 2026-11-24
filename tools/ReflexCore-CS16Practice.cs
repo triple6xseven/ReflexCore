@@ -287,6 +287,7 @@ namespace ReflexCore.Practice
         private bool autoRoute;
         private Process controller, ownedServer;
         private string cancelFile;
+        private DateTime runStartedUtc;
         private double? readyTick;
         private uint startSequence;
         private bool waiting, cancellation, closeAfter, outputOverflow, startAttempted;
@@ -401,6 +402,7 @@ namespace ReflexCore.Practice
             if(waiting || controller!=null)return;
             try
             {
+                runStartedUtc=DateTime.UtcNow;
                 settings=PracticeSettings.Load(root);
                 autoRoute=!matchMode && mapSelection.SelectedIndex>0;
                 route=autoRoute
@@ -436,6 +438,12 @@ namespace ReflexCore.Practice
         {
             try
             {
+                if ((waiting || (controller != null && !cancellation)) &&
+                    File.GetLastWriteTimeUtc(Path.Combine(root,"data","bridge","global-stop.signal")) >= runStartedUtc)
+                {
+                    RequestStop();
+                    return;
+                }
                 if(waiting){ EnsureLiveServer(); return; }
                 if(controller==null)return;
                 if(controller.HasExited){ ControllerFinished(); return; }

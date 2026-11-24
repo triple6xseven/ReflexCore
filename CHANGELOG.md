@@ -1,3 +1,8 @@
+## Emergency stop and ReflexVision validation
+
+- Extend Ctrl+Alt+F10 to cancel supervised jobs, Shared Control, preview and managed practice runs.
+- Suspend live player inference pending verified client scene state. Add radar and HUD masking for the player worker and offline scoring for annotated frames.
+
 ## Companion window magnet and monitor edges
 
 - Expand usable window seating, add adjustable magnet strength and manual drop seating, and share visible-body bounds between dragging and release.

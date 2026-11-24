@@ -106,7 +106,12 @@ namespace ReflexCore.Vision
                 using (var independent = EventWaitHandle.OpenExisting(StopName + "_SelfTest")) independent.Set();
                 if (!stop.WaitOne(0)) throw new InvalidOperationException("Independent stop signal was not delivered.");
             }
-            return "ReflexVision self-test passed: empty scene, bounds, motion, confirmation, loss, expiry and independent stop.";
+            var pixels = Enumerable.Repeat((byte)255, 100 * 100 * 4).ToArray();
+            PlayerDetector.MaskOverlay(pixels, 100, 100);
+            if (pixels[0] != 0 || pixels[(23 * 100 + 17) * 4] != 0 || pixels[92 * 100 * 4] != 0 ||
+                pixels[(23 * 100 + 18) * 4] != 255 || pixels[91 * 100 * 4] != 255)
+                throw new InvalidOperationException("Player radar/HUD mask changed the active scene.");
+            return "ReflexVision self-test passed: bounds, tracker, radar/HUD mask and independent stop.";
         }
     }
 
@@ -218,6 +223,7 @@ namespace ReflexCore.Vision
             int width = frame.Width, height = frame.Height;
             var pixels = new byte[width * height * 4];
             Marshal.Copy(frame.Pixels, pixels, 0, pixels.Length);
+            MaskOverlay(pixels, width, height);
             pending = Task.Run(() =>
             {
                 var input = new BinaryWriter(child.StandardInput.BaseStream);
@@ -228,6 +234,16 @@ namespace ReflexCore.Vision
                 return new JavaScriptSerializer().Deserialize<double[][]>(response) ?? new double[0][];
             });
             return true;
+        }
+
+        internal static void MaskOverlay(byte[] pixels, int width, int height)
+        {
+            // Keep the original image and coordinate space for the independent HUD detector.
+            int radarBytes = width * 18 / 100 * 4;
+            for (int y = 0; y < height * 24 / 100; y++)
+                Array.Clear(pixels, y * width * 4, radarBytes);
+            int hudStart = height * 92 / 100 * width * 4;
+            Array.Clear(pixels, hudStart, pixels.Length - hudStart);
         }
 
         internal void Invalidate() { dimensions = Size.Empty; LastResult = 0; }
@@ -259,7 +275,8 @@ namespace ReflexCore.Vision
         private readonly Tracker tracker = new Tracker();
         private readonly List<Detection> detections = new List<Detection>(24);
         private readonly EventWaitHandle stop;
-        private readonly string relay;
+        private readonly string relay, globalStop;
+        private readonly DateTime startedUtc = DateTime.UtcNow;
         private readonly bool cpu;
         private readonly int samples;
         private readonly BenchmarkScene fixture;
@@ -289,7 +306,9 @@ namespace ReflexCore.Vision
         internal PreviewWindow(int pid, IntPtr hwnd, int width, bool cpuScale, int count, EventWaitHandle signal, string relayPath, BenchmarkScene synthetic, string project)
         {
             capture = new GameCapture(hwnd, (uint)pid, width, cpuScale, synthetic != null);
-            players = count == 0 && synthetic == null ? PlayerDetector.TryStart(project) : null;
+            // A loopback server and a foreground window do not prove the local client is in a match.
+            // Keep live player inference disabled until a client scene source can confirm it.
+            globalStop = synthetic == null ? Path.Combine(project, "data", "bridge", "global-stop.signal") : null;
             cpu = cpuScale; stop = signal; relay = relayPath; samples = count; fixture = synthetic;
             Text = "ReflexVision - live preview";
             TopMost = true; StartPosition = FormStartPosition.Manual;
@@ -320,7 +339,20 @@ namespace ReflexCore.Vision
 
         protected override void WndProc(ref Message message)
         {
-            if (message.Msg == 0x0312 && message.WParam.ToInt32() == StopHotkey) Close();
+            if (message.Msg == 0x0312 && message.WParam.ToInt32() == StopHotkey)
+            {
+                try
+                {
+                    if (globalStop != null)
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(globalStop));
+                        File.WriteAllText(globalStop, DateTime.UtcNow.ToString("o"));
+                    }
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                Close();
+            }
             base.WndProc(ref message);
         }
 
@@ -363,6 +395,7 @@ namespace ReflexCore.Vision
             if (stop.WaitOne(0) || (samples > 0 && clock.Elapsed.TotalSeconds > 55)) { Close(); return; }
             try
             {
+                if (globalStop != null && File.GetLastWriteTimeUtc(globalStop) >= startedUtc) { Close(); return; }
                 if (fixture != null) fixture.Advance();
                 var frameStart = Stopwatch.GetTimestamp();
                 long frameUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -420,7 +453,7 @@ namespace ReflexCore.Vision
                     Publish("live", surface, frameUnixMs);
                 if (!finalized)
                 {
-                    status.Text = (players == null ? "Color / HUD only" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
+                    status.Text = (players == null ? "Color / HUD · player scene unverified" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
                         (hotkey ? " | Ctrl+Alt+F10" : "");
                 }
             }

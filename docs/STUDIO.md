@@ -36,3 +36,5 @@ powershell.exe -NoProfile -STA -File .\tools\ReflexCore-ControlCenter.ps1 -UiSmo
 
 In one stationary Agent-page measurement, about eight seconds per build, the previous shell consumed 203 ms of process CPU and peaked at 106.6 MiB working set. WPF Studio consumed 125 ms and peaked at 160.3 MiB. The measurement includes the PowerShell host. The memory increase was 53.7 MiB. Tests covered the current Windows desktop and two window widths. Additional per-monitor DPI configurations and screen readers have not been qualified.
 
+
+See [emergency stop and the application allowlist](EMERGENCY-STOP.md).

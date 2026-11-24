@@ -4,7 +4,7 @@ ReflexVision provides a live preview for windowed Counter-Strike 1.6 and publish
 
 ## Use Studio
 
-Open **Shared Control**. **Start ReflexVision** opens a preview with purple tracks next to the local game. Labels identify tracked color and HUD regions. Bring the game into the foreground to resume capture. Leave room beside or below the window for the preview. **Stop Capture**, **Ctrl+Alt+F10**, or the PowerShell stop action ends the preview and invalidates the observation immediately. The start script checks that the selected game process owns a loopback-accessible CS 1.6 listen server with one human player.
+Open **Shared Control**. **Start ReflexVision** opens a preview with purple tracks next to the local game. Labels identify tracked color and HUD regions. Bring the game into the foreground to resume capture. Leave room beside or below the window for the preview. **Stop Capture** or the PowerShell stop action closes the preview. **Ctrl+Alt+F10** triggers [emergency stop](EMERGENCY-STOP.md). The start script checks that the selected game process owns a loopback-accessible CS 1.6 listen server with one human player.
 
 **Start Offline Plant Drill** opens a second panel with the real position of the ReflexCore player, the route and the controller's progress. The fixture launches a dedicated loopback server with no human clients. The player moves through ordinary game ticks and holds Attack with C4 equipped inside an engine-confirmed plant zone. The Rust result requires the owned actor's plant event. The panel's Stop button cancels that run. The movement display is a route view, while ReflexVision displays video from a windowed client.
 
@@ -26,9 +26,9 @@ The relay replaces data/bridge/reflexvision.json with the latest observation at 
 
 ### Player rectangles
 
-Live ReflexVision also shows visible person candidates with the optional YOLOX-Tiny worker. The capture stays in memory and inference runs locally on two CPU threads. This model detects human silhouettes, including some CS 1.6 models. It does not identify team membership or distinguish bots from human-controlled players. The player overlay is separate from the Rust match controller and its engine log scoring.
+Live capture currently shows color and HUD regions. Player inference is suspended while the client scene is unverified. The Rust relay already excludes player tracks.
 
-Place the official YOLOX-Tiny ONNX export at `%LOCALAPPDATA%/ReflexCore/vision/yolox_tiny.onnx`. Install the worker dependency with `py -3 -m pip install --target "%LOCALAPPDATA%/ReflexCore/vision/python" opencv-python-headless` from Command Prompt, or use the equivalent expanded path in PowerShell. The worker validates the release file SHA-256. Restart the preview to load it. If the worker is unavailable, the preview displays color and HUD tracks. [YOLOX official ONNX exports](https://github.com/Megvii-BaseDetection/YOLOX/tree/main/demo/ONNXRuntime)
+Place the official YOLOX-Tiny ONNX export at `%LOCALAPPDATA%/ReflexCore/vision/yolox_tiny.onnx`. Install the worker dependency with `py -3 -m pip install --target "%LOCALAPPDATA%/ReflexCore/vision/python" opencv-python-headless` from Command Prompt, or use the equivalent expanded path in PowerShell. The worker validates the release file SHA-256. The worker remains available for development. Its input masks the radar and lower HUD while preserving frame coordinates. [YOLOX official ONNX exports](https://github.com/Megvii-BaseDetection/YOLOX/tree/main/demo/ONNXRuntime)
 
 ## Repeat a measurement
 
@@ -48,3 +48,9 @@ Use an isolated Windows Valve HLDS legacy install. The tested setup uses ReHLDS 
 Create the private data/settings/cs16-practice.json. Set schema to reflexcore.cs16.practice.launcher.v1, runner_exe to the project-local release binary, mailbox to the isolated server's cstrike/addons/amxmodx/data/reflexcore directory and route to the generated waypoint JSON. Set stationary_opponent to true. Set server_exe to the isolated hlds.exe and port to its loopback port to let the panel run and close that server. Dependencies, logs, route outputs and configuration stay local.
 
 The practice fixture runs without any global keyboard or mouse input. For an independently scored run, pass the new segment of the engine log to `reflexcore cs16 benchmark <server.log> --player <userid>`.
+
+## Offline detector scoring
+
+Run `node tools/score-reflexvision.mjs <private-frame-records.jsonl>`. Each line contains a unique integer `frame`, a `scene` of `menu`, `console`, `loading`, `match`, `dead` or `spectator`, and arrays `truth` and `detections`. Match frames require an integer server `tick`. A truth box is `[x,y,width,height]` in frame pixels. A detection has `box` and a `score` between 0 and 1. Use empty truth for non-match scenes and empty corridors. The scorer uses one-to-one matches at IoU 0.50 and reports precision, recall and negative frames with detections.
+
+Prepare synchronized server ticks, frame numbers and visible ground-truth boxes before scoring. Server positions alone cannot label visible boxes without camera projection and occlusion checks. Keep datasets and recordings outside Git.
