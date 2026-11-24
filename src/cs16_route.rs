@@ -212,6 +212,10 @@ impl Navigator {
         })
     }
 
+    pub(crate) fn site(&self) -> Site {
+        self.route.site
+    }
+
     fn terminate(&mut self, decision: Decision) -> Decision {
         self.terminal = Some(decision);
         decision

@@ -1,3 +1,21 @@
+## Automatic local CS 1.6 plant routes
+
+- Discover brush bombsites from the current BSP and plan from the actual Terrorist spawn. Replan once on a stalled route.
+- Select a demolition map from the isolated server in Studio and retain the existing match baseline.
+- Record bounded, privacy-filtered movement outcomes from live GoldSrc readbacks in the existing SQLite store.
+
+## Local skill and learning experiment
+
+- Reuse the Goal Agent planner for capability-matched motion skills and keep a bounded, private replay history.
+- Train and validate a compact CPU movement policy with separate checkpoints and publish the fixed-seed comparisons.
+- Preserve the verified local CS 1.6 match as a regression baseline.
+
+## Companion hands, dress panels and stockings
+
+- Keep wrists clear of the hips during locomotion and place seated palms on the thighs or at the side for support.
+- Refit Lunar, Velvet Enchantress and Velvet Bloom skirt panels on the garment joints so they hang separately from the knees.
+- Give black stockings a readable fabric finish and contrasting welt. White stockings visibly change coverage from 5 to 40 den.
+
 ## Verified local Counter-Strike match
 
 - Add a Studio action that runs an isolated bot round, verifies the C4 plant, bot defeat, and round win, and retains a finalized HLTV replay.

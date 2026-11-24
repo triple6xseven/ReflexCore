@@ -209,6 +209,7 @@ namespace ReflexCore.Practice
         {
             route=value;
             actor=null;
+            if(value==null){Invalidate();return;}
             left=right=value.waypoints[0].x;
             bottom=top=value.waypoints[0].y;
             foreach(var point in value.waypoints)
@@ -229,7 +230,14 @@ namespace ReflexCore.Practice
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            if(route==null || ClientSize.Width<90 || ClientSize.Height<90)return;
+            if(ClientSize.Width<90 || ClientSize.Height<90)return;
+            if(route==null)
+            {
+                if(actor!=null)
+                    e.Graphics.DrawString(actor.Planted?"Engine confirmed C4":"Tracking engine position",
+                                          Font,Brushes.WhiteSmoke,18,18);
+                return;
+            }
             float scale=(float)Math.Min((ClientSize.Width-82)/Math.Max(64,right-left),(ClientSize.Height-82)/Math.Max(64,top-bottom));
             Func<double,double,PointF> project=delegate(double x,double y) {
                 return new PointF(ClientSize.Width/2f+(float)(x-(left+right)/2)*scale,
@@ -275,6 +283,8 @@ namespace ReflexCore.Practice
         private readonly Stopwatch phaseClock=new Stopwatch(), recorderClock=new Stopwatch();
         private PracticeSettings settings;
         private PracticeRoute route;
+        private readonly ComboBox mapSelection=new ComboBox {DropDownStyle=ComboBoxStyle.DropDownList,Width=180,AccessibleName="Offline demolition map"};
+        private bool autoRoute;
         private Process controller, ownedServer;
         private string cancelFile;
         private double? readyTick;
@@ -314,6 +324,7 @@ namespace ReflexCore.Practice
             }
             top.Controls.Add(start); top.Controls.Add(stop);
             if(matchMode){ top.Controls.Add(spectate); top.Controls.Add(replays); }
+            else { top.Controls.Add(mapSelection); }
             ConfigureLabel(status,FontStyle.Bold);
             ConfigureLabel(evidence,FontStyle.Regular);
             status.Text="Ready for an isolated server";
@@ -336,6 +347,31 @@ namespace ReflexCore.Practice
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            if(!matchMode)
+            {
+                mapSelection.Items.Add("Saved route");
+                mapSelection.SelectedIndex=0;
+                try
+                {
+                    var config=PracticeSettings.Load(root);
+                    if(config.MayStartServer)
+                    {
+                        string maps=Path.Combine(Path.GetDirectoryName(config.server_exe),"cstrike","maps");
+                        var files=Directory.GetFiles(maps,"de_*.bsp");
+                        Array.Sort(files,StringComparer.OrdinalIgnoreCase);
+                        foreach(string file in files)
+                        {
+                            string name=Path.GetFileNameWithoutExtension(file);
+                            if(Regex.IsMatch(name,@"\Ade_[a-z0-9_]{1,29}\z"))mapSelection.Items.Add(name);
+                            if(mapSelection.Items.Count>=257)break;
+                        }
+                    }
+                }
+                catch(InvalidDataException) {}
+                catch(ArgumentException) {}
+                catch(IOException) {}
+                catch(UnauthorizedAccessException) {}
+            }
             if(autoStart)BeginRun();
         }
 
@@ -366,13 +402,19 @@ namespace ReflexCore.Practice
             try
             {
                 settings=PracticeSettings.Load(root);
-                route=PracticeRoute.Load(settings.route);
+                autoRoute=!matchMode && mapSelection.SelectedIndex>0;
+                route=autoRoute
+                    ? new PracticeRoute {map=(string)mapSelection.SelectedItem,site="automatic"}
+                    : PracticeRoute.Load(settings.route);
+                if(autoRoute && !settings.MayStartServer)
+                    throw new InvalidOperationException("Automatic maps require the owned local practice server.");
                 if(matchMode && (route.map!="de_reflex_lab" || !settings.MayStartServer || settings.port>=65535))
                     throw new InvalidOperationException("An owned local lab is required for a match.");
                 recordStem=null;
                 consoleLog=null;
                 spectatorPort=settings.port+1;
-                plot.SetRoute(route);
+                plot.SetRoute(autoRoute?null:route);
+                mapSelection.Enabled=false;
                 readyTick=null;
                 cancellation=false;
                 startAttempted=false;
@@ -646,7 +688,7 @@ namespace ReflexCore.Practice
         private void StartController(PracticeState initial)
         {
             cancelFile=Path.Combine(Path.GetTempPath(),"rc-practice-"+Guid.NewGuid().ToString("N")+".cancel");
-            string arguments="cs16 practice "+Quote(settings.mailbox)+" "+Quote(settings.route)+" --allow-offline --cancel-file "+Quote(cancelFile);
+            string arguments="cs16 practice "+Quote(settings.mailbox)+" "+(autoRoute?"auto":Quote(settings.route))+" --allow-offline --cancel-file "+Quote(cancelFile);
             if(matchMode)arguments+=" --match";
             else if(settings.stationary_opponent)arguments+=" --stationary-opponent";
             var psi=ProcessInfo(settings.runner_exe,arguments,root);
@@ -717,6 +759,8 @@ namespace ReflexCore.Practice
                     report.map,route.site,report.total_ms/1000.0,report.navigation_ms/1000.0,report.plant_ms/1000.0));
             else if(cancellation)Finish("Practice stopped","The controller released the attempt.");
             else if(matchMode)Finish("Match not verified","The controller did not confirm the plant, bot defeat and round outcome.");
+            else if(report!=null && report.outcome=="route_planning_failed")
+                Finish("No standing route found","Try another map. Automatic mode needs Python 3 and a walkable brush bombsite.");
             else Finish("Plant not verified","The controller completed without confirmed planting evidence.");
         }
 
@@ -744,6 +788,7 @@ namespace ReflexCore.Practice
             status.Text=message;
             evidence.Text=detail;
             start.Enabled=true;
+            mapSelection.Enabled=true;
             stop.Enabled=false;
             if(closeAfter)BeginInvoke(new Action(Close));
         }

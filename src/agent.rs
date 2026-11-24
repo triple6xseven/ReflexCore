@@ -6,7 +6,7 @@
 //! Runtime reports store structural status only, never goal text or UI values.
 
 #[path = "agent_memory.rs"]
-mod memory;
+pub(crate) mod memory;
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -157,48 +157,53 @@ fn read_goal(path: &Path) -> Result<Goal> {
 // stable tie-breakers so identical inputs yield identical plans.
 fn plan(goal: &Goal) -> Result<Vec<usize>> {
     validate(goal)?;
-    if goal.initial_state == goal.goal_state {
+    let edges: Vec<_> = goal.skills.iter().map(|s| (s.id.as_str(), s.from.as_str(), s.to.as_str(), s.cost)).collect();
+    plan_edges(&goal.initial_state, &goal.goal_state, &edges)
+}
+
+pub(crate) fn plan_edges(initial: &str, target: &str, skills: &[(&str, &str, &str, u32)]) -> Result<Vec<usize>> {
+    if initial == target {
         return Ok(Vec::new());
     }
     let mut best: HashMap<String, (u64, usize)> = HashMap::new();
     let mut predecessor: HashMap<String, (String, usize)> = HashMap::new();
     let mut queue: BinaryHeap<Reverse<(u64, usize, String)>> = BinaryHeap::new();
-    best.insert(goal.initial_state.clone(), (0, 0));
-    queue.push(Reverse((0, 0, goal.initial_state.clone())));
+    best.insert(initial.to_owned(), (0, 0));
+    queue.push(Reverse((0, 0, initial.to_owned())));
 
-    let mut indexes: Vec<usize> = (0..goal.skills.len()).collect();
-    indexes.sort_by(|&left, &right| goal.skills[left].id.cmp(&goal.skills[right].id));
+    let mut indexes: Vec<usize> = (0..skills.len()).collect();
+    indexes.sort_by(|&left, &right| skills[left].0.cmp(skills[right].0));
 
     let mut outgoing: HashMap<&str, Vec<usize>> = HashMap::new();
     for index in indexes {
-        outgoing.entry(&goal.skills[index].from).or_default().push(index);
+        outgoing.entry(skills[index].1).or_default().push(index);
     }
     while let Some(Reverse((cost, hops, state))) = queue.pop() {
         if best.get(&state) != Some(&(cost, hops)) {
             continue;
         }
-        if state == goal.goal_state {
+        if state == target {
             break;
         }
         let Some(edges) = outgoing.get(state.as_str()) else { continue };
         for &index in edges {
-            let skill = &goal.skills[index];
-            let next_cost = cost + u64::from(skill.cost);
+            let (_, _, to, edge_cost) = skills[index];
+            let next_cost = cost + u64::from(edge_cost);
             let next_hops = hops + 1;
             let candidate = (next_cost, next_hops);
-            if best.get(&skill.to).is_none_or(|old| candidate < *old) {
-                best.insert(skill.to.clone(), candidate);
-                predecessor.insert(skill.to.clone(), (state.clone(), index));
-                queue.push(Reverse((next_cost, next_hops, skill.to.clone())));
+            if best.get(to).is_none_or(|old| candidate < *old) {
+                best.insert(to.to_owned(), candidate);
+                predecessor.insert(to.to_owned(), (state.clone(), index));
+                queue.push(Reverse((next_cost, next_hops, to.to_owned())));
             }
         }
     }
-    if !best.contains_key(&goal.goal_state) {
+    if !best.contains_key(target) {
         return Err("No verified skill path reaches the requested goal".into());
     }
     let mut path = Vec::new();
-    let mut cursor = goal.goal_state.as_str();
-    while cursor != goal.initial_state {
+    let mut cursor = target;
+    while cursor != initial {
         let (previous, index) = predecessor
             .get(cursor)
             .ok_or("Planner predecessor chain is incomplete")?;
@@ -349,12 +354,17 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         _ => return Err("Unknown agent command".into()),
     };
-    let mut memory = memory::Memory::open(&goal, execute_flag).unwrap_or_else(|_| {
+    let mode = crate::learning::Mode::configured()?;
+    let mut memory = (if mode.records() || mode.adapts() {
+        memory::Memory::open(&goal, execute_flag && mode.records())
+    } else {
+        Ok(None)
+    }).unwrap_or_else(|_| {
         eprintln!("[ReflexCore] Skill memory unavailable. Using manifest costs.");
         None
     });
     let mut adjusted = goal.clone();
-    if let Some(db) = &memory {
+    if let Some(db) = memory.as_ref().filter(|_| mode.adapts()) {
         if db.apply(&mut adjusted).is_err() {
             adjusted = goal.clone();
             eprintln!("[ReflexCore] Could not read skill history. Using manifest costs.");

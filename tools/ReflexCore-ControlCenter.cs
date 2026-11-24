@@ -186,7 +186,7 @@ namespace ReflexCore.Control
             AddButton(shared,"▶ OPEN CS 1.6 SHARED CONTROL LAB",18,160,746,54,()=>OpenSharedControl(),true);
             AddButton(shared,"SHOW REFLEXVISION",18,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1",""),true);
             AddButton(shared,"CLOSE REFLEXVISION",268,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1","-Action Stop"),false);
-            AddButton(shared,"START OFFLINE PLANT DRILL",518,385,246,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart"),false);
+            AddButton(shared,"OPEN OFFLINE PLANT DRILL",518,385,246,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1",""),false);
             AddButton(shared,"PLAY OFFLINE MATCH",18,450,746,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart -Match"),true);
             shared.Controls.Add(Info("Play Offline Match tracks the kill, plant and round result. ReflexVision shows purple tracks beside the windowed game.",18,517,748));
             AddButton(shared,"OPEN MATCH RECORDINGS",18,580,365,42,()=>{

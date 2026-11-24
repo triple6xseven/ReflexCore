@@ -10,6 +10,8 @@ A new demo file is created exclusively. The executor requires an empty editor, u
 
 ## Incremental learning
 
+The [local skill and learning experiment](LOCAL-SKILL-LEARNING.md) shares the Goal Agent planner and SQLite file. Its CPU-trained controller is evaluated in a separate lab command.
+
 **Goal routes.** A SQLite database under data/private is opened read-only for planning and created on first execution. The primary key identifies a SHA-256 digest of the canonical goal and a skill slot. Each learning sample also carries the SHA-256 of the bounded flow contents. A terminal assertion is required. A changed goal or flow ignores old evidence. A transaction records the outcome and evicts the least recently updated rows beyond 256. At 64 observations the counters decay together. Planning applies a bounded penalty proportional to misses divided by one plus passes. The manifest supplies the initial costs and allowed edges. A busy or unavailable database falls back to those costs. The execution report and permission checks remain authoritative for each run.
 
 **Notepad.** At most two small descriptors, one per known editor family, store the method, required permission, effect, verifier and verified count. A hit bypasses editor discovery after validating the current foreground editor. Each execution checks the actual saved file. Failed tasks do not promote a new method. The supervisor's process mutex serializes writers, and replacement is atomic. The single-record format keeps this route usable without starting a Rust child or opening SQLite.

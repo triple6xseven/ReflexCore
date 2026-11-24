@@ -13,6 +13,12 @@ mod flow;
 #[cfg(windows)]
 mod agent;
 #[cfg(windows)]
+mod learning;
+#[cfg(windows)]
+mod neural_runtime;
+#[cfg(windows)]
+mod skill_registry;
+#[cfg(windows)]
 mod unified;
 #[cfg(windows)]
 mod citadel_bridge;
@@ -345,6 +351,8 @@ fn run_task(state: &mut EngineState) -> Result<()> {
 }
 
 fn print_help() {
+    #[cfg(windows)]
+    println!("learning registry | learning models | learning experiment | learning validate <checkpoint-id>");
     println!(
         r#"
 REFLEXCORE 0.0.1
@@ -394,6 +402,11 @@ fn main() -> Result<()> {
         .first()
         .map(String::as_str)
         .unwrap_or("help");
+
+    #[cfg(windows)]
+    if command == "learning" {
+        return learning::run(&args[1..]);
+    }
 
     // Unified game coordination is a bounded, versioned CLI/stdio IPC.
     // It does not need access to the legacy demo state file.

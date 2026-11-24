@@ -1,5 +1,5 @@
 use crate::{
-    cs16_route::{Decision, Navigator, Pose, Route},
+    cs16_route::{Decision, Navigator, Pose, Route, Site, StopReason},
     Result,
 };
 use serde::Serialize;
@@ -7,7 +7,9 @@ use std::{
     cell::Cell,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
+    os::windows::process::CommandExt,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -401,20 +403,29 @@ fn practice_options(mut options: &[String]) -> Result<(bool, bool, Option<PathBu
 
 pub(crate) fn run(args: &[String]) -> Result<()> {
     let [verb, mailbox, route, consent, options @ ..] = args else {
-        return Err("Usage: cs16 practice <isolated-mailbox> <route.json> --allow-offline [--stationary-opponent|--match] [--cancel-file <file>]".into());
+        return Err("Usage: cs16 practice <isolated-mailbox> <route.json|auto> --allow-offline [--stationary-opponent|--match] [--cancel-file <file>]".into());
     };
     if verb != "practice" || consent != "--allow-offline" {
         return Err("The isolated CS 1.6 practice runner requires --allow-offline".into());
     }
     let (stationary_opponent, match_mode, cancel_file) = practice_options(options)?;
-    let route = Route::load(Path::new(route))?;
+    let fixed_route = if route == "auto" {
+        if match_mode {
+            return Err("Automatic BSP routes currently support the plant drill".into());
+        }
+        None
+    } else {
+        Some(Route::load(Path::new(route))?)
+    };
     let box_ = Mailbox::open(Path::new(mailbox), cancel_file)?;
     let started = Instant::now();
     let first = box_.wait_for(COMMAND_DEADLINE, |_| true)?;
     let mut state = box_.wait_for(COMMAND_DEADLINE, |s| {
         s.map == first.map && s.seq == first.seq && s.tick > first.tick
     })?;
-    let mut nav = Navigator::new(route, &state.map)?;
+    let nav = fixed_route
+        .map(|route| Navigator::new(route, &state.map))
+        .transpose()?;
     let mut report = Report {
         schema: "reflexcore.cs16.practice.result.v1",
         map: state.map.clone(),
@@ -433,22 +444,126 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         match_shots: 0,
         outcome: "setup_failed",
     };
-    let execution = attempt(&box_, &mut state, &mut nav, &mut report, started);
+    let mut experience = crate::learning::Mode::configured()
+        .ok()
+        .filter(|mode| mode.records())
+        .map(|_| Vec::with_capacity(512));
+    let execution = attempt(
+        &box_,
+        &mut state,
+        nav,
+        &mut report,
+        started,
+        experience.as_mut(),
+    );
     if execution.is_err() && box_.cancel_requested().unwrap_or(false) {
         report.outcome = "cancelled";
     }
     box_.stop_subject(&state);
     report.total_ms = millis(started);
+    if let Some(samples) = experience.as_ref().filter(|samples| !samples.is_empty()) {
+        if crate::agent::memory::record_motion(
+            samples,
+            None,
+            crate::skill_registry::GOLDSRC_PULSE_ID,
+        )
+        .is_err()
+        {
+            eprintln!("Could not retain local motion outcomes");
+        }
+    }
     println!("{}", serde_json::to_string_pretty(&report)?);
     execution
+}
+
+fn automatic_route(mail: &Mailbox, spawn: &State, avoid_site: Option<Site>) -> Result<Navigator> {
+    if !spawn.map.starts_with("de_") {
+        return Err("Automatic plant drills require a demolition map".into());
+    }
+    let maps = mail
+        .dir
+        .ancestors()
+        .nth(4)
+        .ok_or("Incomplete practice path")?
+        .join("maps");
+    let maps = fs::canonicalize(maps)?;
+    let file = fs::canonicalize(maps.join(format!("{}.bsp", spawn.map)))?;
+    if file.parent() != Some(maps.as_path()) {
+        return Err("BSP must be in the owned server maps directory".into());
+    }
+    let planner = Path::new("examples/plan_cs16_bsp_route.py");
+    let coordinates = spawn.pos.map(|coord| coord.to_string());
+    let mut command = Command::new("py.exe");
+    command
+        .args(["-3", "-I"])
+        .arg(planner)
+        .arg(file)
+        .args(["--auto", "--start"])
+        .args(coordinates);
+    if let Some(site) = avoid_site {
+        let site = match site {
+            Site::A => "A",
+            Site::B => "B",
+        };
+        command.args(["--resume", "--spacing", "16", "--avoid-site", site]);
+    }
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .creation_flags(0x08000000)
+        .spawn()?;
+    let pipe = child.stdout.take().ok_or("Missing BSP planner output")?;
+    let reader = thread::spawn(move || {
+        let mut result = Vec::new();
+        pipe.take(65_537).read_to_end(&mut result).map(|_| result)
+    });
+    let start = Instant::now();
+    let result: Result<std::process::ExitStatus> = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None)
+                if start.elapsed() < Duration::from_secs(24) && mail.check_cancel().is_ok() =>
+            {
+                thread::sleep(WAIT);
+            }
+            Ok(None) => break Err("BSP planning cancelled or exceeded its deadline".into()),
+            Err(error) => break Err(error.into()),
+        }
+    };
+    let status = match result {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
+    let bytes = reader.join().map_err(|_| "BSP output reader failed")??;
+    if !status.success() {
+        return Err("No supported standing route from the observed spawn to a bombsite".into());
+    }
+    // Recheck the subject after planning. The navigator still verifies the spawn anchor.
+    let current = mail.read()?;
+    if current.map != spawn.map
+        || current.id != spawn.id
+        || current.seq != spawn.seq
+        || !current.alive
+        || !current.c4
+        || current.planted
+    {
+        return Err("Practice subject changed during BSP planning".into());
+    }
+    Ok(Navigator::new(Route::parse(&bytes)?, &spawn.map)?)
 }
 
 fn attempt(
     mail: &Mailbox,
     state: &mut State,
-    nav: &mut Navigator,
+    nav: Option<Navigator>,
     report: &mut Report,
     started: Instant,
+    mut experience: Option<&mut Vec<crate::learning::Experience>>,
 ) -> Result<()> {
     if state.id == 0 {
         *state = mail.command(state, 1, None)?;
@@ -486,6 +601,12 @@ fn attempt(
     report.engine_subject_id = state.id;
     report.setup_ms = millis(started);
     let actor = state.id;
+    report.outcome = "route_planning_failed";
+    let mut can_replan = nav.is_none();
+    let mut nav = match nav {
+        Some(route) => route,
+        None => automatic_route(mail, state, None)?,
+    };
     let navigation_start = Instant::now();
     report.outcome = "route_failed";
     loop {
@@ -495,6 +616,13 @@ fn attempt(
         let yaw = state.yaw.rem_euclid(360.0);
         let pulse = match nav.step(state.pose(u64::from(state.seq))) {
             Decision::Arrived { .. } => break,
+            Decision::Stopped {
+                reason: StopReason::Stalled,
+            } if can_replan => {
+                can_replan = false;
+                nav = automatic_route(mail, state, Some(nav.site()))?;
+                continue;
+            }
             Decision::Stopped { reason } => {
                 return Err(format!("Practice route stopped: {reason:?}").into())
             }
@@ -511,7 +639,17 @@ fn attempt(
                 msec: millis.min(100) as u8,
             },
         };
-        *state = mail.command(state, MOVE, Some(pulse))?;
+        let sent = Instant::now();
+        let after = mail.command(state, MOVE, Some(pulse))?;
+        if let Some(samples) = experience
+            .as_deref_mut()
+            .filter(|samples| samples.len() < 1024)
+        {
+            if pulse.forward > 0 && after.id == actor && after.alive && after.tick > state.tick {
+                samples.push(motion_sample(state, &after, pulse.msec, millis(sent)));
+            }
+        }
+        *state = after;
         report.move_commands += 1;
         report.navigation_ms = millis(navigation_start);
     }
@@ -572,6 +710,32 @@ fn attempt(
     Err("No actor-scoped C4 plant event was observed in the local game".into())
 }
 
+fn motion_sample(
+    before: &State,
+    after: &State,
+    command_ms: u8,
+    ack_ms: u64,
+) -> crate::learning::Experience {
+    let dx = after.pos[0] - before.pos[0];
+    let dy = after.pos[1] - before.pos[1];
+    let measured = dx.hypot(dy);
+    let displacement = measured.min(64.0) as f32;
+    let verified = (0.75..=64.0).contains(&measured);
+    crate::learning::Experience {
+        environment: "cs16_offline_v1",
+        features: [
+            f32::from(command_ms),
+            ((after.tick - before.tick) * 1000.0).min(3000.0) as f32,
+            ack_ms.min(3000) as f32,
+        ],
+        action: usize::from(command_ms),
+        expected_effect: 0.75,
+        actual_effect: displacement,
+        verified,
+        reward: if verified { 1.0 } else { -1.0 },
+    }
+}
+
 fn finish_match(mail: &Mailbox, state: &mut State, report: &mut Report) -> Result<()> {
     let actor = state.id;
     let original = mail
@@ -630,6 +794,29 @@ fn finish_match(mail: &Mailbox, state: &mut State, report: &mut Report) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn motion_evidence_records_displacement_and_latency_without_positions() {
+        let mut before = State::parse(
+            "reflexcore_cs16_practice_v1 de_fixture 3 10 7 1 1 10 -2 36 -90 1 1 1 0 0 0 moved",
+        )
+        .unwrap();
+        let mut after = before.clone();
+        after.tick = 10.1;
+        let stall = motion_sample(&before, &after, 80, 91);
+        assert!(!stall.verified);
+        before.pos = [1024.0, 2048.0, 36.0];
+        after.pos = [1028.0, 2051.0, 36.0];
+        let moved = motion_sample(&before, &after, 80, 91);
+        assert!(moved.verified);
+        assert_eq!(moved.actual_effect, 5.0);
+        after.pos[0] += 1024.0;
+        assert!(!motion_sample(&before, &after, 80, 91).verified);
+        let json = serde_json::to_value(moved).unwrap();
+        assert_eq!(json["features"], serde_json::json!([80.0, 100.0, 91.0]));
+        assert!(json.get("position").is_none());
+        assert!(json.get("map").is_none());
+    }
 
     #[test]
     fn accepts_owned_cancel_marker_in_either_option_order() {
