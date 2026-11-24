@@ -53,6 +53,12 @@ Run `tasks/Test-CS16AutoRoute.ps1 -Server <owned-loopback-hlds.exe> -Map <de_map
 
 The practice fixture runs without any global keyboard or mouse input. For an independently scored run, pass the new segment of the engine log to `reflexcore cs16 benchmark <server.log> --player <userid>`.
 
+## Local experiment coach
+
+Add `-Coach` to `tasks/Test-CS16AutoRoute.ps1` to review an independently verified run after the owned server has closed. You can also call `tools/ReflexCore-CS16Coach.ps1 -BenchmarkReport <Rust benchmark JSON>` directly. The coach reads the existing SQLite pulse statistics through `reflexcore learning registry`. An optional `-VisionReport` from the scorer below is a separate dataset. Pass `-VisionScope synthetic` for test labels. The automatic drill accepts a measured vision report via `-CoachVisionReport`.
+
+Ollama receives aggregate counts only. It selects one allowed investigation, such as measuring actual shot outcomes, and has no action channel. Rust and the engine remain the authority for game evidence. Missing, malformed or unavailable model answers use the deterministic recommendation. The current version assumes the 2B Qwen model installed locally, with an optional `-Model` override on the coach script. The coach does not load a different model while another is resident.
+
 ## Offline detector scoring
 
 Run `node tools/score-reflexvision.mjs <private-frame-records.jsonl>`. Each line contains a unique integer `frame`, a `scene` of `menu`, `console`, `loading`, `match`, `dead` or `spectator`, and arrays `truth` and `detections`. Match frames require an integer server `tick`. A truth box is `[x,y,width,height]` in frame pixels. A detection has `box` and a `score` between 0 and 1. Use empty truth for non-match scenes and empty corridors. The scorer uses one-to-one matches at IoU 0.50 and reports precision, recall and negative frames with detections.

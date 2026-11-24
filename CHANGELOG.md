@@ -1,3 +1,7 @@
+## Local CS 1.6 experiment coach
+
+- Combine verified GoldSrc results, optional ReflexVision scoring and SQLite skill statistics in bounded local Ollama advice after an offline drill.
+
 ## Automatic CS 1.6 practice route recovery
 
 - Wait for a new engine round and a matching spawn observation before automatic routing.

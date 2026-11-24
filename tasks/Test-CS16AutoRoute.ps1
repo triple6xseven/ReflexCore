@@ -3,9 +3,12 @@
 param(
     [Parameter(Mandatory)][string]$Server,
     [Parameter(Mandatory)][ValidatePattern('^de_[a-z0-9_]{1,29}$')][string]$Map,
-    [ValidateRange(1024,65534)][int]$Port=27125
+    [ValidateRange(1024,65534)][int]$Port=27125,
+    [switch]$Coach,
+    [string]$CoachVisionReport
 )
 $ErrorActionPreference='Stop'
+if($CoachVisionReport -and !$Coach){throw '-CoachVisionReport requires -Coach'}
 $serverPath=(Resolve-Path -LiteralPath $Server).Path
 $lab=Split-Path -Parent $serverPath
 $root=Split-Path -Parent $PSScriptRoot
@@ -27,6 +30,7 @@ $env:REFLEX_LEARNING_MODE='off'
 $process=$null
 $console=Join-Path $lab 'qconsole.log'
 $offset=if(Test-Path -LiteralPath $console){(Get-Item -LiteralPath $console).Length}else{0}
+$coachEvidence=$null
 $log=Join-Path ([IO.Path]::GetTempPath()) ('reflex-route-'+[guid]::NewGuid().ToString('N')+'.log')
 Push-Location $root
 try{
@@ -63,6 +67,7 @@ try{
     $evidence | Write-Output
     $parsed=($evidence -join [Environment]::NewLine)|ConvertFrom-Json
     if($parsed.verified_plants -lt 1){throw 'Fresh game log did not verify a plant by the owned actor'}
+    if($Coach){$coachEvidence=$evidence -join [Environment]::NewLine}
 }finally{
     if($null -ne $process){
         if(!$process.HasExited){$process.Kill();$process.WaitForExit()}
@@ -71,4 +76,13 @@ try{
     foreach($key in $environment.Keys){[Environment]::SetEnvironmentVariable($key,$environment[$key],'Process')}
     [IO.File]::Delete($log)
     Pop-Location
+}
+if($Coach){
+    $coachInput=$log+'.json'
+    try{
+        [IO.File]::WriteAllText($coachInput,$coachEvidence)
+        $params=@{BenchmarkReport=$coachInput}
+        if($CoachVisionReport){$params.VisionReport=$CoachVisionReport}
+        & (Join-Path $root 'tools/ReflexCore-CS16Coach.ps1') @params
+    }finally{[IO.File]::Delete($coachInput)}
 }
