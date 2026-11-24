@@ -1,6 +1,9 @@
 ﻿param([switch]$SelfTest,[switch]$UiSmoke,[ValidateSet('Agent','Models','Diagnostics')][string]$InitialTab='Agent')
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $MyInvocation.MyCommand.Path -Parent) -Parent
+if (Test-Path -LiteralPath (Join-Path $root "portable.flag")) {
+    $env:REFLEXCORE_COMPANION_DIRECTORY = Join-Path $root "data/companion3d"
+}
 try {
     if (-not $SelfTest -and -not $UiSmoke) {
         try { & (Join-Path $root 'tools\Ensure-ReflexCore-Tray.ps1') }

@@ -10,7 +10,7 @@ namespace ReflexCore.Bridge
 {
     internal sealed class CompanionHost : IDisposable
     {
-        internal static readonly string DirectoryPath=Path.Combine(
+        internal static readonly string DirectoryPath=Environment.GetEnvironmentVariable("REFLEXCORE_COMPANION_DIRECTORY") ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"ReflexCore","companion3d");
         private readonly string root, commandPath;
         private readonly ActivityHud hud;
@@ -251,10 +251,16 @@ namespace ReflexCore.Bridge
             }
             string project=Path.Combine(root,"companion3d");
             string configured=InBridge("runtime-exe.txt");
-            if(!File.Exists(configured)||new FileInfo(configured).Length>2048 ||
-                !File.Exists(Path.Combine(project,"project.godot")))
+            string bundled=Path.Combine(root,"runtime","Godot.exe");
+            string executable=File.Exists(bundled)?bundled:null;
+            if(!File.Exists(Path.Combine(project,"project.godot")))
             {message="Godot runtime is not configured.";return;}
-            string executable=File.ReadAllText(configured).Trim();
+            if(executable==null)
+            {
+                if(!File.Exists(configured)||new FileInfo(configured).Length>2048)
+                {message="Godot runtime is not configured.";return;}
+                executable=File.ReadAllText(configured).Trim();
+            }
             if(executable.IndexOf('"')>=0 || !Path.IsPathRooted(executable) ||
                 !Path.GetFileName(executable).StartsWith("Godot",StringComparison.OrdinalIgnoreCase) ||
                 !Path.GetExtension(executable).Equals(".exe",StringComparison.OrdinalIgnoreCase) ||

@@ -11,7 +11,7 @@ static class WidgetSettings
 {
     const int MaxBytes = 16 * 1024;
     static readonly UTF8Encoding Utf8 = new(false, true);
-    internal static readonly string Folder = Path.Combine(
+    internal static readonly string Folder = Environment.GetEnvironmentVariable("REFLEXCORE_COMPANION_DIRECTORY") ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ReflexCore", "companion3d");
 
     internal static Dictionary<string, object> Defaults() => new()
