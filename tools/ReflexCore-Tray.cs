@@ -452,6 +452,7 @@ namespace ReflexCore.Bridge
         private long nextHostSample, nextGpuSample;
         private bool gpuBusy, releasing;
         private bool hostMetric=true,gpuMetric=true,ollamaMetric=true;
+        private bool gpuNames=true;
         private volatile TimestampedGpu gpuSample;
         private TimestampedGpu displayedGpuSample;
 
@@ -540,22 +541,28 @@ namespace ReflexCore.Bridge
             if(current!=null && now-current.Ticks>12*Stopwatch.Frequency) current=null;
             if(current==displayedGpuSample) return;
             displayedGpuSample=current;
+            RenderGpuSample();
+        }
+
+        private void RenderGpuSample()
+        {
             var rows=new List<string>();
-            if(current!=null)
-                foreach(var gpu in current.Readings) rows.Add(GpuText(gpu));
+            if(displayedGpuSample!=null)
+                foreach(var gpu in displayedGpuSample.Readings)
+                    rows.Add(GpuText(gpu,gpuNames?gpu.Name:"GPU "+(rows.Count+1).ToString(CultureInfo.InvariantCulture)));
             if(rows.Count==0) rows.Add("GPU —    VRAM —");
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
             LayoutClassic();
         }
 
-        private static string GpuText(ResourceCounters.GpuReading gpu)
+        private static string GpuText(ResourceCounters.GpuReading gpu,string name)
         {
             string load=gpu.UtilizationPercent.HasValue?gpu.UtilizationPercent.Value.ToString(CultureInfo.InvariantCulture)+"%":"—";
             string vram=gpu.UsedBytes.HasValue && gpu.TotalBytes.HasValue
                 ?String.Format(CultureInfo.InvariantCulture,"{0}/{1} MiB",gpu.UsedBytes.Value>>20,gpu.TotalBytes.Value>>20):"—";
             string shared=gpu.SharedBytes.HasValue?(gpu.SharedBytes.Value>>20).ToString(CultureInfo.InvariantCulture)+" MiB":"—";
-            return gpu.Name+" "+load+"  |  VRAM "+vram+"  |  Shared "+shared;
+            return name+" "+load+"  |  VRAM "+vram+"  |  Shared "+shared;
         }
 
         private static string FormatGib(ulong used,ulong total)

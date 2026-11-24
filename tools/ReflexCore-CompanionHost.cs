@@ -123,7 +123,8 @@ namespace ReflexCore.Bridge
             physics=Boolean(settings,"physics",true);
             fullscreenOverlay=Boolean(settings,"top",true) && Boolean(settings,"fullscreen_overlay",false);
             hud.ConfigureClassic(opacity,Boolean(settings,"classic_host",true),
-                Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true));
+                Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true),
+                Boolean(settings,"classic_gpu_names",true));
             bool revised=Boolean(settings,"app_start",false);
             if(revised!=appStart){appStart=revised;RememberCompanion(appStart);}
         }

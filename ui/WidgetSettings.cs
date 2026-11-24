@@ -23,7 +23,8 @@ static class WidgetSettings
         ["physics"] = true, ["gravity"] = 900, ["walk_speed"] = 58, ["hair"] = true,
         ["stockings"] = true, ["animate"] = true, ["bubble"] = true, ["bubble_style"] = "glass",
         ["top"] = true, ["fullscreen_overlay"] = false, ["clickthrough"] = false, ["fps"] = 30, ["poll_ms"] = 450, ["app_start"] = false,
-        ["windows_notifications"] = false, ["classic_opacity"] = 0.94, ["classic_host"] = true, ["classic_gpu"] = true, ["classic_ollama"] = true
+        ["windows_notifications"] = false, ["classic_opacity"] = 0.94, ["classic_host"] = true, ["classic_gpu"] = true,
+        ["classic_gpu_names"] = true, ["classic_ollama"] = true
     };
 
     internal static Dictionary<string, object> Read(string path)

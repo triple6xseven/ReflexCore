@@ -1,3 +1,7 @@
+## Classic Live Status
+
+- Add a setting to replace graphics card names with numbered GPU labels while retaining utilization and memory readings.
+
 ## ReflexVision capture and evaluation
 
 - Invalidate tracks on focus loss or resize, publish capture state changes immediately and slow down status text updates.

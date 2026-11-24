@@ -106,6 +106,7 @@ public sealed partial class StudioWindow
         WidgetNumber(classic, "Opacity", "classic_opacity", 40, 100, "%", 100);
         WidgetToggle(classic, "CPU & system memory", "classic_host");
         WidgetToggle(classic, "GPU & video memory", "classic_gpu");
+        WidgetToggle(classic, "Show graphics card names", "classic_gpu_names");
         WidgetToggle(classic, "Ollama throughput", "classic_ollama");
 
         var companionHost = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };

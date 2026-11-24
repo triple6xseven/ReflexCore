@@ -96,10 +96,16 @@ namespace ReflexCore.Bridge
         }
         internal void ResetWidgetPosition(){positioned=false;Reposition();SaveClassicPreferences();}
 
-        internal void ConfigureClassic(double opacity,bool host,bool gpus,bool ollama)
+        internal void ConfigureClassic(double opacity,bool host,bool gpus,bool ollama,bool showGpuNames)
         {
             if(Math.Abs(Opacity-opacity)>.01)Opacity=opacity;
             hostMetric=host;gpuMetric=gpus;ollamaMetric=ollama;
+            if(gpuNames!=showGpuNames)
+            {
+                gpuNames=showGpuNames;
+                RenderGpuSample();
+                return;
+            }
             LayoutClassic();
         }
 
