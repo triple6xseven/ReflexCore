@@ -196,6 +196,35 @@ pub(crate) fn record_motion<'a>(
     Ok(())
 }
 
+pub(crate) fn record_combat_fixture(
+    run_id: &str,
+    scenario: &str,
+    policy: &str,
+    sample: &serde_json::Value,
+) -> Result<()> {
+    let path = Path::new(DB);
+    fs::create_dir_all(path.parent().expect("fixed database path"))?;
+    let mut db = Connection::open(path)?;
+    db.busy_timeout(Duration::from_millis(100))?;
+    let tx = db.transaction()?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS combat_fixture_v1 (
+            run_id TEXT PRIMARY KEY, scenario TEXT NOT NULL, policy TEXT NOT NULL,
+            verifier TEXT NOT NULL, sample TEXT NOT NULL);",
+    )?;
+    tx.execute(
+        "INSERT INTO combat_fixture_v1 VALUES (?1, ?2, ?3, 'goldsrc_weapon_trace_v1', ?4)",
+        params![run_id, scenario, policy, serde_json::to_string(sample)?],
+    )?;
+    tx.execute(
+        "DELETE FROM combat_fixture_v1 WHERE rowid IN
+         (SELECT rowid FROM combat_fixture_v1 ORDER BY rowid DESC LIMIT -1 OFFSET 256)",
+        [],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

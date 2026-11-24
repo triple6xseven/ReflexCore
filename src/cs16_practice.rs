@@ -14,6 +14,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "cs16_combat_fixture.rs"]
+pub(crate) mod combat_fixture;
+
 const MOVE: u8 = 2;
 const STOP: u8 = 3;
 const PLANT_BUTTON: u8 = 1;

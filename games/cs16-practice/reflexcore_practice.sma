@@ -28,11 +28,23 @@ new Float:g_defender_origin[3], Float:g_defender_distance;
 new Float:g_bomb_position[3], Float:g_target_yaw, Float:g_target_pitch;
 new Float:g_last_shot;
 new g_map[49], g_directory[192], g_command[224], g_state[224], g_staging[224];
+new g_fixture, g_fixture_policy, g_fixture_reserve, g_fixture_attack_event;
+new bool:g_fixture_placed, bool:g_fixture_dispatching, bool:g_fixture_terminal, bool:g_fixture_stopped;
+new g_fixture_cmd, g_fixture_primary, g_fixture_event, g_fixture_before, g_fixture_after;
+new g_fixture_health_before, g_fixture_health_after;
+new Float:g_fixture_player_timer, Float:g_fixture_weapon_timer, Float:g_fixture_at;
+new Float:g_fixture_origin[3];
+new g_fixture_reason[30] = "waiting";
 new g_status[16] = "ready";
+
+public plugin_precache()
+{
+    g_fixture_attack_event = engfunc(EngFunc_PrecacheEvent, 1, "events/ak47.sc");
+}
 
 public plugin_init()
 {
-    register_plugin("ReflexCore CS16 Practice", "1.2", "ReflexCore");
+    register_plugin("ReflexCore CS16 Practice", "1.3", "ReflexCore");
     g_enabled = register_cvar("rc_practice_enabled", "0");
     g_max_clients = get_maxplayers();
     get_mapname(g_map, charsmax(g_map));
@@ -44,6 +56,9 @@ public plugin_init()
     register_event("HLTV", "new_round", "a", "1=0", "2=0");
     register_logevent("round_started", 2, "1=Round_Start");
     register_logevent("round_closed", 2, "1=Round_End");
+    RegisterHam(Ham_Weapon_PrimaryAttack, "weapon_ak47", "fixture_primary");
+    register_forward(FM_CmdStart, "fixture_command");
+    register_forward(FM_PlaybackEvent, "fixture_playback", 1);
     RegisterHam(Ham_Killed, "player", "match_death", 1);
     register_event("SendAudio", "terrorist_win", "a", "2=%!MRAD_terwin");
     set_task(0.10, "practice_tick", RC_TICK, "", 0, "b");
@@ -112,6 +127,13 @@ bool:c4_equipped()
 public new_round()
 {
     g_round_generation++;
+    if (g_fixture)
+    {
+        g_fixture_placed = false;
+        g_fixture_terminal = false;
+        g_fixture_stopped = false;
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "waiting");
+    }
     g_round_closed = false;
     g_actor_died = false;
     g_bot_visible = false;
@@ -136,6 +158,8 @@ public round_started()
     }
     if (g_adversarial && owns_actor(g_passive_ct, g_passive_userid))
         pev(g_passive_ct, pev_origin, g_defender_origin);
+    if (g_fixture)
+        place_fixture();
 }
 
 public round_closed()
@@ -209,7 +233,10 @@ public practice_tick()
         copy(g_status, charsmax(g_status), "ready");
     }
 
-    advance_defender();
+    if (g_fixture)
+        advance_fixture();
+    else
+        advance_defender();
     if (file_exists(g_command))
         read_command();
     publish_state();
@@ -273,6 +300,11 @@ read_command()
 
     g_sequence = sequence;
     new operation = str_to_num(parts[1]);
+    if (g_fixture_stopped && operation != 3)
+    {
+        copy(g_status, charsmax(g_status), "rejected");
+        return;
+    }
     if (g_adversarial && (operation == 2 || operation == 4 || operation == 8 || operation == 9)
         && (count != 8 || !g_round_live || g_round_closed || str_to_num(parts[7]) != g_round_generation))
     {
@@ -290,7 +322,7 @@ read_command()
         copy(g_status, charsmax(g_status), "rejected");
         return;
     }
-    if (operation != 2 && (yaw != 0.0 || forward_speed != 0.0 || side_speed != 0.0 || buttons || millis))
+    if (operation != 2 && operation != 0 && (yaw != 0.0 || forward_speed != 0.0 || side_speed != 0.0 || buttons || millis))
     {
         copy(g_status, charsmax(g_status), "rejected");
         return;
@@ -298,6 +330,14 @@ read_command()
 
     switch (operation)
     {
+        case 0:
+        {
+            if (yaw == 0.0 && forward_speed == 0.0 && side_speed == 0.0 &&
+                count == 7 && (buttons == 0 || buttons == 1) && millis >= 1 && millis <= 6 &&
+                configure_fixture(millis, buttons))
+                copy(g_status, charsmax(g_status), "match_ct");
+            else copy(g_status, charsmax(g_status), "rejected");
+        }
         case 1:
         {
             if (owns_subject() || add_subject())
@@ -314,6 +354,7 @@ read_command()
         }
         case 3:
         {
+            if (g_fixture) g_fixture_stopped = true;
             if (owns_subject() && is_user_alive(g_subject))
                 run_neutral_tick(g_subject);
             copy(g_status, charsmax(g_status), "stopped");
@@ -376,7 +417,12 @@ read_command()
         }
         case 9:
         {
-            if (g_adversarial)
+            if (g_fixture)
+            {
+                fixture_shot();
+                copy(g_status, charsmax(g_status), g_fixture_after < g_fixture_before ? "fired" : "no_shot");
+            }
+            else if (g_adversarial)
             {
                 new shots_before = g_shots;
                 match_shot();
@@ -632,6 +678,8 @@ publish_state()
         RC_SCHEMA, g_map, g_sequence, snapshot_tick, userid, alive, team, point[0], point[1], point[2],
         angles[1], c4, zone, armed, g_planted, g_t_won, ct_bots, g_status);
     publish_round_state(snapshot_tick);
+    if (g_fixture)
+        publish_fixture(snapshot_tick);
     if (g_match)
     {
         // Companion file keeps the v1 route/debug consumers compatible.
@@ -674,4 +722,184 @@ publish_round_state(Float:snapshot_tick)
     if (file_exists(path) && !delete_file(path))
         return;
     rename_file(staging, path, 1);
+}
+
+bool:configure_fixture(scenario, policy)
+{
+    if (!equal(g_map, "de_reflex_lab") || g_match || g_passive_ct || !owns_subject())
+        return false;
+    g_passive_ct = add_fake_client(RC_MATCH_CT, "2");
+    g_passive_userid = g_passive_ct > 0 ? get_user_userid(g_passive_ct) : 0;
+    if (!owns_actor(g_passive_ct, g_passive_userid))
+        return false;
+    if (scenario == 3)
+    {
+        // A reserve CT keeps normal round rules active when the observed subject is friendly.
+        g_fixture_reserve = add_fake_client("ReflexCore Lab Reserve", "2");
+        if (g_fixture_reserve <= 0)
+            return false;
+    }
+    g_fixture = scenario;
+    g_fixture_policy = policy;
+    g_match = true;
+    g_adversarial = true;
+    return true;
+}
+
+place_fixture()
+{
+    if (!owns_subject() || !is_user_alive(g_subject) ||
+        !owns_actor(g_passive_ct, g_passive_userid) || !is_user_alive(g_passive_ct))
+        return;
+    new Float:actor[3] = { -400.0, -224.0, 40.0 };
+    new Float:target[3] = { -400.0, -64.0, 40.0 };
+    if (g_fixture == 4 || g_fixture == 6)
+    {
+        target[0] = 300.0;
+        target[1] = g_fixture == 6 ? -140.0 : -224.0;
+    }
+    if (g_fixture == 5)
+    {
+        target[0] = -324.0;
+        target[1] = 105.0;
+    }
+    if (g_fixture == 3)
+        cs_set_user_team(g_passive_ct, CS_TEAM_T);
+    engfunc(EngFunc_SetOrigin, g_subject, actor);
+    engfunc(EngFunc_SetOrigin, g_passive_ct, target);
+    g_fixture_origin[0] = target[0];
+    g_fixture_origin[1] = target[1];
+    g_fixture_origin[2] = target[2];
+    g_fixture_before = g_fixture_after = -1;
+    g_fixture_health_before = g_fixture_health_after = -1;
+    g_fixture_cmd = g_fixture_primary = g_fixture_event = 0;
+    g_fixture_at = 0.0;
+    g_fixture_placed = true;
+}
+
+advance_fixture()
+{
+    if (g_fixture_stopped)
+        return;
+    if (!g_fixture_placed && g_round_live)
+        place_fixture();
+    if (!g_fixture_placed || !g_round_live || g_round_closed || g_fixture_terminal)
+        return;
+    if ((g_fixture == 2 || g_fixture == 5) && owns_actor(g_passive_ct, g_passive_userid) && is_user_alive(g_passive_ct))
+    {
+        new Float:angles[3], Float:point[3];
+        pev(g_passive_ct, pev_origin, point);
+        angles[1] = point[1] < 235.0 ? 90.0 : 270.0;
+        engfunc(EngFunc_RunPlayerMove, g_passive_ct, angles, 105.0, 0.0, 0.0, 0, 0, 95);
+    }
+    // Fake clients need ordinary neutral commands to advance their weapon timers.
+    if (g_fixture_policy && owns_subject() && is_user_alive(g_subject) && active_weapon(g_subject) == CSW_AK47)
+    {
+        new Float:angles[3];
+        pev(g_subject, pev_v_angle, angles);
+        engfunc(EngFunc_RunPlayerMove, g_subject, angles, 0.0, 0.0, 0.0, 0, 0, 95);
+    }
+}
+
+public fixture_command(actor, command, seed)
+{
+    if (g_fixture_dispatching && actor == g_subject && (get_uc(command, UC_Buttons) & IN_ATTACK))
+        g_fixture_cmd++;
+}
+
+public fixture_primary(weapon)
+{
+    if (g_fixture_dispatching && pev(weapon, pev_owner) == g_subject)
+        g_fixture_primary++;
+}
+
+public fixture_playback(flags, actor, event_index)
+{
+    if (g_fixture_dispatching && actor == g_subject && event_index == g_fixture_attack_event)
+        g_fixture_event++;
+}
+
+fixture_shot()
+{
+    if (g_fixture_terminal)
+        return;
+    g_fixture_terminal = true;
+    g_fixture_at = get_gametime();
+    if (!g_fixture_placed || !g_round_live || !owns_subject() || !is_user_alive(g_subject) ||
+        !owns_actor(g_passive_ct, g_passive_userid) || !is_user_alive(g_passive_ct))
+    {
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "identity_changed");
+        return;
+    }
+    new Float:angles[3];
+    if (cs_get_user_team(g_passive_ct) == cs_get_user_team(g_subject))
+    {
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "friendly_target");
+        return;
+    }
+    if (!target_angles(g_subject, g_passive_ct, angles))
+    {
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "occluded_target");
+        return;
+    }
+    new weapon = get_ent_data_entity(g_subject, "CBasePlayer", "m_pActiveItem");
+    if (pev_valid(weapon) != 2 || cs_get_weapon_id(weapon) != CSW_AK47)
+    {
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "wrong_weapon");
+        return;
+    }
+    g_fixture_before = g_fixture_after = cs_get_weapon_ammo(weapon);
+    g_fixture_health_before = g_fixture_health_after = get_user_health(g_passive_ct);
+    if (g_fixture_before <= 0)
+    {
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "empty_clip");
+        return;
+    }
+    engfunc(EngFunc_RunPlayerMove, g_subject, angles, 0.0, 0.0, 0.0, 0, 0, 20);
+    g_fixture_player_timer = get_ent_data_float(g_subject, "CBaseMonster", "m_flNextAttack");
+    g_fixture_weapon_timer = get_ent_data_float(weapon, "CBasePlayerWeapon", "m_flNextPrimaryAttack");
+    g_fixture_dispatching = true;
+    engfunc(EngFunc_RunPlayerMove, g_subject, angles, 0.0, 0.0, 0.0, IN_ATTACK, 0, 80);
+    g_fixture_dispatching = false;
+    g_fixture_after = cs_get_weapon_ammo(weapon);
+    g_fixture_health_after = get_user_health(g_passive_ct);
+    if (g_fixture_after < g_fixture_before)
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "clip_decreased");
+    else if (g_fixture_player_timer > 0.080 || g_fixture_weapon_timer > 0.080)
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "weapon_timer_active");
+    else if (!g_fixture_primary)
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "primary_not_observed");
+    else
+        copy(g_fixture_reason, charsmax(g_fixture_reason), "primary_without_discharge");
+}
+
+publish_fixture(Float:snapshot)
+{
+    new path[224], staging[224];
+    formatex(path, charsmax(path), "%s/fixture-state.txt", g_directory);
+    formatex(staging, charsmax(staging), "%s/fixture-staging.txt", g_directory);
+    new file = fopen(staging, "wt");
+    if (!file)
+        return;
+    new Float:distance, Float:deploy = -1.0, Float:target[3];
+    new team, weapon;
+    if (g_fixture_placed && owns_actor(g_passive_ct, g_passive_userid))
+    {
+        team = _:cs_get_user_team(g_passive_ct);
+        pev(g_passive_ct, pev_origin, target);
+        distance = get_distance_f(target, g_fixture_origin);
+    }
+    if (g_fixture_placed && owns_subject() && is_user_alive(g_subject))
+    {
+        weapon = active_weapon(g_subject);
+        deploy = get_ent_data_float(g_subject, "CBaseMonster", "m_flNextAttack");
+    }
+    fprintf(file, "reflexcore_cs16_fixture_v1 %d %d %d %d %.6f %d %d %d %d %.6f %.6f %s %d %d %d %d %d %d %d %d %.6f %.6f %.6f %.6f %.6f^n",
+        g_fixture, g_fixture_policy, g_sequence, g_round_generation, snapshot, g_fixture_placed, g_passive_userid,
+        team, weapon, deploy, distance, g_fixture_reason, g_fixture_before, g_fixture_after, g_fixture_cmd,
+        g_fixture_primary, g_fixture_event, g_hits, g_fixture_health_before, g_fixture_health_after,
+        g_fixture_player_timer, g_fixture_weapon_timer, g_fixture_at, target[0], target[1]);
+    fclose(file);
+    if (!file_exists(path) || delete_file(path))
+        rename_file(staging, path, 1);
 }

@@ -23,6 +23,7 @@
 !/tasks/Measure-Diagnostics.ps1
 !/tasks/Measure-StudioShell.ps1
 !/tasks/Test-Citadel.ps1
+!/tasks/Test-CS16CombatFixture.ps1
 !/tasks/Test-CS16AutoRoute.ps1
 !/tasks/Test-NotepadSkill.ps1
 !/tasks/Test-SkillMemory.ps1

@@ -240,3 +240,43 @@ The separate active-round stop reached a cancelled outcome after one acknowledge
 One local zxcLagLab release presence check matched all four configured files. The queue receipt and independent report agreed on the run ID and Ready verdict. The Rust worker took 20.661 ms, including 8.110 ms for readback. Worker startup took 428.860 ms. Peak worker private memory was 1,232,896 bytes. Zero model calls and zero checksum bytes were recorded. Single-run figures do not estimate tail latency or validate the executable itself.
 
 Two owned Dust II attempts exercised the MCP evidence publisher. The older installed plugin rejected setup; the record reported infrastructure failure and a null winner. After temporarily installing the current compiled plugin, the log confirmed one closed Terrorist win and plant. The controller recorded one contact, one shot request, zero actor discharges, and zero hits. Observation p95 was 2,876 microseconds across 2,607 samples. This pilot measured evidence reporting and did not demonstrate improved combat.
+
+## Offline AK-47 combat fixture
+
+Windows 11 Pro, Ryzen 5 4600H, 8 GB installed RAM. Owned HLDS file version 4.1.1.1, AMX Mod X 1.10.0.5488, practice plugin 1.3. The suite used an identical server, GameDLL, BSP and candidate adapter binary for baseline and candidate. Initial spawn positions were pinned. Engine RNG and scheduling were uncontrolled.
+
+Final suite ID `961f3f4b64ca4459ab3df4c1c3c795c2`. Digest provenance is recorded in its private suite header. Published build SHA-256 values:
+
+| Component | SHA-256 |
+| --- | --- |
+| core | `ff9fef4d6af64924ec81d436d1f4c3a8e564ec3f34c8ddd6e8a7653d17b2ed88` |
+| plugin | `93342945a403622f9183670f42b463d2743f6429b052962a91b3e846894aaa43` |
+| server | `bd5b37ec60301ff243beb114cbb69bf5213cbc3330496226558df912349ac96d` |
+| game_dll | `1de43e39dc9b085d5b0fe7920c520a319a8244532835c9ef7a4f5da930bace54` |
+| map | `6f125d6509ffc60d635a804abe64275b11a90e950abf66f51f591e3c86285163` |
+
+Times measure dispatch through mailbox acknowledgement. They exclude the deploy wait and capture-to-decision latency. The separately reported observation age is engine snapshot to request acceptance.
+
+| Scenario | Policy | Run ID | Result | Requests | Discharges | Damage events | Selection errors | Request to ack (ms) |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| stationary | baseline | `26b9dc465db24c089cdd5b214247ce74` | weapon_timer_active | 1 | 0 | 0 | 0 | 109.837 |
+| stationary | candidate | `08cd5b2bb8d64e9eaa832af82cc39dd9` | clip_decreased | 1 | 1 | 0 | 0 | 114.644 |
+| moving | baseline | `cc2f9cb436de49d3a39a5fe11327d3cf` | weapon_timer_active | 1 | 0 | 0 | 0 | 109.898 |
+| moving | candidate | `d046f6a45ee14221a3644f21f8f950a2` | clip_decreased | 1 | 1 | 0 | 0 | 113.153 |
+| friendly | baseline | `f49e6f848b83447da7a5b9b1e527961d` | friendly_target | 1 | 0 | 0 | 0 | 109.538 |
+| friendly | candidate | `ea166a3979c84a2dab2906fda83cc6bd` | friendly_target | 1 | 0 | 0 | 0 | 110.033 |
+| occluded | baseline | `36c0692ee73048f78af9c0074a9a3881` | occluded_target | 1 | 0 | 0 | 0 | 110.391 |
+| occluded | candidate | `a91e3936870f4d2d9c42a084c83d126e` | occluded_target | 1 | 0 | 0 | 0 | 110.435 |
+| heldout_moving | baseline | `312edbccf38e472bacdfd0861042c9ca` | weapon_timer_active | 1 | 0 | 0 | 0 | 111.722 |
+| heldout_moving | candidate | `e42dadfbc2c24eebb6c6f0b74649233d` | clip_decreased | 1 | 1 | 0 | 0 | 110.133 |
+| heldout_occluded | baseline | `3434d563457d4fe0823ff8163d741e03` | occluded_target | 1 | 0 | 0 | 0 | 109.821 |
+| heldout_occluded | candidate | `c21f687f18574068bb09b52f4e7d48bb` | occluded_target | 1 | 0 | 0 | 0 | 110.495 |
+| stationary | candidate | `f7a720d0350b4dabb62456a020e178ec` | cancel_barrier | 0 | — | — | — | — |
+
+Nearest-rank request-to-ack p50/p95 were 109.837/111.722 ms for baseline and 110.435/114.644 ms for candidate, with six samples each. Observation-age p50/p95 were 110.134/112.136 ms and 110.434/112.561 ms, respectively. All reported measurements exceeded their clock resolution. The peak sampled controller working set was 8.43 MiB, excluding the server, plugin, and other processes. The fixture made zero model calls.
+
+All three eligible baseline probes reached CmdStart while the actor-side attack timer still had 730 ms remaining. None reached PrimaryAttack. All three eligible candidate probes reached PrimaryAttack and produced one matching clip decrement and playback event. One was a held-out moving variation. Both policies rejected every friendly and occluded probe before issuing attack input. No damage events or target health loss were observed. Neutral ticks add deployment time, so moving targets were farther from their starting positions in candidate runs. The result establishes discharge behavior on this fixture, with no evidence of improved accuracy or visual target recognition.
+
+The accepted cancellation probe produced zero attack requests and verified the engine state after the neutral cleanup command. Nine corroborated observations from this suite were saved in the bounded SQLite fixture table. Prior iterations totaled 30 attempts: two setup timeouts from an incorrect gamedata class, two completed stationary pilots, one 12-case suite and a stop that arrived before the intended barrier, and one 12-case suite with a confirmed stop before the adapter stop latch was added. Those iterations remain outside the final-suite statistics.
+
+Separate regression runs confirmed a plant, kill, and win on the original saved route in de_reflex_lab, and a plant on Dust II Plant Drill. A fresh Codex CLI session called get_combat_run for a stationary baseline run and correctly diagnosed the active 730 ms player timer and zero discharges. MCP comparison agreed with the final stationary pair.

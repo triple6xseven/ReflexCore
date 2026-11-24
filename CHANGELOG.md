@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Add a paired offline AK-47 fixture with run-bound weapon evidence, cancellation checks, and read-only MCP comparison.
 - Discover saved release checks in Codex, show approval context in Studio, and publish redacted offline lab outcomes through MCP.
 - Add a local MCP server for skill discovery and approved handoff checks, with scope and enable controls in the Studio sidebar.
 - Add a themed Studio skill library with read-only SQLite movement statistics and an installation picker.

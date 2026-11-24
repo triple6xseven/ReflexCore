@@ -81,3 +81,24 @@ In Studio, choose **Shared Control > Browse match replays**. The list scans the 
 Practice plugin 1.2 checks that the controlled actor and visible target are on opposing teams before generating target angles. The adapter rechecks identity, life state, weapon and line of sight at the attack command. In the adversarial fixture, a clip decrement produces fired; an accepted request without a decrement produces no_shot. The legacy saved-route fixture keeps its original command behavior. This is server-provided target evidence. The defender still uses direct movement and may get blocked by map geometry.
 
 Use `-PublishMcpSummary` with an automatic offline match to expose its redacted outcome through the local MCP server. The published record carries the run ID and separate counts for contact, shot requests, confirmed discharges, and damage events. Round verdict fields are null until the fresh log confirms a completed round. The `--require-completed-round` scorer mode accepts a completed loss without a plant. Plant Drill and the original saved-route scorer retain the plant requirement.
+
+
+## Offline combat fixture
+
+The synthetic de_reflex_lab geometry provides a straight lane and a solid divider. The fixture positions two owned fake clients and equips an AK-47. Its success criterion is an observed attack outcome. It sends no plant commands. The base suite includes stationary, moving, friendly, occluded, heldout_moving and heldout_occluded scenarios. The held-out scenarios change distance or angle. The harness pins initial positions, but the engine RNG and scheduling are not controlled. The private suite header records hardware and SHA-256 for the server, GameDLL, BSP, controller and plugin.
+
+The baseline reuses the release-plus-attack pair of engine commands after equipping. The candidate runs ordinary neutral player moves once per practice tick while waiting for the weapon to deploy. Both issue at most one attack probe. The friendly and occluded probes test rejection before any attack input reaches the engine. A separate cancellation trial waits for a run-specific ready marker, sends cancellation, exercises the dispatch guard and reads the engine state after the neutral cleanup command.
+
+The one-action trace binds the mailbox sequence, round generation, scenario, and same-tick snapshot. It records actor-side and weapon-side timers, CmdStart attack callbacks, the Ham PrimaryAttack hook, AK-47 playback, clip readback, CSX damage and target health. Clip consumption and playback must agree to count a discharge. The target's health is a separate readback. The reported reaction timer measures request dispatch through mailbox acknowledgement. Observation age uses the engine tick on the sampled state and the engine tick at acceptance. Neither represents camera-frame or visual-perception latency.
+
+Useful upstream references are the [AK-47 primary attack and playback implementation](https://github.com/rehlds/ReGameDLL_CS/blob/master/regamedll/dlls/wpn_shared/wpn_ak47.cpp), the [AMX Mod X Ham hook contract](https://github.com/alliedmodders/amxmodx/blob/master/plugins/include/ham_const.inc), and the [Fakemeta engine interface](https://github.com/alliedmodders/amxmodx/blob/master/plugins/include/fakemeta_const.inc). The installed AMXX gamedata locates the player timer in CBaseMonster. The measured Windows Lab confirms that a native attack command can reach CmdStart while the player timer still prevents PrimaryAttack. It also confirms that PrimaryAttack can produce clip consumption and playback without damaging the target.
+
+~~~powershell
+cargo build --release --locked
+# Compile games/cs16-practice/reflexcore_practice.sma with the lab's AMX Mod X compiler.
+.\tasks\Test-CS16CombatFixture.ps1 -Server <owned-hlds.exe> -Plugin <compiled-amxx> -EvidenceDirectory <empty-private-folder> -PublishMcpSummary -Remember
+~~~
+
+The harness temporarily loads the explicitly supplied plugin and restores the previous binary. Use a dedicated owned server folder. The fixture checks the exact loopback process and holds the Rust mailbox lock during execution. MCP exposes redacted read-only trial summaries through list_combat_runs and get_combat_run. compare_combat_runs accepts only completed baseline and candidate trials from the same suite and scenario. The plugin documents these tools for Codex after a session reload. None of the tools exposes combat actions.
+
+-Remember records only corroborated discharge samples and correct friendly or occluded rejections in the existing SQLite database. The fixture uses a separate bounded table and honors Learning Off. Timeout, cancellation and no-discharge timer failures remain in benchmark data. No recorded sample activates a policy or trains weights.

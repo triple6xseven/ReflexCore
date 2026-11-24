@@ -14,6 +14,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         Some("probe") => cs16_probe::run(args),
         Some("vision") => crate::vision::run(args),
         Some("practice") => crate::cs16_practice::run(args),
+        Some("combat-fixture") => crate::cs16_practice::combat_fixture::run(args),
         Some("demo") if args.len() == 2 => inspect_demo(Path::new(&args[1])),
         Some("route-check") if args.len() == 3 => check_route(Path::new(&args[1]), Path::new(&args[2])),
         Some("route-draft") if args.len() == 5 => {

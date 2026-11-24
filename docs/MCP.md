@@ -47,3 +47,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tasks\Test-Handoff.ps1
 ```
 
 The fixture covers stdio initialization, tool discovery, the off switch, scope rejection, saved presets, approval, edited-checklist rejection, independent report readback, typed receipts, cancellation before execution and rejection of foreign lab summaries.
+
+For the owned combat fixture, use list_combat_runs for discovery, get_combat_run for a diagnosis by run ID, and compare_combat_runs for compatible pairs. The returned evidence separates command delivery, primary attack, discharge, and damage. See [the fixture and reproduction commands](CS16-BENCHMARK.md#offline-combat-fixture).

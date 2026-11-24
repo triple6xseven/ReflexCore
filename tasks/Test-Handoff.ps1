@@ -120,7 +120,7 @@ try{
             $hello=Invoke-Mcp 'initialize' @{protocolVersion='2025-06-18';capabilities=@{};clientInfo=@{name='test';version='1'}}
             Require ($hello.serverInfo.name -eq 'reflexcore') 'MCP server identity not found'
             Invoke-Mcp 'notifications/initialized' @{} -Notification
-            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 7) 'Wrong MCP tools'
+            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 10) 'Wrong MCP tools'
             Require ((Invoke-Tool 'list_skills' @{}).isError) 'MCP did not honor the off switch'
             [IO.File]::WriteAllText((Join-Path $settings 'mcp.enabled'),'on')
             Require (((Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json).skills.Count -gt 0) 'MCP skill catalog is empty'
@@ -166,6 +166,24 @@ try{
                 $runs[0].shot_requests -eq 1 -and $runs[0].discharges -eq 0 -and
                 $null -eq $runs[0].win -and !$runs[0].PSObject.Properties['private_path']) 'Invalid or private lab evidence escaped the adapter'
 
+            $combat=Join-Path $fixture 'data/private/mcp-combat'
+            [void][IO.Directory]::CreateDirectory($combat)
+            $baselineId='3'*32;$candidateId='4'*32
+            $record=@{schema='reflexcore.lab.combat.v1';map='de_reflex_lab';run_id=$baselineId;suite_id=('5'*32);
+                scenario='stationary';policy='baseline';termination='completed';reason='weapon_timer_active';
+                verifier='goldsrc_weapon_trace_v1';attacker_requests=1;discharges=0;playback_events=0;
+                action_id=5;generation=1;reaction_us=100;observation_age_ms=10;damage_events=0;model_calls=0;
+                memory_status='ineligible';private_path='hidden'}
+            [IO.File]::WriteAllText((Join-Path $combat ($baselineId+'.json')),($record|ConvertTo-Json -Compress))
+            $record.run_id=$candidateId;$record.policy='candidate';$record.reason='clip_decreased'
+            $record.discharges=1;$record.playback_events=1
+            [IO.File]::WriteAllText((Join-Path $combat ($candidateId+'.json')),($record|ConvertTo-Json -Compress))
+            $compare=@{baseline_run_id=$baselineId;candidate_run_id=$candidateId}
+            $paired=(Invoke-Tool 'compare_combat_runs' $compare).structuredContent
+            Require ($paired.discharge_change -eq 1 -and $paired.damage_event_change -eq 0 -and !$paired.candidate.PSObject.Properties['private_path']) 'Combat comparison lost outcome or exposed private data'
+            $record.suite_id='6'*32
+            [IO.File]::WriteAllText((Join-Path $combat ($candidateId+'.json')),($record|ConvertTo-Json -Compress))
+            Require ((Invoke-Tool 'compare_combat_runs' $compare).isError) 'MCP combined incompatible combat trials'
             $argsForCheck=@{project='reflexcore';folder='folder';checklist='checklist.json';report='mcp-report.json'}
             $outside=@{project='zxclaglab';folder='..';checklist='checklist.json';report='mcp-report.json'}
             Require ((Invoke-Tool 'submit_handoff_check' $outside).isError) 'MCP accepted a path outside the scope'

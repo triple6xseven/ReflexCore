@@ -133,7 +133,7 @@ namespace ReflexCore.Bridge
             foreach(var field in optional??new string[0])properties.Add(field,new {type="string"});
             var resultProperties=output.ToDictionary(key=>key,key=>new {type=
                 new[]{"projects","skills","bounded_replay_statistics","workflows","runs"}.Contains(key)?(object)"array":
-                key=="cancellation_requested"?"boolean":key=="handoff_feedback"?"object":key=="receipt"?new[]{"object","null"}:(object)"string"});
+                key=="cancellation_requested"?"boolean":new[]{"handoff_feedback","run","baseline","candidate"}.Contains(key)?"object":key=="receipt"?new[]{"object","null"}:(object)"string"});
             return new {name,description,inputSchema=new {type="object",required=fields,additionalProperties=false,properties},
                 outputSchema=new {type="object",required=output,properties=resultProperties},
                 annotations=new {readOnlyHint=readOnly,destructiveHint=false,openWorldHint=false}};
@@ -150,7 +150,11 @@ namespace ReflexCore.Bridge
                     new[]{"project","preset"},null,false),
                 Tool("get_task_result","Read status, the next operator step, and the typed handoff receipt for a queue task.",new[]{"task_id","state","next_action","receipt"},new[]{"task_id"}),
                 Tool("cancel_task","Request cancellation. Read get_task_result for terminal confirmation.",new[]{"task_id","cancellation_requested"},new[]{"task_id"},null,false),
-                Tool("list_lab_runs","Read recent summaries from owned offline experiments. Shot requests and actual shots are separate measurements.",new[]{"runs"})};
+                Tool("list_lab_runs","Read recent summaries from owned offline matches.",new[]{"runs"}),
+                Tool("list_combat_runs","Discover measured offline combat trials. Results use engine evidence, with no visual detector in the loop.",new[]{"runs"}),
+                Tool("get_combat_run","Read the stage and evidence for a specific offline combat trial.",new[]{"run"},new[]{"run_id"}),
+                Tool("compare_combat_runs","Compare a completed baseline and candidate from the same controlled scenario and suite.",
+                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})};
         }
 
         object Call(string name,Dictionary<string,object> args)
@@ -176,6 +180,19 @@ namespace ReflexCore.Bridge
                     return SubmitCheck(folder,checklist,report);
                 case "list_lab_runs":
                     return new {runs=LabEvidence.ReadRecent(root)};
+                case "list_combat_runs":
+                    return new {runs=LabEvidence.ReadCombatRecent(root)};
+                case "get_combat_run":
+                    return new {run=LabEvidence.ReadCombat(root,StringArg(args,"run_id"))};
+                case "compare_combat_runs":
+                    var baseline=LabEvidence.ReadCombat(root,StringArg(args,"baseline_run_id"));
+                    var candidate=LabEvidence.ReadCombat(root,StringArg(args,"candidate_run_id"));
+                    if(baseline.policy!="baseline" || candidate.policy!="candidate" ||
+                       baseline.termination!="completed" || candidate.termination!="completed" ||
+                       baseline.suite_id!=candidate.suite_id || baseline.scenario!=candidate.scenario)
+                        throw new ArgumentException("Select completed baseline and candidate runs from the same scenario and suite.");
+                    return new {baseline,candidate,discharge_change=candidate.discharges-baseline.discharges,
+                        damage_event_change=candidate.damage_events-baseline.damage_events};
                 case "get_task_result":
                 case "cancel_task":
                     var id=StringArg(args,"task_id");
