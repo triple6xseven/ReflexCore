@@ -181,6 +181,12 @@ namespace ReflexCore.Control
             };
             jobs.ContextMenuStrip=new ContextMenuStrip();
             jobs.ContextMenuStrip.ShowImageMargin=false;
+            jobs.MouseDown+=(sender,args)=>{
+                if(args.Button!=MouseButtons.Right)return;
+                var row=jobs.GetItemAt(args.X,args.Y);
+                jobs.SelectedItems.Clear();
+                if(row!=null){row.Selected=true;row.Focused=true;}
+            };
             jobs.ContextMenuStrip.Items.Add("Open project folder",null,(sender,args)=>Process.Start("explorer.exe",root));
             jobs.ContextMenuStrip.Items.Add("Refresh queue",null,(sender,args)=>{UpdateStatus();refreshQueue();});
             jobs.Columns.Add("Local time",180);jobs.Columns.Add("Task",235);jobs.Columns.Add("Status",290);
