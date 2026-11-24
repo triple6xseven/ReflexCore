@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -293,7 +294,7 @@ namespace ReflexCore.Practice
         private string[] recorderControl = new string[0];
         private long consoleOffset;
         private int spectatorPort;
-        private string replayFolder, latestReplay, replayClient;
+        private string replayFolder, latestReplay;
         private readonly RoutePlot plot=new RoutePlot();
         private readonly Label status=new Label(), evidence=new Label();
         private readonly Button start=new Button(), stop=new Button();
@@ -708,23 +709,7 @@ namespace ReflexCore.Practice
                     if(demo.ShowDialog(this)!=DialogResult.OK)return;
                     if(!HasClosedDemo(demo.FileName))
                         throw new IOException("This demo is incomplete or is not a GoldSrc replay.");
-                    if(!File.Exists(replayClient))
-                    {
-                        using(var client=new OpenFileDialog {Title="Choose hl.exe from Counter-Strike 1.6",
-                            Filter="GoldSrc client (hl.exe)|hl.exe", CheckFileExists=true})
-                        {
-                            if(client.ShowDialog(this)!=DialogResult.OK)return;
-                            if(!String.Equals(Path.GetFileName(client.FileName),"hl.exe",StringComparison.OrdinalIgnoreCase) ||
-                               !Directory.Exists(Path.Combine(Path.GetDirectoryName(client.FileName),"cstrike")))
-                                throw new IOException("Choose hl.exe next to the cstrike folder.");
-                            replayClient=client.FileName;
-                        }
-                    }
-                    string game=Path.GetDirectoryName(replayClient);
-                    string stem="reflex-"+Guid.NewGuid().ToString("N");
-                    File.Copy(demo.FileName,Path.Combine(game,"cstrike",stem+".dem"),false);
-                    Process.Start(new ProcessStartInfo(replayClient,"-game cstrike -console +viewdemo "+stem)
-                        {WorkingDirectory=game,UseShellExecute=false});
+                    if(!LaunchReplay(demo.FileName,this))return;
                     latestReplay=demo.FileName;
                 }
             }
@@ -732,6 +717,59 @@ namespace ReflexCore.Practice
             {
                 MessageBox.Show(this,error.Message,"Watch replay",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             }
+        }
+
+        public static void WatchLatestReplay(string root)
+        {
+            try
+            {
+                string folder=Path.Combine(root,"data","replays","cs16");
+                if(Directory.Exists(folder))
+                {
+                    foreach(var demo in new DirectoryInfo(folder).GetFiles("*.dem").OrderByDescending(file=>file.LastWriteTimeUtc))
+                    {
+                        if(!HasClosedDemo(demo.FullName))continue;
+                        LaunchReplay(demo.FullName,null);
+                        return;
+                    }
+                }
+                MessageBox.Show("No finalized match replays are available yet.","Watch latest replay");
+            }
+            catch(Exception error)
+            {
+                MessageBox.Show(error.Message,"Watch latest replay");
+            }
+        }
+
+        private static bool LaunchReplay(string demo, IWin32Window owner)
+        {
+            string settings=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ReflexCore","cs16-replay-client.txt");
+            string client=File.Exists(settings)?File.ReadAllText(settings):null;
+            if(!IsReplayClient(client))
+            {
+                using(var picker=new OpenFileDialog {Title="Choose hl.exe from Counter-Strike 1.6",
+                    Filter="GoldSrc client (hl.exe)|hl.exe",CheckFileExists=true})
+                {
+                    if(picker.ShowDialog(owner)!=DialogResult.OK)return false;
+                    client=picker.FileName;
+                    if(!IsReplayClient(client))throw new IOException("Choose hl.exe next to the cstrike folder.");
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(settings));
+                File.WriteAllText(settings,client);
+            }
+            string game=Path.GetDirectoryName(client);
+            string stem="reflex-"+Guid.NewGuid().ToString("N");
+            File.Copy(demo,Path.Combine(game,"cstrike",stem+".dem"),false);
+            Process.Start(new ProcessStartInfo(client,"-game cstrike -console +viewdemo "+stem)
+                {WorkingDirectory=game,UseShellExecute=false});
+            return true;
+        }
+
+        private static bool IsReplayClient(string path)
+        {
+            return File.Exists(path) && String.Equals(Path.GetFileName(path),"hl.exe",StringComparison.OrdinalIgnoreCase) &&
+                Directory.Exists(Path.Combine(Path.GetDirectoryName(path),"cstrike"));
         }
 
         private bool SaveRecording()

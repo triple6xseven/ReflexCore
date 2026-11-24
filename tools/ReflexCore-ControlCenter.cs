@@ -386,7 +386,8 @@ namespace ReflexCore.Control
             AddButton(shared,"OPEN OFFLINE PLANT DRILL",518,385,246,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1",""),false);
             AddButton(shared,"PLAY OFFLINE MATCH",18,450,746,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-AutoStart -Match"),true);
             shared.Controls.Add(Info("Play Offline Match tracks the kill, plant and round result. ReflexVision shows purple tracks beside the windowed game.",18,517,748));
-            AddButton(shared,"OPEN MATCH RECORDINGS",18,580,365,42,()=>{
+            AddButton(shared,"WATCH LATEST REPLAY",18,580,365,42,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1","-WatchLatestReplay"),true);
+            AddButton(shared,"OPEN MATCH RECORDINGS",399,580,365,42,()=>{
                 string folder=Path.Combine(root,"data","replays","cs16");
                 Directory.CreateDirectory(folder);
                 Process.Start("explorer.exe","\""+folder+"\"");
