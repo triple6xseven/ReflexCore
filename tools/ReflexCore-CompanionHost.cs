@@ -33,11 +33,12 @@ namespace ReflexCore.Bridge
         [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
 
         private readonly MouseHook callback;
+        private readonly bool rectangularWidget;
         private IntPtr hook, pressedTarget;
         private bool attempted;
         internal IntPtr Target;
         internal bool Ready {get{return hook!=IntPtr.Zero && Target!=IntPtr.Zero;}}
-        internal RightClickRouter(){callback=Handle;}
+        internal RightClickRouter(bool rectangularWidget=false){this.rectangularWidget=rectangularWidget;callback=Handle;}
         internal void Start()
         {
             if(attempted)return;
@@ -56,11 +57,13 @@ namespace ReflexCore.Bridge
                     var point=new Point{X=Marshal.ReadInt32(data),Y=Marshal.ReadInt32(data,4)};
                     if(message.ToInt64()==up && pressedTarget!=IntPtr.Zero)
                     {
-                        Send(pressedTarget,up,point);
+                        if(rectangularWidget)
+                            PostMessage(pressedTarget,0x7b,pressedTarget,new IntPtr((point.X&0xffff)|(point.Y<<16)));
+                        else Send(pressedTarget,up,point);
                         pressedTarget=IntPtr.Zero;
                         return new IntPtr(1);
                     }
-                    if(message.ToInt64()==down && Ready && HitTarget(Target,point) && Send(Target,down,point))
+                    if(message.ToInt64()==down && Ready && HitTarget(Target,point) && (rectangularWidget || Send(Target,down,point)))
                     {
                         pressedTarget=Target;
                         return new IntPtr(1);
@@ -70,15 +73,16 @@ namespace ReflexCore.Bridge
             return CallNextHookEx(hook,code,message,data);
         }
 
-        private static bool HitTarget(IntPtr window,Point point)
+        private bool HitTarget(IntPtr window,Point point)
         {
             Rect rect;
-            if(!IsWindowVisible(window) || (GetWindowLong(window,-20)&0x20)==0 ||
+            if(!IsWindowVisible(window) || (rectangularWidget && (GetWindowLong(window,-20)&0x20)==0) ||
                 !GetWindowRect(window,out rect) || point.X<rect.Left || point.X>=rect.Right ||
                 point.Y<rect.Top || point.Y>=rect.Bottom)return false;
             var foregroundHit=GetAncestor(WindowFromPoint(point),2);
             for(var above=GetWindow(window,3);above!=IntPtr.Zero;above=GetWindow(above,3))
                 if(above==foregroundHit)return false;
+            if(rectangularWidget)return true;
             var region=CreateRectRgn(0,0,0,0);
             if(region==IntPtr.Zero)return false;
             try{return GetWindowRgn(window,region)>1 && PtInRegion(region,point.X-rect.Left,point.Y-rect.Top);}
@@ -122,6 +126,8 @@ namespace ReflexCore.Bridge
         private bool fullscreenOverlay;
         private bool leftClickThrough;
         private readonly RightClickRouter rightClickRouter=new RightClickRouter();
+        private readonly RightClickRouter classicRightClickRouter=new RightClickRouter(true);
+        internal bool CompanionRequested {get{return companionPreferred;}}
         internal bool Running {get{return child!=null && !child.HasExited;}}
 
         internal void Show3D()
@@ -249,6 +255,8 @@ namespace ReflexCore.Bridge
                 }
                 ReadCommand(classicVisibility);
                 ReadClassicRequest(classicVisibility);
+                classicRightClickRouter.Target=hud.Visible && hud.ClassicClickThrough?hud.Handle:IntPtr.Zero;
+                if(classicRightClickRouter.Target!=IntPtr.Zero)classicRightClickRouter.Start();
                 rightClickRouter.Target=IntPtr.Zero;
                 if(Running && leftClickThrough)
                 {
@@ -352,6 +360,13 @@ namespace ReflexCore.Bridge
                 SetWidgetSetting("classic_clickthrough",enabled);
                 hud.SetClassicClickThrough(enabled);
             }
+            catch(IOException){message="Could not save Classic widget settings.";}
+            catch(UnauthorizedAccessException){message="Could not save Classic widget settings.";}
+        }
+
+        internal void SetClassicGpuNames(bool enabled)
+        {
+            try {SetWidgetSetting("classic_gpu_names",enabled);}
             catch(IOException){message="Could not save Classic widget settings.";}
             catch(UnauthorizedAccessException){message="Could not save Classic widget settings.";}
         }
@@ -472,6 +487,7 @@ namespace ReflexCore.Bridge
         public void Dispose()
         {
             rightClickRouter.Dispose();
+            classicRightClickRouter.Dispose();
             if(surfaces!=null){surfaces.Dispose();surfaces=null;}
             try
             {

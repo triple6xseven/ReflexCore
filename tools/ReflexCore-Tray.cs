@@ -727,7 +727,7 @@ namespace ReflexCore.Bridge
             statusMenu.Enabled = false;
             activityMenu = new ToolStripMenuItem("Activity: idle");
             activityMenu.Enabled = false;
-            hudMenu=new ToolStripMenuItem("Hide corner status widget");
+            hudMenu=new ToolStripMenuItem("Hide Classic widget");
             hudMenu.Click += delegate { ToggleHud(); };
             menu.Items.Add(hudMenu);
             menu.Items.Add("Open Studio", null, delegate(object s, EventArgs e) {
@@ -739,17 +739,35 @@ namespace ReflexCore.Bridge
             {
                 hud.ConfigureClassicWidget();
                 companionHost=new CompanionHost(root,bridge,hud);
+                var companionMenu=new ToolStripMenuItem("Show ReflexCompanion 3D");
+                companionMenu.Click+=delegate {
+                    if(companionHost.CompanionRequested)companionHost.Hide3D();
+                    else companionHost.Show3D();
+                };
+                menu.Opening+=delegate {
+                    companionMenu.Text=companionHost.CompanionRequested?"Hide ReflexCompanion 3D":"Show ReflexCompanion 3D";
+                };
+                menu.Items.Insert(1,companionMenu);
+                var classicMenu=new ContextMenuStrip();
+                var gpuNamesOption=new ToolStripMenuItem("Show graphics card names");
+                gpuNamesOption.Click+=delegate{companionHost.SetClassicGpuNames(!hud.ClassicGpuNames);};
+                var clickOption=new ToolStripMenuItem("Click through");
+                clickOption.Click+=delegate{companionHost.SetClassicClickThrough(!hud.ClassicClickThrough);};
+                classicMenu.Items.AddRange(new ToolStripItem[]{gpuNamesOption,clickOption,new ToolStripSeparator(),
+                    new ToolStripMenuItem("Hide Classic widget",null,(s,e)=>SetHudVisible(false))});
+                classicMenu.Opening+=delegate{
+                    gpuNamesOption.Checked=hud.ClassicGpuNames;
+                    clickOption.Checked=hud.ClassicClickThrough;
+                };
+                hud.ContextMenuStrip=classicMenu;
+                hud.Disposed+=delegate{classicMenu.Dispose();};
                 var widgetOptions=new ToolStripMenuItem("Widget");
                 widgetOptions.DropDownOpening+=delegate {
                     while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
                     var entries=widgetOptions.DropDownItems;
-                    entries.Add("Show Classic",null,(s,e)=>SetHudVisible(true));
-                    entries.Add("Show ReflexCompanion 3D",null,(s,e)=>companionHost.Show3D());
-                    entries.Add("Show Both",null,(s,e)=>{SetHudVisible(true);companionHost.Show3D();});
                     if(companionHost.Running)
                     {
                         entries.Add("Restart 3D",null,(s,e)=>companionHost.Restart3D());
-                        entries.Add("Stop 3D",null,(s,e)=>companionHost.Hide3D());
                     }
                     var input=new ToolStripMenuItem("3D mouse interaction"){Checked=companionHost.MouseInteractionEnabled()};
                     input.Click+=(s,e)=>{
@@ -867,7 +885,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         {
             if(companionHost!=null && companionHost.ClassicPreferred!=visible)companionHost.RememberClassic(visible);
             hudEnabled=visible;
-            hudMenu.Text=hudEnabled?"Hide corner status widget":"Show corner status widget";
+            hudMenu.Text=hudEnabled?"Hide Classic widget":"Show Classic widget";
             if(hudEnabled)hud.Show();else hud.Hide();
         }
 

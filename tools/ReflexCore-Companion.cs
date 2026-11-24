@@ -28,6 +28,7 @@ namespace ReflexCore.Bridge
         internal bool feedWhenHidden;
         internal bool ClassicVisible {get{return Visible;}}
         internal bool ClassicClickThrough {get{return clickThrough;}}
+        internal bool ClassicGpuNames {get{return gpuNames;}}
 
         internal void ConfigureClassicWidget()
         {
