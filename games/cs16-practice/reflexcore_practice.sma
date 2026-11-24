@@ -32,7 +32,7 @@ new g_status[16] = "ready";
 
 public plugin_init()
 {
-    register_plugin("ReflexCore CS16 Practice", "1.1", "ReflexCore");
+    register_plugin("ReflexCore CS16 Practice", "1.2", "ReflexCore");
     g_enabled = register_cvar("rc_practice_enabled", "0");
     g_max_clients = get_maxplayers();
     get_mapname(g_map, charsmax(g_map));
@@ -376,7 +376,13 @@ read_command()
         }
         case 9:
         {
-            if (g_bot_defeated || match_shot() || g_adversarial)
+            if (g_adversarial)
+            {
+                new shots_before = g_shots;
+                match_shot();
+                copy(g_status, charsmax(g_status), g_shots > shots_before ? "fired" : "no_shot");
+            }
+            else if (g_bot_defeated || match_shot())
                 copy(g_status, charsmax(g_status), "fired");
             else copy(g_status, charsmax(g_status), "rejected");
         }
@@ -457,6 +463,12 @@ bool:move_subject(Float:yaw, Float:forward_speed, Float:side_speed, buttons, mil
 // buttons are submitted to the fake clients in this private match.
 bool:target_angles(actor, target, Float:angles[3])
 {
+    new CsTeams:actor_team = cs_get_user_team(actor);
+    new CsTeams:target_team = cs_get_user_team(target);
+    if (!((actor_team == CS_TEAM_T && target_team == CS_TEAM_CT) ||
+          (actor_team == CS_TEAM_CT && target_team == CS_TEAM_T)))
+        return false;
+
     new Float:eye[3], Float:view_offset[3], Float:other[3], Float:delta[3];
     pev(actor, pev_origin, eye);
     pev(actor, pev_view_ofs, view_offset);

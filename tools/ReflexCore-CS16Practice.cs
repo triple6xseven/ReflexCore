@@ -115,7 +115,7 @@ namespace ReflexCore.Practice
                !UInt32.TryParse(fields[4],NumberStyles.None,CultureInfo.InvariantCulture,out state.Actor) ||
                !Double.TryParse(fields[7],NumberStyles.Float,CultureInfo.InvariantCulture,out state.X) || !Coordinate(state.X) ||
                !Double.TryParse(fields[8],NumberStyles.Float,CultureInfo.InvariantCulture,out state.Y) || !Coordinate(state.Y) ||
-               !Regex.IsMatch(fields[17],@"\A(ready|added|moved|stopped|rejected|unavailable|equipped|restarting|passive_ct|match_ct|fired)\z"))
+               !Regex.IsMatch(fields[17],@"\A(ready|added|moved|stopped|rejected|unavailable|equipped|restarting|passive_ct|match_ct|fired|no_shot)\z"))
                 throw new InvalidDataException("Engine observation is invalid.");
             state.Map=fields[1];
             state.Status=fields[17];
@@ -722,28 +722,53 @@ namespace ReflexCore.Practice
         public static void BrowseReplays(string root)
         {
             string folder=Path.Combine(root,"data","replays","cs16");
-            using(var window=new Form {Text="Match replays",StartPosition=FormStartPosition.CenterScreen,
+            var theme=ReflexCore.Control.ReflexThemeCatalog.Load();
+            using(var window=new Form {Text="Match replays",BackColor=theme.Bg,ForeColor=theme.Text,StartPosition=FormStartPosition.CenterScreen,
                 ClientSize=new Size(760,390),MinimumSize=new Size(650,300)})
-            using(var list=new ListView {Dock=DockStyle.Fill,View=View.Details,FullRowSelect=true,
-                MultiSelect=false,HideSelection=false})
+            using(var list=new DataGridView {Dock=DockStyle.Fill,ReadOnly=true,RowHeadersVisible=false,
+                AllowUserToAddRows=false,AllowUserToDeleteRows=false,AllowUserToResizeRows=false,
+                SelectionMode=DataGridViewSelectionMode.FullRowSelect,MultiSelect=false,
+                AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,RowTemplate={Height=30},
+                BackgroundColor=theme.Bg,GridColor=theme.Track,EnableHeadersVisualStyles=false,
+                BorderStyle=BorderStyle.None})
             {
-                list.Columns.Add("Map",130);
-                list.Columns.Add("Test time (local)",155);
-                list.Columns.Add("ReflexCore",125);
-                list.Columns.Add("Recording",330);
+                list.Columns.Add("map","Map");
+                list.Columns.Add("time","Test time (local)");
+                list.Columns.Add("version","ReflexCore");
+                list.Columns.Add("recording","Recording");
+                list.Columns[3].FillWeight=210;
+                list.ColumnHeadersDefaultCellStyle.BackColor=theme.Card;
+                list.ColumnHeadersDefaultCellStyle.ForeColor=theme.Text;
+                list.DefaultCellStyle.BackColor=theme.Bg;
+                list.DefaultCellStyle.ForeColor=theme.Text;
+                list.AlternatingRowsDefaultCellStyle.BackColor=theme.Card;
+                list.DefaultCellStyle.SelectionBackColor=theme.Accent;
+                list.DefaultCellStyle.SelectionForeColor=theme.OnAccent;
+                list.ColumnHeadersHeight=30;
                 var footer=new FlowLayoutPanel {Dock=DockStyle.Bottom,Height=40,Padding=new Padding(6,5,0,0)};
                 var watch=new Button {Text="Watch replay",AutoSize=true,Enabled=false};
                 var refresh=new Button {Text="Refresh",AutoSize=true};
                 var status=new Label {AutoSize=true,Margin=new Padding(12,8,0,0)};
+                foreach(var button in new[]{watch,refresh})
+                {
+                    button.FlatStyle=FlatStyle.Flat;
+                    button.BackColor=theme.Card;
+                    button.ForeColor=theme.Text;
+                    button.FlatAppearance.BorderColor=theme.Track;
+                }
+                watch.BackColor=theme.Accent;
+                watch.ForeColor=theme.OnAccent;
+                status.ForeColor=theme.Sub;
                 footer.Controls.AddRange(new System.Windows.Forms.Control[]{watch,refresh,status});
                 window.Controls.Add(list);
                 window.Controls.Add(footer);
                 Action scan=delegate {
-                    string selected=list.SelectedItems.Count==1?(string)list.SelectedItems[0].Tag:null;
-                    list.BeginUpdate();
+                    string selected=list.SelectedRows.Count==1?(string)list.SelectedRows[0].Tag:null;
+                    list.SuspendLayout();
                     try
                     {
-                        list.Items.Clear();
+                        list.Rows.Clear();
+                        int selectedIndex=0;
                         Directory.CreateDirectory(folder);
                         foreach(var file in new DirectoryInfo(folder).EnumerateFiles("*.dem")
                             .OrderByDescending(item=>item.LastWriteTimeUtc).ThenBy(item=>item.Name,StringComparer.OrdinalIgnoreCase))
@@ -757,32 +782,34 @@ namespace ReflexCore.Practice
                                 bool hasRunTime=metadata.Success && DateTime.TryParseExact(metadata.Groups["time"].Value,
                                     "yyyyMMdd'T'HHmmss'Z'",CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out time);
                                 string date=(hasRunTime?time:file.LastWriteTime).ToString("yyyy-MM-dd HH:mm:ss",CultureInfo.InvariantCulture);
-                                var row=new ListViewItem(new[]{map,date,metadata.Success?metadata.Groups["version"].Value:"Unknown",file.Name})
-                                    {Tag=file.FullName};
-                                list.Items.Add(row);
-                                if(file.FullName==selected)row.Selected=true;
+                                int index=list.Rows.Add(map,date,metadata.Success?metadata.Groups["version"].Value:"Unknown",file.Name);
+                                list.Rows[index].Tag=file.FullName;
+                                if(file.FullName==selected)selectedIndex=index;
                             }
                             catch(IOException) {}
                             catch(UnauthorizedAccessException) {}
                         }
-                        if(list.Items.Count>0 && list.SelectedItems.Count==0)list.Items[0].Selected=true;
-                        status.Text=list.Items.Count==0?"No completed recordings yet.":list.Items.Count+" ready to watch";
+                        if(list.Rows.Count>0)list.CurrentCell=list.Rows[selectedIndex].Cells[0];
+                        status.Text=list.Rows.Count==0?"No completed recordings yet.":list.Rows.Count+" ready to watch";
                     }
                     catch(Exception error) { status.Text=error.Message; }
-                    finally { list.EndUpdate(); }
+                    finally { list.ResumeLayout(); }
                 };
                 Action play=delegate {
-                    if(list.SelectedItems.Count!=1)return;
+                    if(list.SelectedRows.Count!=1)return;
                     try
                     {
-                        string demo=(string)list.SelectedItems[0].Tag;
+                        string demo=(string)list.SelectedRows[0].Tag;
                         if(!HasClosedDemo(demo))throw new IOException("This recording is no longer ready. Refresh the list.");
                         LaunchReplay(demo,window);
                     }
                     catch(Exception error) { MessageBox.Show(window,error.Message,"Watch replay"); }
                 };
-                list.SelectedIndexChanged+=delegate { watch.Enabled=list.SelectedItems.Count==1; };
-                list.DoubleClick+=delegate { play(); };
+                list.SelectionChanged+=delegate { watch.Enabled=list.SelectedRows.Count==1; };
+                list.CellDoubleClick+=delegate(object sender,DataGridViewCellEventArgs args) { if(args.RowIndex>=0)play(); };
+                list.KeyDown+=delegate(object sender,KeyEventArgs args) {
+                    if(args.KeyCode==Keys.Enter){args.Handled=true;args.SuppressKeyPress=true;play();}
+                };
                 watch.Click+=delegate { play(); };
                 refresh.Click+=delegate { scan(); };
                 window.AcceptButton=watch;

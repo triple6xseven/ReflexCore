@@ -1,6 +1,6 @@
 use crate::{
-    cs16_route::{Decision, Navigator, Pose, Route, Site, StopReason},
     Result,
+    cs16_route::{Decision, Navigator, Pose, Route, Site, StopReason},
 };
 use serde::Serialize;
 use std::{
@@ -52,8 +52,26 @@ fn flag(s: &str) -> Result<bool> {
 impl State {
     fn parse(text: &str) -> Result<Self> {
         let fields: Vec<_> = text.split_ascii_whitespace().collect();
-        let [schema, map, seq, tick, id, alive, team, x, y, z, yaw, c4, zone, equipped, planted, won, bots, status] =
-            fields.as_slice()
+        let [
+            schema,
+            map,
+            seq,
+            tick,
+            id,
+            alive,
+            team,
+            x,
+            y,
+            z,
+            yaw,
+            c4,
+            zone,
+            equipped,
+            planted,
+            won,
+            bots,
+            status,
+        ] = fields.as_slice()
         else {
             return Err("Incomplete practice observation".into());
         };
@@ -106,6 +124,7 @@ impl State {
                     | "passive_ct"
                     | "match_ct"
                     | "fired"
+                    | "no_shot"
             )
         {
             return Err("Invalid practice observation values".into());
@@ -1107,6 +1126,8 @@ impl Engagement {
             *state = mail.command(state, operation, None)?;
             if operation == 9 {
                 report.match_shots += 1;
+                // A missed opportunity can resume movement on the next observation.
+                return Ok(state.status == "fired");
             }
             return Ok(true);
         }
@@ -1122,7 +1143,7 @@ impl Engagement {
         if !sample.round_live || report.round_completed || !state.alive || state.won {
             return Ok(None);
         }
-        if sample.visible && !sample.defeated {
+        if state.team == 1 && sample.visible && !sample.defeated {
             if !self.in_contact {
                 report.contacts += 1;
                 if !state.planted {
@@ -1310,6 +1331,12 @@ mod tests {
         let valid = "reflexcore_cs16_practice_v1 de_fixture 3 10.02 7 1 1 0.0 -2.0 36.0 -90.0 1 1 1 0 0 0 moved\n";
         let state = State::parse(valid).unwrap();
         assert_eq!(state.id, 7);
+        assert_eq!(
+            State::parse(&valid.replace("moved", "no_shot"))
+                .unwrap()
+                .status,
+            "no_shot"
+        );
         assert_eq!(state.pose(8).yaw_degrees, 270.0);
         assert!(state.equipped && !state.planted);
         assert!(State::parse(&valid.replace("0 0 0 moved", "0 0 2 moved")).is_err());

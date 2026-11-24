@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Apply the active Studio palette to match replays. Verify opposing teams on the owned CS 1.6 server and distinguish a shot request from an actual discharge.
 - Browse finalized CS 1.6 replays from Shared Control and label new recordings with the build version, test time, and map.
 - Add the owned Dust II adversarial round experiment with automatic routes, AK-47 combat telemetry and isolated replay scoring.
 - Add a persistent Agent execution mode with a non-activating background UIA fixture and native folder tasks.
