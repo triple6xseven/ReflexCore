@@ -152,7 +152,7 @@ public sealed partial class StudioWindow
         };
         window.PreviewKeyDown+=(_,args)=>{if(args.Key==System.Windows.Input.Key.Escape){args.Handled=true;window.Close();}};
         window.Closed+=(_,_)=>mcpSettingsWindow=null;
-        window.Content=content;
+        SetThemedDialogContent(window,content);
         change.IsEnabled=remove.IsEnabled=false;
         Refresh(null);
         mcpSettingsWindow=window;
