@@ -216,6 +216,7 @@ namespace ReflexCore.Bridge
             physics=Boolean(settings,"physics",true);
             fullscreenOverlay=Boolean(settings,"top",true) && Boolean(settings,"fullscreen_overlay",false);
             leftClickThrough=Boolean(settings,"clickthrough",false);
+            hud.SetClassicClickThrough(Boolean(settings,"classic_clickthrough",hud.ClassicClickThrough));
             hud.ConfigureClassic(opacity,Boolean(settings,"classic_host",true),
                 Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true),
                 Boolean(settings,"classic_gpu_names",true));
@@ -341,6 +342,22 @@ namespace ReflexCore.Bridge
         }
         internal bool ToggleMouseInteraction()
         {
+            return !SetWidgetSetting("clickthrough",null);
+        }
+
+        internal void SetClassicClickThrough(bool enabled)
+        {
+            try
+            {
+                SetWidgetSetting("classic_clickthrough",enabled);
+                hud.SetClassicClickThrough(enabled);
+            }
+            catch(IOException){message="Could not save Classic widget settings.";}
+            catch(UnauthorizedAccessException){message="Could not save Classic widget settings.";}
+        }
+
+        private bool SetWidgetSetting(string key,bool? enabled)
+        {
             var settings=new Dictionary<string,object>();
             var file=new FileInfo(InBridge("settings.json"));
             if(file.Exists)
@@ -351,10 +368,10 @@ namespace ReflexCore.Bridge
                 catch(InvalidOperationException error){throw new IOException("Companion settings are invalid.",error);}
                 if(settings==null)throw new IOException("Companion settings are invalid.");
             }
-            bool enabled=Boolean(settings,"clickthrough",false);
-            settings["clickthrough"]=!enabled;
+            bool next=enabled ?? !Boolean(settings,key,false);
+            settings[key]=next;
             WriteText("settings.json",json.Serialize(settings));
-            return enabled;
+            return next;
         }
 
         private static void PreferHighPerformanceGpu(string executable)

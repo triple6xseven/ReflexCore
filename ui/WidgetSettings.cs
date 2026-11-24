@@ -24,7 +24,7 @@ static class WidgetSettings
         ["stockings"] = true, ["animate"] = true, ["bubble"] = true, ["bubble_style"] = "glass",
         ["top"] = true, ["fullscreen_overlay"] = false, ["clickthrough"] = false, ["fps"] = 30, ["poll_ms"] = 450, ["app_start"] = false,
         ["windows_notifications"] = false, ["classic_opacity"] = 0.94, ["classic_host"] = true, ["classic_gpu"] = true,
-        ["classic_gpu_names"] = true, ["classic_ollama"] = true
+        ["classic_gpu_names"] = true, ["classic_ollama"] = true, ["classic_clickthrough"] = false
     };
 
     internal static Dictionary<string, object> Read(string path)
@@ -52,7 +52,20 @@ static class WidgetSettings
     internal static Dictionary<string, object> Load()
     {
         var defaults = Defaults();
-        foreach (var pair in Read(Path.Combine(Folder, "settings.json")))
+        var saved = Read(Path.Combine(Folder, "settings.json"));
+        if (!saved.ContainsKey("classic_clickthrough"))
+        {
+            var legacy = new FileInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ReflexCore", "companion", "classic-v1.txt"));
+            try
+            {
+                if (legacy.Exists && legacy.Length < 128)
+                    defaults["classic_clickthrough"] = File.ReadAllText(legacy.FullName).StartsWith("1,", StringComparison.Ordinal);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        foreach (var pair in saved)
             if (defaults.ContainsKey(pair.Key)) defaults[pair.Key] = pair.Value;
         return defaults;
     }

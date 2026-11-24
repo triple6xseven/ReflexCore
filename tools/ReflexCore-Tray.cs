@@ -763,7 +763,7 @@ namespace ReflexCore.Bridge
                     };
                     entries.Add(input);
                     var classic=new ToolStripMenuItem("Classic options");
-                    hud.AddClassicActions(classic.DropDownItems);
+                    hud.AddClassicActions(classic.DropDownItems,companionHost.SetClassicClickThrough);
                     entries.Add(classic);
                 };
                 widgetOptions.DropDownItems.Add("Settings");

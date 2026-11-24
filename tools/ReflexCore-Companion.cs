@@ -27,6 +27,7 @@ namespace ReflexCore.Bridge
         private string classicPreferences;
         internal bool feedWhenHidden;
         internal bool ClassicVisible {get{return Visible;}}
+        internal bool ClassicClickThrough {get{return clickThrough;}}
 
         internal void ConfigureClassicWidget()
         {
@@ -109,10 +110,18 @@ namespace ReflexCore.Bridge
             LayoutClassic();
         }
 
-        internal void AddClassicActions(ToolStripItemCollection items)
+        internal void SetClassicClickThrough(bool enabled)
+        {
+            if(clickThrough==enabled)return;
+            clickThrough=enabled;
+            RecreateHandle();
+            SaveClassicPreferences();
+        }
+
+        internal void AddClassicActions(ToolStripItemCollection items,Action<bool> setClickThrough)
         {
             items.Add(clickThrough?"Disable Classic click-through":"Enable Classic click-through",null,(s,e)=>{
-                clickThrough=!clickThrough;RecreateHandle();SaveClassicPreferences();
+                setClickThrough(!clickThrough);
             });
             items.Add(pinned?"Unlock Classic position":"Pin Classic position",null,(s,e)=>{
                 pinned=!pinned;SaveClassicPreferences();
