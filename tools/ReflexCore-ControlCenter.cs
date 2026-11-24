@@ -154,46 +154,67 @@ namespace ReflexCore.Control
             else if(initialTab=="Diagnostics")tabs.SelectedTab=diagnosticsTab;
             else tabs.SelectedTab=agent;
             if(tabs.SelectedTab==diagnosticsTab)diagnosticView.Show();
-            bridgeText=Info("Bridge: waiting",18,20,510);
-            bridgeText.Height=32;
-            agent.Controls.Add(bridgeText);
-            var executionMode=new CheckBox{Location=new Point(548,12),Size=new Size(219,38),
-                Appearance=Appearance.Button,FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,
-                BackColor=surface,ForeColor=text,AccessibleName="Run in background",TabIndex=0};
-            executionMode.FlatAppearance.BorderColor=accent;
-            executionMode.FlatAppearance.CheckedBackColor=Color.FromArgb(55,62,82);
-            agent.Controls.Add(executionMode);
-            var backgroundHelp=Info("Run supported tasks without taking over your mouse or keyboard.",290,50,477);
-            backgroundHelp.Height=18;
-            backgroundHelp.TextAlign=ContentAlignment.MiddleRight;
-            agent.Controls.Add(backgroundHelp);
-            string modePath=Path.Combine(root,"data","settings","agent-execution-mode.txt");
-            executionMode.Checked=testQueue==null && LoadBackgroundMode(modePath);
-            AddButton(agent,"RUN AGENT DEMO",18,68,222,38,
-                ()=>RunTask(executionMode.Checked?"agent-background":"agent-demo"),true);
-            var nativeNotepad=AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
-            var visualNotepad=AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
-            var requestLabel=Info("Describe a folder task · English or Russian",18,112,748);
-            requestLabel.Height=24;
+            agent.Controls.Add(Header("Ask Reflex",18,14));
+            var requestLabel=Info("Check which files are present or change file extensions. English or Russian.",18,49,505);
+            requestLabel.Height=34;
             agent.Controls.Add(requestLabel);
-            var folderRequest=new TextBox{Location=new Point(18,144),Width=565,MaxLength=8192,
-                AccessibleName="Describe a folder task",BackColor=surface,ForeColor=text};
+            var folderRequest=new TextBox{Location=new Point(18,88),Size=new Size(565,42),MaxLength=8192,
+                Multiline=true,BorderStyle=BorderStyle.FixedSingle,ScrollBars=ScrollBars.Vertical,TabIndex=0,
+                AccessibleName="Ask Reflex",AccessibleDescription="Describe a file check or extension change in English or Russian.",
+                BackColor=surface,ForeColor=text};
             agent.Controls.Add(folderRequest);
-            var previewRequest=AddButton(agent,"PREVIEW REQUEST",594,141,173,31,()=>PreviewFolderRequest(folderRequest.Text),false);
+            var previewRequest=AddButton(agent,"Preview task",594,88,173,42,()=>PreviewFolderRequest(folderRequest.Text),true);
+            previewRequest.AccessibleDescription="Select a folder and review the task before it runs.";
+            previewRequest.TabIndex=1;
+            previewRequest.Enabled=false;
+            folderRequest.TextChanged+=delegate {previewRequest.Enabled=!String.IsNullOrWhiteSpace(folderRequest.Text);};
             folderRequest.KeyDown+=delegate(object sender,KeyEventArgs args) {
                 if(args.KeyCode!=Keys.Enter || args.Modifiers!=Keys.None)return;
                 args.SuppressKeyPress=true;
-                previewRequest.PerformClick();
+                if(previewRequest.Enabled)previewRequest.PerformClick();
             };
-            var example=Info("Check README.md and docs/install.pdf.    /    Поменяй расширения всех файлов на .log",18,175,748);
-            example.Height=24;
-            agent.Controls.Add(example);
+            var examplesLabel=Info("Try an example",18,145,110);
+            examplesLabel.Height=26;
+            agent.Controls.Add(examplesLabel);
+            Action<string,string,int,int> addExample=delegate(string label,string request,int x,int width) {
+                AddButton(agent,label,x,140,width,32,()=>{
+                    folderRequest.Text=request;
+                    folderRequest.Focus();
+                    folderRequest.SelectionStart=folderRequest.TextLength;
+                },false).AccessibleDescription=request;
+            };
+            addExample("Check for README","Check README.md.",130,150);
+            addExample("Change extensions","Поменяй расширения всех файлов на .log",290,156);
+            addExample("Check, then rename","Check README.md, then change .txt to .log.",456,170);
+
+            bridgeText=Info("Bridge: waiting",18,178,748);
+            bridgeText.Height=23;
+            agent.Controls.Add(bridgeText);
             AddButton(agent,"VERIFY A HANDOFF FOLDER",18,207,260,34,SelectHandoff,false);
             AddButton(agent,"CHANGE FILE EXTENSIONS",288,207,260,34,()=>ShowExtensionRename("",""),false);
             AddButton(agent,"SKILL LIBRARY",558,207,209,34,ShowSkillLibrary,false);
-            var modeHint=Info("",245,250,523);
-            modeHint.Height=30;
+
+            var executionMode=new CheckBox{Location=new Point(548,12),Size=new Size(219,36),
+                Appearance=Appearance.Button,FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,
+                BackColor=surface,ForeColor=text,AccessibleName="Run in background",TabIndex=5};
+            executionMode.FlatAppearance.BorderColor=accent;
+            executionMode.FlatAppearance.CheckedBackColor=Color.FromArgb(55,62,82);
+            agent.Controls.Add(executionMode);
+            var backgroundHelp=Info("Keeps your mouse and keyboard free.",548,51,219);
+            backgroundHelp.Height=32;
+            backgroundHelp.TextAlign=ContentAlignment.TopRight;
+            agent.Controls.Add(backgroundHelp);
+            string modePath=Path.Combine(root,"data","settings","agent-execution-mode.txt");
+            executionMode.Checked=testQueue==null && LoadBackgroundMode(modePath);
+
+            agent.Controls.Add(Header("Demos",18,710));
+            var modeHint=Info("",190,710,577);
+            modeHint.Height=34;
             agent.Controls.Add(modeHint);
+            AddButton(agent,"RUN AGENT DEMO",18,752,222,38,
+                ()=>RunTask(executionMode.Checked?"agent-background":"agent-demo"),false);
+            var nativeNotepad=AddButton(agent,"NOTEPAD · CREATE FILE",250,752,237,38,()=>RunTask("notepad-save"),false);
+            var visualNotepad=AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,752,270,38,()=>RunTask("notepad-visual"),false);
             Action updateMode=delegate {
                 bool background=executionMode.Checked;
                 executionMode.Text=background?"Background: On":"Background: Off";
@@ -949,13 +970,27 @@ namespace ReflexCore.Control
             var page=pages.TabPages[0];
             var buttons=page.Controls.OfType<Button>().ToDictionary(button=>button.Text);
             var mode=page.Controls.OfType<CheckBox>().Single(input=>input.AccessibleName=="Run in background");
-            var field=page.Controls.OfType<TextBox>().Single(input=>input.AccessibleName=="Describe a folder task");
+            var field=page.Controls.OfType<TextBox>().Single(input=>input.AccessibleName=="Ask Reflex");
             if(!mode.Visible || queue.Snapshot().Count!=0 || mode.Top>=buttons["RUN AGENT DEMO"].Top)
                 throw new InvalidOperationException("Background toggle must be visible above an empty queue.");
-            foreach(var control in new System.Windows.Forms.Control[]{mode,field,buttons["PREVIEW REQUEST"],
+            foreach(var control in new System.Windows.Forms.Control[]{mode,field,buttons["Preview task"],
                 buttons["VERIFY A HANDOFF FOLDER"],buttons["CHANGE FILE EXTENSIONS"]})
                 if(page.Controls.OfType<Label>().Any(label=>label.Visible && label.Bounds.IntersectsWith(control.Bounds)))
                     throw new InvalidOperationException("A label overlaps an Agent control.");
+            if(buttons["Preview task"].Enabled)
+                throw new InvalidOperationException("An empty request can be previewed.");
+            buttons["Check for README"].PerformClick();
+            string[] draft;
+            if(!buttons["Preview task"].Enabled || HandoffDraft.Build(field.Text,out draft)!=HandoffDraftState.Draft)
+                throw new InvalidOperationException("The file-check example did not populate a usable request.");
+            buttons["Change extensions"].PerformClick();
+            string from, to;
+            if(!ExtensionRename.TryParse(field.Text,out from,out to) || to!=".log")
+                throw new InvalidOperationException("The rename example did not populate a usable request.");
+            buttons["Check, then rename"].PerformClick();
+            if(!FolderWorkflow.TryBuild(field.Text,out draft,out from,out to) || queue.Snapshot().Count!=0)
+                throw new InvalidOperationException("The two-step example did not populate a draft without executing it.");
+            field.Clear();
             buttons["RUN AGENT DEMO"].PerformClick();
             buttons["NOTEPAD · CREATE FILE"].PerformClick();
             buttons["NOTEPAD · CHECK WITH MODEL"].PerformClick();
@@ -967,8 +1002,8 @@ namespace ReflexCore.Control
             refreshQueue();
             var jobs=page.Controls.OfType<ListView>().Single();
             if(!buttons["VERIFY A HANDOFF FOLDER"].Visible || !buttons["CHANGE FILE EXTENSIONS"].Visible ||
-                !buttons["PREVIEW REQUEST"].Visible ||
-                !page.Controls.OfType<TextBox>().Any(input=>input.AccessibleName=="Describe a folder task" && input.Visible))
+                !buttons["Preview task"].Visible ||
+                !page.Controls.OfType<TextBox>().Any(input=>input.AccessibleName=="Ask Reflex" && input.Visible))
                 throw new InvalidOperationException("Folder actions are missing from the Agent page");
             queue.SubmitHandoff(root,Path.Combine(root,"examples","handoff-checklist.json"),Path.Combine(root,"smoke-report.json"));
             refreshQueue();
