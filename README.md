@@ -13,6 +13,8 @@ Local-first Windows automation for PCs with limited RAM and GPU capacity. Reflex
 - **Supervise tasks in Studio.** Submit built-in tasks, cancel pending work and inspect a local task history. See [Studio](docs/STUDIO.md) and [queue recovery](docs/QUEUE.md).
 - **Inspect live game vision.** ReflexVision displays tracked visual cues and HUD boxes alongside a windowed offline match. See [ReflexVision](docs/REFLEXVISION.md).
 
+**[GitHub Support](https://github.com/sponsors/triple6xseven)**
+
 ## Studio & Companion preview
 
 Screenshots from the [3D companion development branch](https://github.com/triple6xseven/ReflexCore/tree/feat/companion3d).
