@@ -203,3 +203,8 @@ All time cells are nearest-rank p50 / p95 in milliseconds. Queue wait begins at 
 | SHA-256 warm | 20/20 | 4.7 / 6.4 | 408.4 / 602.4 | 59.6 / 87.6 | 5.8 / 20.1 | 11.1 / 13.8 | 76.7 / 110.0 | 490.5 / 720.0 | 1.38 MiB |
 
 The metadata worker met the 1-second warm p95 target. The largest measured cost was launching the supervised worker. Effective hash throughput over the entire warm checking phase was approximately 210 MiB/s at p50 checking time and 143 MiB/s at p95 checking time. This includes file opens, scope checks, and cancellation checks. Worker private memory is the Windows peak commit charge of the Rust process. Release executable SHA-256 `aae4e0c9c737d77f684f6d4a6782568c036fe0fc9af3a613a680625daa2b8dc8`. Reproduce with [the handoff acceptance commands](HANDOFF-FOLDER.md#reproduce). Add `-MetricsFile` with a new file path to export run-correlated, path-free samples.
+
+
+### Handoff checklist drafting
+
+On the same Ryzen 5 4600H Windows host, a fixed evaluation set specified before implementing the parser produced 8/8 exact drafts, 7/7 clarifications, and 7/7 scope rejections. Across 440 warmed calls, parser p50 was 0.012 ms and p95 was 0.0223 ms. This includes PowerShell-to-.NET dispatch and excludes window interaction, queue wait and filesystem verification. The CPU parser makes zero model calls. The small set exercises the supported grammar and does not estimate accuracy on free-form requests.

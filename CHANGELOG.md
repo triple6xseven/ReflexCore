@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Add opt-in checklist drafting from English or Russian requests, with an editable review step and zero model calls.
 - Add a CPU-only CLI and Studio task for reusable handoff checklists, optional SHA-256 verification, and independently verified local reports.
 
 

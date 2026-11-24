@@ -501,12 +501,36 @@ namespace ReflexCore.Control
         }
         bool CreateHandoffChecklist(string path)
         {
-            using(var form=new Form{Text="Create handoff checklist",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(510,320),
+            using(var form=new Form{Text="Create handoff checklist",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(560,460),
                 BackColor=BackColor,ForeColor=ForeColor,MinimizeBox=false,MaximizeBox=false}){
                 var hint=new Label{Dock=DockStyle.Top,Height=46,Text="Enter one relative file path per line. For a checksum, append | followed by the SHA-256 value."};
                 var entries=new TextBox{Multiline=true,Dock=DockStyle.Fill,ScrollBars=ScrollBars.Vertical,AcceptsReturn=true};
                 var save=new Button{Text="Save checklist",Dock=DockStyle.Bottom,Height=36,DialogResult=DialogResult.OK};
-                form.Controls.Add(entries);form.Controls.Add(save);form.Controls.Add(hint);
+                var description = new TextBox { Dock=DockStyle.Top, Multiline=true, Height=56, MaxLength=8192 };
+                var prompt = new Label { Dock=DockStyle.Top, Height=34,
+                    Text="Optional: describe what to check. Example: Check README.md and docs/install.pdf." };
+                description.AccessibleName = "Describe what to check";
+                entries.AccessibleName = "Review checklist entries";
+                var draftButton = new Button { Dock=DockStyle.Top, Height=32, Text="Build checklist from text" };
+                var status = new Label { Dock=DockStyle.Top, Height=40 };
+                draftButton.Click += delegate {
+                    string[] draft;
+                    var result = HandoffDraft.Build(description.Text, out draft);
+                    if (result != HandoffDraftState.Draft) {
+                        status.Text = result == HandoffDraftState.OutsideScope
+                            ? "Use only relative file paths inside the selected folder."
+                            : "Specify the exact filenames. Quote names with spaces and attach each SHA-256 to its file.";
+                        return;
+                    }
+                    if (!String.IsNullOrWhiteSpace(entries.Text) &&
+                        MessageBox.Show(form,"Replace the entries in the editor?","Build checklist from text",
+                            MessageBoxButtons.YesNo,MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    entries.Lines = draft;
+                    status.Text = "Review or edit the draft before saving.";
+                    entries.Focus();
+                };
+                form.Controls.Add(entries); form.Controls.Add(save); form.Controls.Add(hint);
+                form.Controls.Add(status); form.Controls.Add(draftButton); form.Controls.Add(description); form.Controls.Add(prompt);
                 if(form.ShowDialog(this)!=DialogResult.OK)return false;
                 var files=new System.Collections.Generic.List<object>();
                 foreach(var line in entries.Lines.Where(l=>!String.IsNullOrWhiteSpace(l))){

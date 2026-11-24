@@ -104,6 +104,19 @@ try{
             [void](Run-Job $report 'failed');Require (!(Test-Path -LiteralPath $report)) 'Out-of-scope output published'
         }
     }finally{[IO.Directory]::Delete($junction)}
+    Add-Type -Path (Join-Path $root 'tools/ReflexCore-HandoffDraft.cs')
+    [string[]]$draftLines=@()
+    $draft=[ReflexCore.Control.HandoffDraft]::Build(('Verify "'+$unicode+'" SHA256: '+$good+' and absent.txt.'),[ref]$draftLines)
+    Require ($draft.ToString() -ceq 'Draft') 'Text draft was rejected'
+    $draftEntries=@(foreach($line in $draftLines){
+        $parts=$line -split ' \| ',2
+        @{path=$parts[0];sha256=if($parts.Count -eq 2){$parts[1]}else{$null}}
+    })
+    Checklist $draftEntries
+    $report=Join-Path $fixture 'from-text.json'
+    $r=Run-Job $report 'verified'
+    Evaluate $report $r @(@{path=$unicode;sha256=$good.ToLowerInvariant()},@{path='absent.txt'}) @('present','missing') 'Needs attention'
+    Write-Output 'Text draft passed through the native verifier and published a verified report.'
     Close-Tray
     Write-Output 'Queue acceptance passed: ready, Unicode, missing, mismatch, unreadable, collision and scope rejection.'
     if($Benchmark){

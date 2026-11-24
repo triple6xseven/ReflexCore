@@ -1,0 +1,123 @@
+[
+  {
+    "text": "Check that Bin/Client.exe and notes.md are present.",
+    "state": "draft",
+    "lines": [
+      "Bin/Client.exe",
+      "notes.md"
+    ]
+  },
+  {
+    "text": "Verify the files: assets/icon.svg, config/app.toml and README.md.",
+    "state": "draft",
+    "lines": [
+      "assets/icon.svg",
+      "config/app.toml",
+      "README.md"
+    ]
+  },
+  {
+    "text": "Please check for \"Final Notes.pdf\" and 'data/results.csv'.",
+    "state": "draft",
+    "lines": [
+      "Final Notes.pdf",
+      "data/results.csv"
+    ]
+  },
+  {
+    "text": "Проверь, что в папке есть «Данные/Таблица.csv» и «Фото 1.png».",
+    "state": "draft",
+    "lines": [
+      "Данные/Таблица.csv",
+      "Фото 1.png"
+    ]
+  },
+  {
+    "text": "Проверь наличие инструкция.pdf и `Документы/Акт №2.pdf`.",
+    "state": "draft",
+    "lines": [
+      "инструкция.pdf",
+      "Документы/Акт №2.pdf"
+    ]
+  },
+  {
+    "text": "Check `LICENSE` and `build/manifest.json`.",
+    "state": "draft",
+    "lines": [
+      "LICENSE",
+      "build/manifest.json"
+    ]
+  },
+  {
+    "text": "Verify release.zip SHA-256: ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789 and README.md.",
+    "state": "draft",
+    "lines": [
+      "release.zip | abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "README.md"
+    ]
+  },
+  {
+    "text": "Check package.zip (SHA256=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789) and notes.txt.",
+    "state": "draft",
+    "lines": [
+      "package.zip | abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "notes.txt"
+    ]
+  },
+  {
+    "text": "Check the latest archive.",
+    "state": "clarify"
+  },
+  {
+    "text": "Проверь ещё архив.",
+    "state": "clarify"
+  },
+  {
+    "text": "Check report.pdf and either a.zip or b.zip.",
+    "state": "clarify"
+  },
+  {
+    "text": "Check invoice.pdf if signed.",
+    "state": "clarify"
+  },
+  {
+    "text": "Check package.zip SHA256: 1234.",
+    "state": "clarify"
+  },
+  {
+    "text": "Check a.zip and b.zip with SHA256 abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789.",
+    "state": "clarify"
+  },
+  {
+    "text": "Check README.md, readme.md.",
+    "state": "clarify"
+  },
+  {
+    "text": "Check `../secret.txt`.",
+    "state": "outside_scope"
+  },
+  {
+    "text": "Verify C:\\Windows\\system.ini.",
+    "state": "outside_scope"
+  },
+  {
+    "text": "Check \"/data/private.txt\" and readme.md.",
+    "state": "outside_scope"
+  },
+  {
+    "text": "Check report.txt:backup.",
+    "state": "outside_scope"
+  },
+  {
+    "text": "Check `docs/../release.zip`.",
+    "state": "outside_scope"
+  },
+  {
+    "text": "Check \\\\server\\share\\manifest.txt.",
+    "state": "outside_scope"
+  },
+  {
+    "text": "Check `NUL.txt`.",
+    "state": "outside_scope"
+  }
+]

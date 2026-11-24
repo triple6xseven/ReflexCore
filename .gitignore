@@ -44,5 +44,6 @@
 !/tasks/Test-Queue.ps1
 !/tasks/verify-handoff.ps1
 !/tasks/Test-Handoff.ps1
+!/tasks/Test-HandoffDraft.ps1
 !/tasks/Measure-Queue.ps1
 !/tasks/Measure-TaskStop.ps1

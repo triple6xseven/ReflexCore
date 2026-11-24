@@ -38,4 +38,10 @@ cargo build --release --locked
 .\tasks\Test-Handoff.ps1 -RequireOllamaStopped
 ```
 
-Next, add an opt-in natural-language parser that proposes the same checklist for review. Measure exact path and digest extraction, rejection of out-of-scope requests, and clarification accuracy on held-out clear and ambiguous requests before making it the default.
+## Build a draft from text
+
+When creating a checklist in Studio, enter a description and select **Build checklist from text**. Review the proposed entries in the editor before saving, then choose a report destination to run the check. Existing lists can still be reused directly.
+
+The local parser handles short English and Russian requests with explicit filenames. Quote names with spaces and extensionless filenames. Attach each digest to its file using syntax such as `Check release.zip SHA-256: <64 hexadecimal digits> and README.md.` Requests like "check the latest archive" require a filename. The parser leaves the editor untouched when it needs clarification or rejects a path. The native worker still enforces its filesystem boundary during execution.
+
+Run `powershell.exe -NoProfile -File tasks/Test-HandoffDraft.ps1` to evaluate extraction, clarification and scope validation. The optional draft runs without a model or a network call.
