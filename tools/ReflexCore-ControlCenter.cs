@@ -51,6 +51,31 @@ namespace ReflexCore.Control
             }
         }
     }
+
+    internal sealed class QueueListView : ListView
+    {
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr window,string theme,string subId);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyNativeTheme();
+        }
+        protected override void OnBackColorChanged(EventArgs e)
+        {
+            base.OnBackColorChanged(e);
+            if(IsHandleCreated)ApplyNativeTheme();
+        }
+        private void ApplyNativeTheme()
+        {
+            string theme=BackColor.GetBrightness()<.5f?"DarkMode_Explorer":"Explorer";
+            SetWindowTheme(Handle,theme,null);
+            var header=SendMessage(Handle,0x101f,IntPtr.Zero,IntPtr.Zero);
+            if(header!=IntPtr.Zero)SetWindowTheme(header,theme,null);
+        }
+    }
     internal class Dashboard : Form
     {
         readonly string root;
@@ -115,23 +140,53 @@ namespace ReflexCore.Control
             AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
             AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
             agent.Controls.Add(Header("Task queue",18,131));
-            var jobs=new ListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
+            var jobs=new QueueListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
                 OwnerDraw=true,BorderStyle=BorderStyle.None,
                 Location=new Point(18,168),Size=new Size(748,215),AccessibleName="Task queue"};
+            var selectionColor=Color.FromArgb(75,51,92);
+            jobs.Tag=new Action<Color,Color,Color>((card,ink,highlight)=>{
+                selectionColor=Color.FromArgb((card.R*3+highlight.R)/4,(card.G*3+highlight.G)/4,(card.B*3+highlight.B)/4);
+                jobs.Invalidate();
+            });
             jobs.DrawColumnHeader+=(sender,args)=>{
                 using(var brush=new SolidBrush(jobs.BackColor))args.Graphics.FillRectangle(brush,args.Bounds);
                 TextRenderer.DrawText(args.Graphics,args.Header.Text,jobs.Font,Rectangle.Inflate(args.Bounds,-7,0),
                     jobs.ForeColor,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
             };
-            jobs.DrawItem+=(sender,args)=>args.DrawDefault=true;
-            jobs.DrawSubItem+=(sender,args)=>args.DrawDefault=true;
+            jobs.DrawSubItem+=(sender,args)=>{
+                var rowColor=args.Item.Selected?selectionColor:jobs.BackColor;
+                using(var brush=new SolidBrush(rowColor))args.Graphics.FillRectangle(brush,args.Bounds);
+                var cellBounds=Rectangle.Inflate(args.Bounds,-5,0);
+                TextRenderer.DrawText(args.Graphics,args.SubItem.Text,jobs.Font,cellBounds,jobs.ForeColor,
+                    TextFormatFlags.NoPrefix|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.SingleLine);
+            };
             jobs.ContextMenuStrip=new ContextMenuStrip();
+            jobs.ContextMenuStrip.ShowImageMargin=false;
             jobs.ContextMenuStrip.Items.Add("Open project folder",null,(sender,args)=>Process.Start("explorer.exe",root));
             jobs.ContextMenuStrip.Items.Add("Refresh queue",null,(sender,args)=>{UpdateStatus();refreshQueue();});
             jobs.Columns.Add("Local time",180);jobs.Columns.Add("Task",235);jobs.Columns.Add("Status",290);
             agent.Controls.Add(jobs);
             var notice=Info("No jobs yet. Choose a task above to get started.",18,437,748);
             agent.Controls.Add(notice);
+            Func<ReflexCore.Bridge.QueueEntry> completedSelection=()=>{
+                if(jobs.SelectedItems.Count==0)return null;
+                string selectedId=(string)jobs.SelectedItems[0].Tag;
+                return queue.Snapshot().FirstOrDefault(row=>row.Id==selectedId && row.State!="pending" && row.State!="running");
+            };
+            var erase=jobs.ContextMenuStrip.Items.Add("Delete selected history entry",null,(sender,args)=>{
+                try{
+                    var entry=completedSelection();
+                    if(entry==null || !queue.DeleteHistory(entry.Id,entry.State))return;
+                    refreshQueue();
+                    notice.Text="History entry deleted.";
+                }catch(IOException){notice.Text="Could not delete the history entry.";}
+                 catch(UnauthorizedAccessException){notice.Text="Could not delete the history entry.";}
+            });
+            jobs.ContextMenuStrip.Opening+=delegate{
+                jobs.ContextMenuStrip.Renderer=new ReflexCore.Presentation.DarkMenuRenderer(
+                    jobs.BackColor,selectionColor,selectionColor,jobs.ForeColor);
+                erase.Enabled=completedSelection()!=null;
+            };
             Action<string> command=delegate(string action){
                 if(jobs.SelectedItems.Count==0){notice.Text="Select a task in the queue.";return;}
                 string id=(string)jobs.SelectedItems[0].Tag;
@@ -148,6 +203,8 @@ namespace ReflexCore.Control
                     string signature=String.Join("|",rows.Select(row=>row.Id+"/"+row.State).ToArray());
                     if(signature==lastSnapshot)return;
                     string selected=jobs.SelectedItems.Count>0?(string)jobs.SelectedItems[0].Tag:"";
+                    string topId=jobs.TopItem==null?null:(string)jobs.TopItem.Tag;
+                    ListViewItem topRow=null;
                     jobs.BeginUpdate();
                     try{
                         jobs.Items.Clear();
@@ -161,7 +218,9 @@ namespace ReflexCore.Control
                                 row.State=="completed"?"Completed":row.State=="cancelled"?"Cancelled":row.State=="interrupted"?"Interrupted":"Failed";
                             var entry=new ListViewItem(new[]{hour,task,state});entry.Tag=row.Id;jobs.Items.Add(entry);
                             if(row.Id==selected)entry.Selected=true;
+                            if(row.Id==topId)topRow=entry;
                         }
+                        if(topRow!=null)jobs.TopItem=topRow;
                         lastSnapshot=signature;
                         notice.Text=rows.Count==0?"No jobs yet. Choose a task above to get started.":
                             "Select a pending task to approve or cancel it.";
@@ -416,6 +475,13 @@ namespace ReflexCore.Control
             buttons["CANCEL SELECTED"].PerformClick();
             if(!File.Exists(queue.Marker(id,"approve")) || !File.Exists(queue.Marker(id,"cancel")))
                 throw new InvalidOperationException("Selected queue item commands failed");
+            if(queue.DeleteHistory(id,"pending"))throw new InvalidOperationException("Active task deletion was allowed");
+            queue.CancelPending();
+            refreshQueue();
+            jobs.Items.Cast<ListViewItem>().Single(item=>(string)item.Tag==id).Selected=true;
+            jobs.ContextMenuStrip.Items.Cast<ToolStripItem>().Single(item=>item.Text=="Delete selected history entry").PerformClick();
+            if(queue.Snapshot().Any(row=>row.Id==id))
+                throw new InvalidOperationException("Selected queue history deletion failed");
         }
         string LoadModel()
         {

@@ -127,6 +127,15 @@ namespace ReflexCore.Bridge
         static bool Terminal(string state){
             return state=="completed" || state=="cancelled" || state=="failed" || state=="interrupted";
         }
+        public bool DeleteHistory(string id,string state)
+        {
+            if(!ValidId(id) || !Terminal(state))return false;
+            var path=Path.Combine(history,id+"."+state);
+            if(!File.Exists(path))return false;
+            File.Delete(path);
+            terminalKinds.Remove(id);
+            return true;
+        }
         public List<QueueEntry> Snapshot()
         {
             var result=new List<QueueEntry>();

@@ -722,7 +722,8 @@ namespace ReflexCore.Bridge
 
             toast = new SilentToast();
             hud = new ActivityHud();
-            menu = new ContextMenuStrip();
+            var menuRenderer=ReflexCore.Presentation.DarkMenuRenderer.ForTray();
+            menu = new ContextMenuStrip{Renderer=menuRenderer};
             statusMenu = new ToolStripMenuItem("Status: ready");
             statusMenu.Enabled = false;
             activityMenu = new ToolStripMenuItem("Activity: idle");
@@ -748,7 +749,7 @@ namespace ReflexCore.Bridge
                     companionMenu.Text=companionHost.CompanionRequested?"Hide ReflexCompanion 3D":"Show ReflexCompanion 3D";
                 };
                 menu.Items.Insert(1,companionMenu);
-                var classicMenu=new ContextMenuStrip();
+                var classicMenu=new ContextMenuStrip{Renderer=menuRenderer};
                 var gpuNamesOption=new ToolStripMenuItem("Show graphics card names");
                 gpuNamesOption.Click+=delegate{companionHost.SetClassicGpuNames(!hud.ClassicGpuNames);};
                 var clickOption=new ToolStripMenuItem("Click through");
@@ -762,6 +763,7 @@ namespace ReflexCore.Bridge
                 hud.ContextMenuStrip=classicMenu;
                 hud.Disposed+=delegate{classicMenu.Dispose();};
                 var widgetOptions=new ToolStripMenuItem("Widget");
+                widgetOptions.DropDown.Renderer=menuRenderer;
                 widgetOptions.DropDownOpening+=delegate {
                     while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
                     var entries=widgetOptions.DropDownItems;
@@ -781,6 +783,7 @@ namespace ReflexCore.Bridge
                     };
                     entries.Add(input);
                     var classic=new ToolStripMenuItem("Classic options");
+                    classic.DropDown.Renderer=menuRenderer;
                     hud.AddClassicActions(classic.DropDownItems,companionHost.SetClassicClickThrough);
                     entries.Add(classic);
                 };
@@ -789,6 +792,7 @@ namespace ReflexCore.Bridge
             }
             menu.Items.Add("Stop task · Ctrl+Alt+P", null, delegate(object s, EventArgs e) { StopJob(); });
             var toolsMenu=new ToolStripMenuItem("More");
+            toolsMenu.DropDown.Renderer=menuRenderer;
             toolsMenu.DropDownItems.Add("Run next pending job", null, delegate(object s, EventArgs e) { StartPending(true); });
             toolsMenu.DropDownItems.Add("Stop all · Reflex + Ollama", null, delegate(object s, EventArgs e) {
                 // Immediate local signal for Shared Control, then async unload local Ollama models.

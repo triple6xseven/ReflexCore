@@ -14,6 +14,37 @@ public sealed partial class StudioWindow
         const string ns = "xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'";
         void Style(Type type, string body) => Resources[type] = XamlReader.Parse("<Style " + ns + " TargetType='{x:Type " + type.Name + "}'>" + body + "</Style>");
         string palette = "<Setter Property='Foreground' Value='{DynamicResource Text}'/><Setter Property='Background' Value='{DynamicResource Card}'/><Setter Property='BorderBrush' Value='{DynamicResource Track}'/>";
+        Style(typeof(Slider), """
+            <Setter Property='Height' Value='24'/>
+            <Setter Property='Template'><Setter.Value>
+              <ControlTemplate TargetType='Slider'>
+                <Grid Background='Transparent'>
+                  <Border Height='4' VerticalAlignment='Center' CornerRadius='2' Background='{DynamicResource Track}'/>
+                  <Track x:Name='PART_Track' Minimum='{TemplateBinding Minimum}' Maximum='{TemplateBinding Maximum}' Value='{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}'>
+                    <Track.DecreaseRepeatButton>
+                      <RepeatButton Command='Slider.DecreaseLarge' Focusable='False'>
+                        <RepeatButton.Template><ControlTemplate TargetType='RepeatButton'>
+                          <Grid Background='Transparent'><Border Height='4' VerticalAlignment='Center' CornerRadius='2' Background='{DynamicResource Accent}'/></Grid>
+                        </ControlTemplate></RepeatButton.Template>
+                      </RepeatButton>
+                    </Track.DecreaseRepeatButton>
+                    <Track.IncreaseRepeatButton>
+                      <RepeatButton Command='Slider.IncreaseLarge' Focusable='False'>
+                        <RepeatButton.Template><ControlTemplate TargetType='RepeatButton'><Border Background='Transparent'/></ControlTemplate></RepeatButton.Template>
+                      </RepeatButton>
+                    </Track.IncreaseRepeatButton>
+                    <Track.Thumb>
+                      <Thumb Width='16' Height='18'>
+                        <Thumb.Template><ControlTemplate TargetType='Thumb'>
+                          <Border Background='{DynamicResource Accent}' BorderBrush='{DynamicResource PanelOutline}' BorderThickness='1' CornerRadius='4'/>
+                        </ControlTemplate></Thumb.Template>
+                      </Thumb>
+                    </Track.Thumb>
+                  </Track>
+                </Grid>
+              </ControlTemplate>
+            </Setter.Value></Setter>
+            """);
         Style(typeof(ListBox), palette + "<Setter Property='BorderThickness' Value='1'/><Setter Property='Padding' Value='4'/><Setter Property='ScrollViewer.HorizontalScrollBarVisibility' Value='Disabled'/><Setter Property='ScrollViewer.CanContentScroll' Value='True'/>");
         Style(typeof(ListBoxItem), "<Setter Property='Foreground' Value='{DynamicResource Text}'/><Setter Property='Padding' Value='9,8'/><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListBoxItem'><Border x:Name='row' Background='Transparent' BorderBrush='Transparent' BorderThickness='1' CornerRadius='5' Padding='{TemplateBinding Padding}'><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='row' Property='Background' Value='{DynamicResource Track}'/></Trigger><Trigger Property='IsSelected' Value='True'><Setter TargetName='row' Property='Background' Value='{DynamicResource Track}'/><Setter TargetName='row' Property='BorderBrush' Value='{DynamicResource Accent}'/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>");
         Style(typeof(ComboBoxItem), """

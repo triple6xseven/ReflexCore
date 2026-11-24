@@ -19,9 +19,9 @@ public sealed partial class StudioWindow
         category.ItemsSource=new[]{"All themes","Studio","Retro","Dark","Light","With artwork"};
         category.SelectedIndex=0;category.MinWidth=140;System.Windows.Automation.AutomationProperties.SetName(category,"Theme category");
         filters.Children.Add(category);page.Children.Add(filters);
+        var detail=new Flow{MinW=310,MaxCols=2,Gap=14,Anim=animate};
+        page.Children.Insert(0,new Expander{Header="Background, motion and font",Content=detail,Margin=new Thickness(0,0,0,12)});
         page.Children.Add(gallery);category.SelectionChanged+=(_,_)=>FillGallery();
-        var detail=new Flow{MinW=310,MaxCols=2,Gap=14,Anim=animate,Margin=new Thickness(0,16,0,0)};
-        page.Children.Add(detail);
         var material=Section(detail,"Material and background");
         AddSwitch(material,"Show theme artwork",wallpaperSwitch,v=>{showWallpaper=v;RefreshBackground();});
         var wall=Choice(material,"Background",new[]{"Use theme default","Alienwave","Dark Fantasy","zxc 2003","Overdrive"});

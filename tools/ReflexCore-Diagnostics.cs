@@ -131,7 +131,8 @@ namespace ReflexCore.Diagnostics
             headerGrid.Controls.Add(tools,1,0);headerGrid.SetRowSpan(tools,2);
             var launch=new Button{Text="RUN VERIFIED BENCHMARK",FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(31,76,47),ForeColor=fg,Width=220,Height=33};
             launch.Click+=OnBenchmark;tools.Controls.Add(launch);
-            n=new NumericUpDown{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=53,Height=28};tools.Controls.Add(n);
+            n=new ThemedBenchmarkCount{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=62,Margin=new Padding(3,8,3,3),
+                AccessibleName="Benchmark runs"};tools.Controls.Add(n);
             var open=new Button{Text="OPEN REPORTS",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg,Width=135,Height=33};
             open.Click+=delegate{Directory.CreateDirectory(dir);Process.Start("explorer.exe","\""+dir+"\"");};tools.Controls.Add(open);
             var sectionLayout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=new Padding(0)};
@@ -210,6 +211,41 @@ namespace ReflexCore.Diagnostics
                     var parameters=base.CreateParams;
                     parameters.ExStyle|=0x02000000; // WS_EX_COMPOSITED buffers child controls as well.
                     return parameters;
+                }
+            }
+        }
+        sealed class ThemedBenchmarkCount : NumericUpDown
+        {
+            public ThemedBenchmarkCount()
+            {
+                foreach(System.Windows.Forms.Control child in Controls)
+                    if(!(child is TextBox))new ArrowPainter(this,child);
+            }
+            sealed class ArrowPainter : NativeWindow
+            {
+                private readonly ThemedBenchmarkCount owner;
+                private readonly System.Windows.Forms.Control buttons;
+                public ArrowPainter(ThemedBenchmarkCount owner,System.Windows.Forms.Control buttons)
+                {
+                    this.owner=owner;this.buttons=buttons;
+                    buttons.HandleCreated+=OnCreated;
+                    buttons.HandleDestroyed+=OnDestroyed;
+                    if(buttons.IsHandleCreated)AssignHandle(buttons.Handle);
+                }
+                private void OnCreated(object sender,EventArgs e){AssignHandle(buttons.Handle);}
+                private void OnDestroyed(object sender,EventArgs e){ReleaseHandle();}
+                protected override void WndProc(ref Message message)
+                {
+                    base.WndProc(ref message);
+                    if(message.Msg!=0x000f || Handle==IntPtr.Zero)return;
+                    using(var graphics=Graphics.FromHwnd(Handle))
+                    using(var brush=new SolidBrush(owner.ForeColor))
+                    {
+                        graphics.Clear(owner.BackColor);
+                        int x=buttons.Width/2,y=buttons.Height/2;
+                        graphics.FillPolygon(brush,new[]{new Point(x-3,y/2+1),new Point(x+3,y/2+1),new Point(x,y/2-2)});
+                        graphics.FillPolygon(brush,new[]{new Point(x-3,y+y/2-1),new Point(x+3,y+y/2-1),new Point(x,y+y/2+2)});
+                    }
                 }
             }
         }

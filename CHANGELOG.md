@@ -1,3 +1,9 @@
+## Studio and tray interface
+
+- Theme the task queue, Diagnostics run count, Studio sliders and tray menus.
+- Preserve the task queue's scroll position on refresh and allow deletion of selected terminal history entries.
+- Group Appearance and Companion settings by purpose.
+
 ## Classic Live Status
 
 - Add a setting to replace graphics card names with numbered GPU labels while retaining utilization and memory readings.
