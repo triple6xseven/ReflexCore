@@ -62,6 +62,25 @@ namespace ReflexCore.Control
         {
             base.OnHandleCreated(e);
             ApplyNativeTheme();
+            FillLastColumn();
+        }
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            FillLastColumn();
+        }
+        protected override void OnColumnWidthChanged(ColumnWidthChangedEventArgs e)
+        {
+            base.OnColumnWidthChanged(e);
+            FillLastColumn();
+        }
+        internal void FillLastColumn()
+        {
+            if(!IsHandleCreated || Columns.Count<2)return;
+            int last=Columns.Count-1;
+            int remaining=ClientSize.Width;
+            for(int i=0;i<last;i++)remaining-=Columns[i].Width;
+            if(remaining>0 && Columns[last].Width!=remaining)Columns[last].Width=remaining;
         }
         protected override void OnBackColorChanged(EventArgs e)
         {
@@ -225,6 +244,7 @@ namespace ReflexCore.Control
                         notice.Text=rows.Count==0?"No jobs yet. Choose a task above to get started.":
                             "Select a pending task to approve or cancel it.";
                     }finally{jobs.EndUpdate();}
+                    jobs.FillLastColumn();
                 }catch(IOException){notice.Text="Refreshing the task queue.";}
             };
             taskTimer.Tick+=delegate{refreshQueue();};
@@ -469,6 +489,8 @@ namespace ReflexCore.Control
             var jobs=page.Controls.OfType<ListView>().Single();
             if(jobs.Items.Count!=3 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=3)
                 throw new InvalidOperationException("Queued tasks missing from Studio");
+            if(jobs.Columns.Cast<ColumnHeader>().Sum(column=>column.Width)!=jobs.ClientSize.Width)
+                throw new InvalidOperationException("Queue header does not fill its viewport");
             jobs.Items[0].Selected=true;
             string id=(string)jobs.Items[0].Tag;
             buttons["APPROVE SELECTED"].PerformClick();
@@ -482,6 +504,11 @@ namespace ReflexCore.Control
             jobs.ContextMenuStrip.Items.Cast<ToolStripItem>().Single(item=>item.Text=="Delete selected history entry").PerformClick();
             if(queue.Snapshot().Any(row=>row.Id==id))
                 throw new InvalidOperationException("Selected queue history deletion failed");
+            for(int i=0;i<30;i++)jobs.Items.Add(new ListViewItem("Scroll fixture"));
+            ((QueueListView)jobs).FillLastColumn();
+            if(jobs.ClientSize.Width>=jobs.Width ||
+                jobs.Columns.Cast<ColumnHeader>().Sum(column=>column.Width)!=jobs.ClientSize.Width)
+                throw new InvalidOperationException("Queue header does not fill the viewport beside its scrollbar");
         }
         string LoadModel()
         {
