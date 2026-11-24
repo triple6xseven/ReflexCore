@@ -95,9 +95,11 @@ namespace ReflexCore.Diagnostics
 
         private static void SelectSection(Panel[] screens,List<Button> buttons,int selected)
         {
+            screens[selected].BringToFront();
+            screens[selected].Show();
             for(int i=0;i<screens.Length;i++){
-                screens[i].Visible=i==selected;
-                buttons[i].FlatAppearance.BorderSize=i==selected?2:1;
+                if(i!=selected) screens[i].Hide();
+                buttons[i].FlatAppearance.BorderColor=i==selected?buttons[i].ForeColor:buttons[i].BackColor;
             }
         }
 
@@ -138,7 +140,7 @@ namespace ReflexCore.Diagnostics
             outer.Controls.Add(sectionLayout,0,2);
             var sectionBar=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,AutoScroll=true};
             sectionLayout.Controls.Add(sectionBar,0,0);
-            var content=new Panel{Dock=DockStyle.Fill,Margin=new Padding(0)};
+            var content=new BufferedSectionHost{Dock=DockStyle.Fill,Margin=new Padding(0)};
             sectionLayout.Controls.Add(content,0,1);
             var overview=new Panel{Dock=DockStyle.Fill};
             summary=MakeLabel("No benchmark results recorded.",new Font("Consolas",11),accent);
@@ -178,8 +180,8 @@ namespace ReflexCore.Diagnostics
             var toolbar=new Panel{Dock=DockStyle.Fill};modelLayout.Controls.Add(toolbar,0,0);
             var inspect=new Button{Text="REFRESH QWEN REVIEW",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg};inspect.SetBounds(20,8,240,32);toolbar.Controls.Add(inspect);
             inspect.Click+=delegate{LaunchKnownScript("Review-ReflexPerformance.ps1","");};
-            help=MakeLabel("Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",new Font("Segoe UI",9),Color.Gray);
-            help.Dock=DockStyle.Top;help.AutoSize=true;help.Padding=new Padding(12,3,12,5);
+            help=new Label{Text="Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",
+                AutoSize=true,Margin=new Padding(12,3,12,8),ForeColor=fg};
             outer.SizeChanged+=delegate{help.MaximumSize=new Size(Math.Max(1,outer.ClientSize.Width-6),0);};
             outer.Controls.Add(help,0,1);
             var screens=new[]{overview,details,resourcePage,modelPage};
@@ -192,11 +194,24 @@ namespace ReflexCore.Diagnostics
                 button.Click+=delegate{SelectSection(screens,sectionButtons,selected);};
                 sectionButtons.Add(button);
                 sectionBar.Controls.Add(button);
+                screens[index].Visible=false;
                 content.Controls.Add(screens[index]);
             }
             SelectSection(screens,sectionButtons,0);
             timer=new System.Windows.Forms.Timer{Interval=800};timer.Tick+=delegate{RefreshAll();};
             VisibleChanged+=delegate{timer.Enabled=Visible;if(Visible)RefreshAll();};
+        }
+        sealed class BufferedSectionHost : Panel
+        {
+            public BufferedSectionHost(){DoubleBuffered=true;}
+            protected override CreateParams CreateParams
+            {
+                get {
+                    var parameters=base.CreateParams;
+                    parameters.ExStyle|=0x02000000; // WS_EX_COMPOSITED buffers child controls as well.
+                    return parameters;
+                }
+            }
         }
         static TableLayoutPanel Rows(params int[] fixedHeights)
         {
