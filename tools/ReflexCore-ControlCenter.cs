@@ -332,6 +332,7 @@ namespace ReflexCore.Control
                     if(signature==lastSnapshot)return;
                     string selected=jobs.SelectedItems.Count>0?(string)jobs.SelectedItems[0].Tag:"";
                     string topId=jobs.TopItem==null?null:(string)jobs.TopItem.Tag;
+                    jobs.ShowItemToolTips=true;
                     ListViewItem topRow=null;
                     visibleRows=rows;
                     jobs.BeginUpdate();
@@ -353,7 +354,7 @@ namespace ReflexCore.Control
                                 else if(receipt.outcome=="verified")state="Completed";
                                 state+=" · "+receipt.renamed.Value+" renamed";
                             }
-                            var entry=new ListViewItem(new[]{hour,task,state});entry.Tag=row.Id;jobs.Items.Add(entry);
+                            var entry=new ListViewItem(new[]{hour,task,state});entry.Tag=row.Id;entry.ToolTipText="Task ID: "+row.Id;jobs.Items.Add(entry);
                             if(row.Id==selected)entry.Selected=true;
                             if(row.Id==topId)topRow=entry;
                         }

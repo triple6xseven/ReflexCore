@@ -81,10 +81,10 @@ namespace ReflexCore.Bridge
             return Submit("verify-handoff",true,new JavaScriptSerializer().Serialize(new {folder,checklist,report}));
         }
         string ResultLink(string id) { return Path.Combine(Path.GetDirectoryName(bridge),"private","folder-results",id+".json"); }
-        public string SubmitFolderCheck(FolderResultLink link)
+        public string SubmitFolderCheck(FolderResultLink link,bool run=true)
         {
             var json=new JavaScriptSerializer();
-            return Submit("verify-handoff",true,
+            return Submit("verify-handoff",run,
                 json.Serialize(new {link.folder,link.checklist,link.report,link.checklist_sha256}),json.Serialize(link));
         }
         public FolderResultLink ReadFolderResult(string id)

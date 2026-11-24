@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([switch]$Benchmark,[ValidateRange(1,20)][int]$Sessions=4,
+param([switch]$Benchmark,[switch]$Mcp,[ValidateRange(1,20)][int]$Sessions=4,
       [ValidateRange(1,30)][int]$WarmRuns=5,[string]$MetricsFile,[switch]$RequireOllamaStopped)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
@@ -87,6 +87,70 @@ try{
     $unicode=([char]0x96ea).ToString()+'.txt'
     [IO.File]::WriteAllText((Join-Path $folder $unicode),'test')
     $good=(Get-FileHash -LiteralPath (Join-Path $folder $unicode)).Hash
+    if($Mcp){
+        foreach($f in 'ReflexCore-Mcp.ps1','ReflexCore-Mcp.cs','ReflexCore-Queue.cs'){
+            Copy-Item -LiteralPath (Join-Path $root "tools/$f") -Destination (Join-Path $fixture "tools/$f")
+        }
+        $settings=Join-Path $fixture 'data/settings'
+        [void][IO.Directory]::CreateDirectory($settings)
+        [IO.File]::WriteAllText((Join-Path $settings 'mcp-scope.txt'),$fixture)
+        $start=New-Object Diagnostics.ProcessStartInfo
+        $start.FileName=(Join-Path $PSHOME 'powershell.exe')
+        $start.Arguments='-NoProfile -ExecutionPolicy Bypass -File "'+(Join-Path $fixture 'tools/ReflexCore-Mcp.ps1')+'"'
+        $start.UseShellExecute=$false
+        $start.RedirectStandardInput=$true
+        $start.RedirectStandardOutput=$true
+        $child=[Diagnostics.Process]::Start($start)
+        $script:requestId=0
+        function Invoke-Mcp($method,$params,[switch]$Notification){
+            $body=@{jsonrpc='2.0';method=$method;params=$params}
+            if(!$Notification){$body.id=++$script:requestId}
+            $child.StandardInput.WriteLine(($body|ConvertTo-Json -Compress -Depth 8))
+            if($Notification){return}
+            $read=$child.StandardOutput.ReadLineAsync()
+            Require ($read.Wait(12000) -and $read.Result) 'No MCP reply'
+            $response=$read.Result|ConvertFrom-Json
+            Require ($response.id -eq $body.id -and !$response.error) 'Invalid MCP reply'
+            return $response.result
+        }
+        function Invoke-Tool($name,$arguments){
+            Invoke-Mcp 'tools/call' @{name=$name;arguments=$arguments}
+        }
+        try{
+            $hello=Invoke-Mcp 'initialize' @{protocolVersion='2025-06-18';capabilities=@{};clientInfo=@{name='test';version='1'}}
+            Require ($hello.serverInfo.name -eq 'reflexcore') 'MCP server identity not found'
+            Invoke-Mcp 'notifications/initialized' @{} -Notification
+            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 4) 'Wrong MCP tools'
+            Require ((Invoke-Tool 'list_skills' @{}).isError) 'MCP did not honor the off switch'
+            [IO.File]::WriteAllText((Join-Path $settings 'mcp.enabled'),'on')
+            Require (((Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json).skills.Count -gt 0) 'MCP skill catalog is empty'
+            Checklist @(@{path='absent'})
+            $argsForCheck=@{folder='folder';checklist='checklist.json';report='mcp-report.json'}
+            $outside=@{folder='..';checklist='checklist.json';report='mcp-report.json'}
+            Require ((Invoke-Tool 'submit_handoff_check' $outside).isError) 'MCP accepted a path outside the scope'
+            $job=(Invoke-Tool 'submit_handoff_check' $argsForCheck).content[0].text|ConvertFrom-Json
+            $id=$job.task_id
+            Require ($job.state -eq 'pending_approval') 'MCP did not request approval'
+            [void]$pump.Invoke($tray,@())
+            Require (!(Test-Path (Join-Path $fixture $argsForCheck.report))) 'MCP executed without approval'
+            Require ($store.Request($id,'approve')) 'Could not approve MCP task'
+            $receipt=Terminal-Job $id
+            $result=(Invoke-Tool 'get_task_result' @{task_id=$id}).content[0].text|ConvertFrom-Json
+            Require ($receipt.verification -eq 'verified' -and $result.receipt.run_id -eq $id -and $result.receipt.handoff.missing -eq 1 -and $result.receipt.metrics.model_calls -eq 0) 'Wrong MCP handoff receipt'
+            Evaluate (Join-Path $fixture $argsForCheck.report) $receipt @(@{path='absent'}) @('missing') 'Needs attention'
+            $argsForCheck.report='mcp-cancelled.json'
+            $cancelJob=(Invoke-Tool 'submit_handoff_check' $argsForCheck).content[0].text|ConvertFrom-Json
+            $cancel=(Invoke-Tool 'cancel_task' @{task_id=$cancelJob.task_id}).content[0].text|ConvertFrom-Json
+            Require ($cancel.cancellation_requested) 'MCP cancellation not accepted'
+            $cancelReceipt=Terminal-Job $cancelJob.task_id
+            Require ($cancelReceipt.outcome -eq 'cancelled' -and !(Test-Path (Join-Path $fixture $argsForCheck.report))) 'MCP task did not cancel before execution'
+            Write-Host '[ReflexCore] MCP tested through the actual queue, worker and report readback.'
+        }finally{
+            $child.StandardInput.Close()
+            if(!$child.WaitForExit(1500)){$child.Kill()}
+            $child.Dispose()
+        }
+    }
     foreach($case in 'ready','missing','bad-hash','locked'){
         $entries=@(@{path=$unicode;sha256=$good});$states=@('present');$verdict='Ready';$outcome='verified';$lock=$null
         switch($case){

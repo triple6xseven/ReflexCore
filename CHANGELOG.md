@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Add a local MCP server for skill discovery and approved handoff checks, with scope and enable controls in the Studio sidebar.
 - Add a themed Studio skill library with read-only SQLite movement statistics and an installation picker.
 - Apply the active Studio palette to match replays. Verify opposing teams on the owned CS 1.6 server and distinguish a shot request from an actual discharge.
 - Browse finalized CS 1.6 replays from Shared Control and label new recordings with the build version, test time, and map.

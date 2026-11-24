@@ -118,6 +118,47 @@ public sealed partial class StudioWindow : Window
         support.Margin=new Thickness(8,8,8,10);
         DockPanel.SetDock(support,Dock.Bottom);
         sidebarLayout.Children.Add(support);
+        var mcpSettingsPath=System.IO.Path.Combine(projectRoot,"data","settings");
+        var mcpEnabledPath=System.IO.Path.Combine(mcpSettingsPath,"mcp.enabled");
+        var mcpToggle=new System.Windows.Controls.Primitives.ToggleButton {
+            IsChecked=System.IO.File.Exists(mcpEnabledPath),Margin=new Thickness(8,0,8,3)
+        };
+        void UpdateMcpLabel()
+        {
+            mcpToggle.Content=mcpToggle.IsChecked==true?"MCP On":"MCP Off";
+            AutomationProperties.SetName(mcpToggle,"Enable or disable MCP tools");
+        }
+        UpdateMcpLabel();
+        mcpToggle.Click+=(_,_)=>{
+            try {
+                if(mcpToggle.IsChecked==true){
+                    System.IO.Directory.CreateDirectory(mcpSettingsPath);
+                    System.IO.File.WriteAllText(mcpEnabledPath,"on");
+                }else System.IO.File.Delete(mcpEnabledPath);
+            }catch(System.IO.IOException){MessageBox.Show(this,"Could not save MCP status.","MCP settings");}
+             catch(UnauthorizedAccessException){MessageBox.Show(this,"Could not save MCP status.","MCP settings");}
+            mcpToggle.IsChecked=System.IO.File.Exists(mcpEnabledPath);
+            UpdateMcpLabel();
+        };
+        var mcpSettings=Command("MCP settings",()=>{
+            try{
+                var scopeFile=System.IO.Path.Combine(mcpSettingsPath,"mcp-scope.txt");
+                var scope=System.IO.File.Exists(scopeFile)?System.IO.File.ReadAllText(scopeFile):"";
+                using var picker=new Forms.FolderBrowserDialog {
+                    Description="Choose the folder Codex may use for handoff checks. Studio approval is required for each task.",
+                    SelectedPath=scope,ShowNewFolderButton=false
+                };
+                if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
+                System.IO.Directory.CreateDirectory(mcpSettingsPath);
+                System.IO.File.WriteAllText(scopeFile,picker.SelectedPath);
+            }catch(System.IO.IOException){MessageBox.Show(this,"Could not save the allowed folder.","MCP settings");}
+             catch(UnauthorizedAccessException){MessageBox.Show(this,"Could not save the allowed folder.","MCP settings");}
+        });
+        mcpSettings.Margin=new Thickness(8,3,8,3);
+        DockPanel.SetDock(mcpToggle,Dock.Bottom);
+        DockPanel.SetDock(mcpSettings,Dock.Bottom);
+        sidebarLayout.Children.Add(mcpToggle);
+        sidebarLayout.Children.Add(mcpSettings);
         SizeChanged+=(_,_)=>support.Content=ActualWidth<1000?"♥":"GitHub Support";
         sidebarLayout.Children.Add(new ScrollViewer{Content=rail,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         sidebar.Child=sidebarLayout;layout.Children.Add(sidebar);
