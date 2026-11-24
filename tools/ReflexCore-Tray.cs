@@ -479,10 +479,35 @@ namespace ReflexCore.Bridge
             stageLabel=new Label { Text="Idle", Left=12, Top=29, Width=344, Height=23, AutoEllipsis=true,
                 ForeColor=Color.FromArgb(224,241,228), Font=new Font("Segoe UI",10,FontStyle.Regular) };
             hostLabel=Metric("CPU —    RAM —",55);
-            gpuLabel=Metric("GPU —    VRAM —",79);
+            gpuLabel=new GpuColumnsLabel { Text="GPU —  |  VRAM —  |  Shared —", Left=12, Top=79,
+                Width=344, Height=22, ForeColor=hostLabel.ForeColor, Font=hostLabel.Font };
             speedLabel=Metric("Ollama — tok/s  \u00b7  no recent sample",103);
             Controls.AddRange(new System.Windows.Forms.Control[] {header,stageLabel,hostLabel,gpuLabel,speedLabel});
             Reposition();
+        }
+
+        private sealed class GpuColumnsLabel : Label
+        {
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                int firstDivider=ClientSize.Width*43/100;
+                int secondDivider=ClientSize.Width*73/100;
+                int gap=Math.Max(6,Font.Height/2);
+                var flags=TextFormatFlags.NoPadding|TextFormatFlags.SingleLine|
+                    TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix;
+                int y=0;
+                foreach(string row in Text.Split(new[]{Environment.NewLine},StringSplitOptions.None))
+                {
+                    var fields=row.Split(new[]{"  |  "},3,StringSplitOptions.None);
+                    if(fields.Length!=3)continue;
+                    TextRenderer.DrawText(e.Graphics,fields[0],Font,new Rectangle(0,y,Math.Max(0,firstDivider-gap),Font.Height),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,"|",Font,new Point(firstDivider,y),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,fields[1],Font,new Rectangle(firstDivider+gap,y,Math.Max(0,secondDivider-firstDivider-2*gap),Font.Height),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,"|",Font,new Point(secondDivider,y),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,fields[2],Font,new Rectangle(secondDivider+gap,y,Math.Max(0,ClientSize.Width-secondDivider-gap),Font.Height),ForeColor,flags);
+                    y+=Font.Height;
+                }
+            }
         }
 
         private static Label Metric(string value,int top)
@@ -550,7 +575,7 @@ namespace ReflexCore.Bridge
             if(displayedGpuSample!=null)
                 foreach(var gpu in displayedGpuSample.Readings)
                     rows.Add(GpuText(gpu,gpuNames?gpu.Name:"GPU "+(rows.Count+1).ToString(CultureInfo.InvariantCulture)));
-            if(rows.Count==0) rows.Add("GPU —    VRAM —");
+            if(rows.Count==0) rows.Add("GPU —  |  VRAM —  |  Shared —");
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
             LayoutClassic();
