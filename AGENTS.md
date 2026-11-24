@@ -1,5 +1,7 @@
 # ReflexCore contributor notes
 
+Write project documentation, code comments, UI copy, and change summaries in English. Compare relevant open-source implementations when investigating architecture, new features, or performance, and link to their primary sources.
+
 For queue changes run tasks/Test-Queue.ps1. With a release build and an interactive desktop, add -AllowInput for actual UIA and Notepad verification. Add -VisualCancellation with the local default vision model installed to exercise stop during inference.
 
 Use Windows PowerShell 5.1 for the WinForms tools. Build with cargo build --release --locked and run cargo test --locked. Compile the combined Control Center after editing its C# sources. Run the visible UI smoke and fixture tests on an interactive Windows desktop.
