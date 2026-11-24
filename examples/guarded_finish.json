@@ -1,0 +1,9 @@
+{
+  "schema": "reflexcore.flow.v1",
+  "name": "Finish the fixture editor",
+  "window": "ReflexCore Test Window",
+  "steps": [
+    { "action": "set-value", "id": "RcInput", "value": "Finished" },
+    { "action": "assert-value", "id": "RcInput", "value": "Finished" }
+  ]
+}

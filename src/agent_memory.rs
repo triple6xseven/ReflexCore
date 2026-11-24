@@ -1,6 +1,6 @@
 //! Bounded online reliability estimates for existing, independently checked Flow skills.
 use crate::agent::Goal;
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::{fs, io::Read, path::Path, time::Duration};
 
@@ -63,43 +63,64 @@ impl Memory {
         let goal_key = Sha256::digest(serde_json::to_vec(goal)?).to_vec();
         Ok(Some(Self { db, goal_key }))
     }
+    fn skill_key(goal: &Goal, slot: usize) -> Result<Vec<u8>> {
+        let skill = &goal.skills[slot];
+        let context = goal.guard.as_ref().map(|guard|
+            (&guard.window, &guard.states[&skill.from], &guard.states[&skill.to]));
+        let identity = serde_json::to_vec(&(
+            &skill.id, skill.version.unwrap_or(1), &skill.from, &skill.to, context
+        ))?;
+        let mut digest = Sha256::new();
+        digest.update(b"reflexcore.skill-reliability.v1\0");
+        digest.update(identity);
+        Ok(digest.finalize().to_vec())
+    }
+
     pub(super) fn apply(&self, goal: &mut Goal) -> Result<()> {
         let mut query = self.db.prepare(
-            "SELECT slot,flow,passes,misses FROM routes WHERE goal=?1 AND misses>0 LIMIT 256",
+            "SELECT flow,passes,misses FROM routes WHERE goal=?1 AND slot=?2"
         )?;
-        let mut rows = query.query([&self.goal_key])?;
-        while let Some(row) = rows.next()? {
-            let slot = usize::try_from(row.get::<_, i64>(0)?)?;
-            let Some(skill) = goal.skills.get_mut(slot) else {
-                continue;
+        for slot in 0..goal.skills.len() {
+            let key = Self::skill_key(goal, slot)?;
+            let read = |key: &[u8], slot: i64, stmt: &mut rusqlite::Statement<'_>| {
+                stmt.query_row(params![key, slot], |row| {
+                    Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, u32>(1)?, row.get::<_, u32>(2)?))
+                }).optional()
             };
-            let saved: Vec<u8> = row.get(1)?;
-            if flow_digest(&skill.flow).as_ref() != Some(&saved) {
+            let history = match read(&key, 0, &mut query)? {
+                Some(history) => Some(history),
+                None => read(&self.goal_key, i64::try_from(slot)?, &mut query)?,
+            };
+            let Some((saved, passes, misses)) = history else { continue };
+            let skill = &mut goal.skills[slot];
+            if misses == 0 || flow_digest(&skill.flow).as_ref() != Some(&saved) {
                 continue;
             }
-            let passes: u32 = row.get(2)?;
-            let misses: u32 = row.get(3)?;
-            // Regularized miss-to-pass ratio. Bound the penalty and preserve positive costs.
             let penalty = skill.cost * misses.min(64) / (1 + passes.min(64));
-            skill.cost = skill
-                .cost
-                .saturating_add(penalty.min(skill.cost * 4))
-                .min(10_000);
+            skill.cost = skill.cost.saturating_add(penalty.min(skill.cost * 4)).min(10_000);
         }
         Ok(())
     }
+
     pub(super) fn fingerprint(flow: &str) -> Option<Vec<u8>> {
         flow_digest(flow)
     }
-    pub(super) fn record(&mut self, slot: usize, flow: &[u8], passed: bool) -> Result<()> {
+    pub(super) fn record(&mut self, goal: &Goal, slot: usize, flow: &[u8], passed: bool) -> Result<()> {
+        let key = Self::skill_key(goal, slot)?;
         let tx = self.db.transaction()?;
+        // Seed an unambiguous legacy row once; older versions can still read it.
+        tx.execute(
+            "INSERT OR IGNORE INTO routes
+             SELECT ?1,0,flow,passes,misses,touched FROM routes WHERE goal=?2 AND slot=?3 AND flow=?4",
+            params![key, self.goal_key, i64::try_from(slot)?, flow],
+        )?;
         // Decay saturated histories together so a repaired skill can recover.
         tx.execute("INSERT INTO routes VALUES (?1,?2,?3,?4,?5,1+coalesce((SELECT max(touched) FROM routes),0))
             ON CONFLICT(goal,slot) DO UPDATE SET
               passes=excluded.passes+CASE WHEN flow<>excluded.flow THEN 0 WHEN passes+misses>=64 THEN passes/2 ELSE passes END,
               misses=excluded.misses+CASE WHEN flow<>excluded.flow THEN 0 WHEN passes+misses>=64 THEN misses/2 ELSE misses END,
               flow=excluded.flow,touched=excluded.touched",
-            params![self.goal_key, i64::try_from(slot)?, flow, passed as i32, (!passed) as i32])?;
+            params![key, 0, flow, passed as i32, (!passed) as i32])?;
         tx.execute(
             "DELETE FROM routes WHERE (goal,slot) IN (
             SELECT goal,slot FROM routes ORDER BY touched DESC LIMIT -1 OFFSET ?1)",
@@ -192,16 +213,22 @@ mod tests {
         };
         db.db.execute_batch("CREATE TABLE routes(goal BLOB,slot INTEGER,flow BLOB,passes INTEGER,misses INTEGER,touched INTEGER,PRIMARY KEY(goal,slot))").unwrap();
         let digest = flow_digest("demo").unwrap();
-        db.record(0, &digest, false).unwrap();
-        db.record(0, &digest, false).unwrap();
+        db.record(&goal, 0, &digest, false).unwrap();
+        db.record(&goal, 0, &digest, false).unwrap();
         let mut adapted = goal.clone();
         db.apply(&mut adapted).unwrap();
         assert_eq!(crate::agent::plan(&adapted).unwrap(), vec![1]);
-        db.record(0, &[42], true).unwrap();
+        let mut reordered = goal.clone();
+        reordered.skills.swap(0, 1);
+        reordered.skills[1].cost = 3;
+        db.apply(&mut reordered).unwrap();
+        assert_eq!(reordered.skills[1].cost, 9);
+        db.record(&goal, 0, &[42], true).unwrap();
         db.apply(&mut goal).unwrap();
         assert_eq!(goal.skills[0].cost, 1);
         for slot in 0..300 {
-            db.record(slot, &digest, true).unwrap();
+            goal.skills[0].id = format!("skill-{slot}");
+            db.record(&goal, 0, &digest, true).unwrap();
         }
         assert_eq!(
             db.db

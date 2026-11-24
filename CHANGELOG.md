@@ -1,3 +1,9 @@
+## Guarded user Goals and stable skill identity
+
+- Add versioned Goal manifests with fresh AutomationId predicates, a pinned foreground window, and final readback.
+- Keep reliability across cost and order changes. Seed matching legacy rows by exact manifest and Flow fingerprint.
+- Isolate the simulation under the legacy-demo command and retain its original aliases.
+
 ## Guarded Goal transitions and benchmark correlation
 
 - Add a two-skill Windows fixture run with fresh preconditions, postconditions, and independent file readback before the Goal receipt.

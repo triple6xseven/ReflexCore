@@ -231,8 +231,12 @@ pub(super) fn has_terminal_assertion(bytes: &[u8]) -> bool {
 }
 
 fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>) -> Result<()> {
-    validate(flow)?;
     let _lock = FlowLock::acquire()?;
+    execute_scoped_flow(flow, fixture, fixture.is_some())
+}
+
+fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture: bool) -> Result<()> {
+    validate(flow)?;
     let started = Instant::now();
     let mut final_report = FlowReport {
         schema: "reflexcore.flow.execution.v1",
@@ -260,14 +264,15 @@ fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>) -> Result<()> {
         let mut succeeded = false;
         let mut action_fault = None;
         let mut args = build_action_args(flow, step);
-        if let Some((hwnd, _)) = fixture {
+        if let Some((hwnd, _)) = target {
             args.remove(1);
             args.insert(1, format!("--hwnd={hwnd}"));
         }
         for attempt in 1..=attempts_allowed {
             attempt_count = attempt;
             action_id += 1;
-            match crate::uia_actions::execute(&args[1..], &run_id, action_id, fixture.map(|(_, pid)| pid)) {
+            match crate::uia_actions::execute_scoped(&args[1..], &run_id, action_id,
+                target.map(|(_, pid)| pid), target.is_some() && !trusted_fixture) {
                 Ok(response) => {
                     last_status = response["status"].as_str().unwrap_or("invalid_report").to_owned();
                     last_verification = response["verification"].as_str().unwrap_or("not_applicable").to_owned();
@@ -296,7 +301,7 @@ fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>) -> Result<()> {
         }
         if succeeded {
             // The owned demo's Apply handler copies Input to the independent Output field.
-            let trusted_fixture_step = fixture.is_some() && match index {
+            let trusted_fixture_step = trusted_fixture && match index {
                 2 => step.name.as_deref() == Some("Apply"),
                 3 => step.name.as_deref() == Some("ReflexCore Output") && step.value == flow.steps[0].value,
                 _ => false,
@@ -340,7 +345,7 @@ fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>) -> Result<()> {
     }
     final_report.outcome = "passed";
     save_report(&final_report)?;
-    if fixture.is_some() {
+    if trusted_fixture {
         if let Ok(benchmark_run) = std::env::var("REFLEXCORE_BENCHMARK_RUN_ID") {
             save_benchmark_report(Path::new("data/benchmark-runs"), &final_report, &benchmark_run)?;
         }
@@ -541,6 +546,67 @@ fn fixture_value_matches(reply: serde_json::Value) -> Result<bool> {
         Some("assertion_failed") => Ok(false),
         Some("cancelled") => Err(Fault::Cancelled.into()),
         _ => Err(Fault::EffectUnknown.into()),
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ValuePredicate {
+    pub(crate) automation_id: String,
+    pub(crate) equals: String,
+}
+
+pub(crate) struct GoalWindow {
+    title: String,
+    hwnd: String,
+    pid: u32,
+    _lock: FlowLock,
+}
+
+impl GoalWindow {
+    pub(crate) fn bind(title: &str) -> Result<Self> {
+        let lock = FlowLock::acquire()?;
+        let (hwnd, pid) = Self::resolve(title)?;
+        Ok(Self { title: title.into(), hwnd, pid, _lock: lock })
+    }
+
+    fn resolve(title: &str) -> Result<(String, u32)> {
+        let windows = crate::observer::capture_value()?;
+        let mut matches = windows["windows"].as_array().ok_or(Fault::Infrastructure)?
+            .iter().filter(|w| w["title"].as_str() == Some(title));
+        let window = matches.next().ok_or(Fault::PreconditionFailed)?;
+        if matches.next().is_some() || window["active"] != true {
+            return Err(Fault::PreconditionFailed.into());
+        }
+        Ok((
+            window["hwnd"].as_str().ok_or(Fault::Infrastructure)?.into(),
+            u32::try_from(window["pid"].as_u64().ok_or(Fault::Infrastructure)?)?,
+        ))
+    }
+
+    pub(crate) fn observe(&self, predicate: &ValuePredicate) -> Result<bool> {
+        let (hwnd, pid) = Self::resolve(&self.title)?;
+        if hwnd != self.hwnd || pid != self.pid {
+            return Err(Fault::FocusLost.into());
+        }
+        let args = [
+            format!("--hwnd={}", self.hwnd), "--action=assert-value".into(),
+            format!("--id={}", predicate.automation_id), format!("--value={}", predicate.equals),
+            "--timeout-ms=2000".into(),
+        ];
+        let reply = crate::uia_actions::execute_scoped(&args, &task_integrity::run_id(), 1, Some(self.pid), true)?;
+        fixture_value_matches(reply)
+    }
+
+    pub(crate) fn run_flow(&self, path: &str) -> Result<()> {
+        let mut text = String::new();
+        fs::File::open(path)?.take(2 * 1024 * 1024 + 1).read_to_string(&mut text)?;
+        if text.len() > 2 * 1024 * 1024 { return Err("Flow exceeds 2 MiB".into()); }
+        let flow = parse_flow(&text)?;
+        if flow.window != self.title || flow.steps.iter().any(|step| step.window.is_some() || step.path.is_some()) {
+            return Err("Guarded flows require one window and named selectors".into());
+        }
+        execute_scoped_flow(&flow, Some((&self.hwnd, self.pid)), false)
     }
 }
 

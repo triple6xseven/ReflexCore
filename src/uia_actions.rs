@@ -185,6 +185,10 @@ pub fn run(args: &[String]) -> Result<()> {
 }
 
 pub(crate) fn execute(args: &[String], run_id: &str, action_id: usize, fixture_owner: Option<u32>) -> Result<Value> {
+    execute_scoped(args, run_id, action_id, fixture_owner, false)
+}
+
+pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, owner: Option<u32>, foreground: bool) -> Result<Value> {
     crate::task_integrity::check_cancel()?;
     let req = parse(args)?;
     let (hwnd, window_title) = resolve_window(&req).map_err(|_| crate::task_integrity::Fault::Infrastructure)?;
@@ -192,7 +196,8 @@ pub(crate) fn execute(args: &[String], run_id: &str, action_id: usize, fixture_o
     let temp = request.path();
     crate::task_integrity::check_cancel()?;
     let mut wire = req.to_wire();
-    wire["fixture_owner"] = json!(fixture_owner);
+    wire["fixture_owner"] = json!(owner);
+    wire["require_foreground"] = json!(foreground);
     let mut child = Command::new(std::env::current_exe()?)
         .arg("uia-act-worker")
         .arg(hwnd.to_string())
@@ -535,10 +540,9 @@ pub fn run_worker(args: &[String]) -> Result<()> {
         } else {
             if crate::task_integrity::cancelled() {
                 result["status"] = json!("cancelled");
-            } else if fixture_owner.map_or_else(
-                || crate::task_integrity::task_id().is_some() && crate::observer::foreground_window() != target_window,
-                |owner| crate::observer::window_process(target_window) != owner,
-            ) {
+            } else if fixture_owner.is_some_and(|owner| crate::observer::window_process(target_window) != owner)
+                || ((req["require_foreground"] == true || (fixture_owner.is_none() && crate::task_integrity::task_id().is_some()))
+                    && crate::observer::foreground_window() != target_window) {
                 result["status"] = json!("focus_lost");
             } else {
                 match apply(element, req) {

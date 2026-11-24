@@ -1,0 +1,18 @@
+{
+  "schema": "reflexcore.goal.v2",
+  "name": "guarded-editor",
+  "initial_state": "empty",
+  "goal_state": "finished",
+  "guard": {
+    "window": "ReflexCore Test Window",
+    "states": {
+      "empty": { "automation_id": "RcInput", "equals": "" },
+      "prepared": { "automation_id": "RcInput", "equals": "Prepared" },
+      "finished": { "automation_id": "RcInput", "equals": "Finished" }
+    }
+  },
+  "skills": [
+    { "id": "prepare-fixture-editor", "version": 1, "from": "empty", "to": "prepared", "flow": "examples/guarded_prepare.json" },
+    { "id": "finish-fixture-editor", "version": 1, "from": "prepared", "to": "finished", "flow": "examples/guarded_finish.json" }
+  ]
+}

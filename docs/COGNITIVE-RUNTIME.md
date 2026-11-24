@@ -2,6 +2,10 @@
 
 ## Routing and verification
 
+`reflexcore.goal.v2` accepts a `guard` with an exact window title and a value predicate for each graph state. The runtime binds one foreground HWND and process, uses its AutomationId selectors, and checks each source and destination state plus the final Goal. It refuses ambiguous windows and Flow-level window or ordinal path overrides. See [the two-skill manifest](../examples/guarded_goal.json). Use `agent plan examples/guarded_goal.json` for read-only planning and `agent run examples/guarded_goal.json --execute` with the test fixture in the foreground. File-based Save verification is demonstrated by the separate owned fixture adapter.
+
+The simulator lives in `legacy_demo`. Use `legacy-demo status` or the existing `status` alias to read its original state format.
+
 `reflexcore agent verified-demo --execute` plans two skills against an owned WinForms window. It verifies the editor value before and after preparation, checks that value again before Save, and reopens the exclusively created fixture file to verify the effect and the final goal. A changed precondition stops the next skill. An unresolved effect is never replayed. This is the first guarded Goal adapter. Existing v1 manifests still use their Flow contract.
 
 The Rust Goal Agent validates a v1 manifest, builds a map of outgoing edges and runs deterministic shortest-path search. Edges with equal cost retain their stable skill-name order. The existing Flow executor checks UIA assertions and bounds retries. An ambiguous or unverified mutation cannot produce a verified outcome. Flow receives a private UIA response matched by schema, run ID and action ID. Direct UIA commands still publish their diagnostic snapshot. Set-value verifies through same-element readback. The owned WinForms fixture binds Apply to its independent Output check and pins UIA to the child HWND and PID. The built-in WinForms fixture exercises set-value, readback, invoke and a final independent output assertion.

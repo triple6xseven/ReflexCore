@@ -51,6 +51,7 @@ pub(crate) fn citadel_skill_score(kind: &str, s: &CitadelSignals, previous_failu
 }
 
 const SCHEMA: &str = "reflexcore.goal.v1";
+const GUARDED_SCHEMA: &str = "reflexcore.goal.v2";
 const EVENT_DIR: &str = "data/agent/events";
 const MAX_MANIFEST_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -62,6 +63,15 @@ struct Goal {
     initial_state: String,
     goal_state: String,
     skills: Vec<Skill>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    guard: Option<GoalGuard>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct GoalGuard {
+    window: String,
+    states: HashMap<String, crate::flow::ValuePredicate>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -73,6 +83,8 @@ struct Skill {
     flow: String,
     #[serde(default = "default_cost")]
     cost: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    version: Option<u32>,
 }
 
 fn default_cost() -> u32 {
@@ -108,8 +120,19 @@ fn safe_flow_path(path: &str) -> bool {
 }
 
 fn validate(goal: &Goal) -> Result<()> {
-    if goal.schema != SCHEMA {
-        return Err("Unsupported goal manifest schema".into());
+    match (goal.schema.as_str(), &goal.guard) {
+        (SCHEMA, None) => {}
+        (GUARDED_SCHEMA, Some(guard)) => {
+            if guard.window.trim().is_empty() || guard.window.len() > 512
+                || !guard.states.contains_key(&goal.initial_state)
+                || !guard.states.contains_key(&goal.goal_state)
+                || guard.states.iter().any(|(id, p)| !valid_id(id)
+                    || p.automation_id.trim().is_empty() || p.automation_id.len() > 512
+                    || p.equals.len() > 4096 || p.equals.contains('\0') || p.automation_id.contains('\0')) {
+                return Err("Invalid guarded Goal state contract".into());
+            }
+        }
+        _ => return Err("Unsupported goal manifest schema or missing guard contract".into()),
     }
     for id in [&goal.name, &goal.initial_state, &goal.goal_state] {
         if !valid_id(id) {
@@ -135,6 +158,13 @@ fn validate(goal: &Goal) -> Result<()> {
         }
         if !safe_flow_path(&skill.flow) {
             return Err("Skill flow must be 'demo' or an examples/tasks JSON path".into());
+        }
+        if skill.version == Some(0) {
+            return Err("Skill version must be positive".into());
+        }
+        if goal.guard.as_ref().is_some_and(|guard| skill.flow == "demo"
+            || !guard.states.contains_key(&skill.from) || !guard.states.contains_key(&skill.to)) {
+            return Err("Guarded skills require an explicit Flow and both state predicates".into());
         }
     }
     Ok(())
@@ -253,6 +283,7 @@ fn print_status() -> Result<()> {
 }
 
 fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memory>, run_id: &str) -> Result<()> {
+    use crate::task_integrity::{self, Fault};
     let started = Instant::now();
     let total = planned.len();
     let mut completed = 0;
@@ -265,6 +296,8 @@ fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memor
         elapsed_ms: 0,
     };
     log_event(run_id, &initial, 0)?;
+    let target = goal.guard.as_ref().map(|guard| crate::flow::GoalWindow::bind(&guard.window)).transpose()?;
+    let guarded = target.as_ref().zip(goal.guard.as_ref());
 
     for (step, &index) in planned.iter().enumerate() {
         let skill = &goal.skills[index];
@@ -275,13 +308,38 @@ fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memor
             vec!["run".to_owned(), skill.flow.clone(), "--execute".to_owned()]
         };
         let version = memory.as_ref().and_then(|_| memory::Memory::fingerprint(&skill.flow));
-        let outcome = crate::flow::run(&args);
+        let outcome = if let Some((target, guard)) = guarded {
+            (|| -> Result<()> {
+                task_integrity::check_cancel()?;
+                if !target.observe(&guard.states[&skill.from])? {
+                    return Err(Fault::PreconditionFailed.into());
+                }
+                target.run_flow(&skill.flow)?;
+                task_integrity::check_cancel().map_err(|_| Fault::CancelledUnknown)?;
+                let verify = |state: &str| -> Result<()> {
+                    match target.observe(&guard.states[state]) {
+                        Ok(true) => Ok(()),
+                        Ok(false) => Err(Fault::VerificationFailed.into()),
+                        Err(error) if matches!(error.downcast_ref::<Fault>(), Some(Fault::Cancelled)) =>
+                            Err(Fault::CancelledUnknown.into()),
+                        Err(_) => Err(Fault::EffectUnknown.into()),
+                    }
+                };
+                verify(&skill.to)?;
+                if step + 1 == total {
+                    verify(&goal.goal_state)?;
+                }
+                Ok(())
+            })()
+        } else {
+            crate::flow::run(&args)
+        };
         let fault = outcome.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
             .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));
         if let (Some(db), Some(version)) = (memory.as_deref_mut(), version) {
             if memory::Memory::fingerprint(&skill.flow).as_ref() == Some(&version)
                 && matches!(fault, None | Some(crate::task_integrity::Fault::VerificationFailed))
-                && db.record(index, &version, outcome.is_ok()).is_err() {
+                && db.record(goal, index, &version, outcome.is_ok()).is_err() {
                 eprintln!("[ReflexCore] Could not persist skill outcome.");
             }
         }
@@ -313,7 +371,20 @@ fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memor
         log_event(run_id, &event, step + 1)?;
     }
 
-    if total == 0 { return Err(crate::task_integrity::Fault::EffectUnknown.into()); }
+    if total == 0 {
+        if let Some((target, guard)) = guarded {
+            if target.observe(&guard.states[&goal.goal_state])? {
+                log_event(run_id, &Event {
+                    phase: "verified",
+                    elapsed_ms: started.elapsed().as_millis(),
+                    ..initial
+                }, 1)?;
+                return Ok(());
+            }
+            return Err(Fault::PreconditionFailed.into());
+        }
+        return Err(Fault::EffectUnknown.into());
+    }
     println!("[ReflexCore] GOAL VERIFIED: {completed}/{total} skills, {} ms", started.elapsed().as_millis());
     Ok(())
 }
@@ -438,6 +509,14 @@ pub(crate) fn plan_cs16_step(
 mod tests {
     use super::*;
 
+    #[test]
+    fn guarded_manifest_requires_each_state_predicate() {
+        let mut goal = parse(include_str!("../examples/guarded_goal.json")).unwrap();
+        assert_eq!(plan(&goal).unwrap(), vec![0, 1]);
+        goal.guard.as_mut().unwrap().states.remove("prepared");
+        assert!(validate(&goal).is_err());
+    }
+
     fn fixture() -> Goal {
         parse(include_str!("../examples/goal_agent_demo.json")).unwrap()
     }
@@ -448,6 +527,7 @@ mod tests {
             from: from.into(),
             to: to.into(),
             flow: "demo".into(),
+            version: None,
             cost,
         }
     }
