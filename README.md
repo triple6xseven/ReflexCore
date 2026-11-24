@@ -1,6 +1,6 @@
 # ReflexCore Engine
 
-**[Download Portable (Windows x64)](https://github.com/triple6xseven/ReflexCore/releases/download/v0.7.1-alpha.2-windows.1/ReflexCore-Portable-win-x64.zip)** | [Download Setup](https://github.com/triple6xseven/ReflexCore/releases/download/v0.7.1-alpha.2-windows.1/ReflexCore-Setup-win-x64.exe) | [Installation guide](https://github.com/triple6xseven/ReflexCore/blob/feat/companion3d/docs/WINDOWS-DOWNLOADS.md)
+**[Download Portable (Windows x64)](https://github.com/triple6xseven/ReflexCore/releases/download/v0.7.1-alpha.2-windows.1/ReflexCore-Portable-win-x64.zip)** | [Download Setup](https://github.com/triple6xseven/ReflexCore/releases/download/v0.7.1-alpha.2-windows.1/ReflexCore-Setup-win-x64.exe) | [Installation guide](docs/WINDOWS-DOWNLOADS.md)
 
 Local-first Windows automation for PCs with limited RAM and GPU capacity. ReflexCore uses a Rust planner and native Windows UI Automation to execute supported tasks, check their results and reuse successful methods. Ollama is optional for tasks that need visual input.
 

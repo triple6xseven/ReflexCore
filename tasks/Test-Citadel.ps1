@@ -3,7 +3,7 @@
 param()
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
-$arena=Join-Path $root 'Sandbox for intelegent test\citadel-zero'
+$arena=Join-Path $root 'sandbox\citadel-zero'
 if(-not (Test-Path -LiteralPath (Join-Path $arena 'game.js') -PathType Leaf)){
     throw 'Citadel game.js not found in expected arena directory.'
 }
