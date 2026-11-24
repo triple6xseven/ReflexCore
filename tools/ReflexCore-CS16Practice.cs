@@ -719,25 +719,75 @@ namespace ReflexCore.Practice
             }
         }
 
-        public static void WatchLatestReplay(string root)
+        public static void BrowseReplays(string root)
         {
-            try
+            string folder=Path.Combine(root,"data","replays","cs16");
+            using(var window=new Form {Text="Match replays",StartPosition=FormStartPosition.CenterScreen,
+                ClientSize=new Size(760,390),MinimumSize=new Size(650,300)})
+            using(var list=new ListView {Dock=DockStyle.Fill,View=View.Details,FullRowSelect=true,
+                MultiSelect=false,HideSelection=false})
             {
-                string folder=Path.Combine(root,"data","replays","cs16");
-                if(Directory.Exists(folder))
-                {
-                    foreach(var demo in new DirectoryInfo(folder).GetFiles("*.dem").OrderByDescending(file=>file.LastWriteTimeUtc))
+                list.Columns.Add("Map",130);
+                list.Columns.Add("Test time (local)",155);
+                list.Columns.Add("ReflexCore",125);
+                list.Columns.Add("Recording",330);
+                var footer=new FlowLayoutPanel {Dock=DockStyle.Bottom,Height=40,Padding=new Padding(6,5,0,0)};
+                var watch=new Button {Text="Watch replay",AutoSize=true,Enabled=false};
+                var refresh=new Button {Text="Refresh",AutoSize=true};
+                var status=new Label {AutoSize=true,Margin=new Padding(12,8,0,0)};
+                footer.Controls.AddRange(new System.Windows.Forms.Control[]{watch,refresh,status});
+                window.Controls.Add(list);
+                window.Controls.Add(footer);
+                Action scan=delegate {
+                    string selected=list.SelectedItems.Count==1?(string)list.SelectedItems[0].Tag:null;
+                    list.BeginUpdate();
+                    try
                     {
-                        if(!HasClosedDemo(demo.FullName))continue;
-                        LaunchReplay(demo.FullName,null);
-                        return;
+                        list.Items.Clear();
+                        Directory.CreateDirectory(folder);
+                        foreach(var file in new DirectoryInfo(folder).EnumerateFiles("*.dem")
+                            .OrderByDescending(item=>item.LastWriteTimeUtc).ThenBy(item=>item.Name,StringComparer.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                string map;
+                                if(!HasClosedDemo(file.FullName,out map))continue;
+                                var metadata=Regex.Match(file.Name,@"^ReflexCore-(?<version>[a-zA-Z0-9.+-]+)_(?<time>[0-9]{8}T[0-9]{6}Z)_");
+                                DateTime time=file.LastWriteTime;
+                                bool hasRunTime=metadata.Success && DateTime.TryParseExact(metadata.Groups["time"].Value,
+                                    "yyyyMMdd'T'HHmmss'Z'",CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out time);
+                                string date=(hasRunTime?time:file.LastWriteTime).ToString("yyyy-MM-dd HH:mm:ss",CultureInfo.InvariantCulture);
+                                var row=new ListViewItem(new[]{map,date,metadata.Success?metadata.Groups["version"].Value:"Unknown",file.Name})
+                                    {Tag=file.FullName};
+                                list.Items.Add(row);
+                                if(file.FullName==selected)row.Selected=true;
+                            }
+                            catch(IOException) {}
+                            catch(UnauthorizedAccessException) {}
+                        }
+                        if(list.Items.Count>0 && list.SelectedItems.Count==0)list.Items[0].Selected=true;
+                        status.Text=list.Items.Count==0?"No completed recordings yet.":list.Items.Count+" ready to watch";
                     }
-                }
-                MessageBox.Show("No finalized match replays are available yet.","Watch latest replay");
-            }
-            catch(Exception error)
-            {
-                MessageBox.Show(error.Message,"Watch latest replay");
+                    catch(Exception error) { status.Text=error.Message; }
+                    finally { list.EndUpdate(); }
+                };
+                Action play=delegate {
+                    if(list.SelectedItems.Count!=1)return;
+                    try
+                    {
+                        string demo=(string)list.SelectedItems[0].Tag;
+                        if(!HasClosedDemo(demo))throw new IOException("This recording is no longer ready. Refresh the list.");
+                        LaunchReplay(demo,window);
+                    }
+                    catch(Exception error) { MessageBox.Show(window,error.Message,"Watch replay"); }
+                };
+                list.SelectedIndexChanged+=delegate { watch.Enabled=list.SelectedItems.Count==1; };
+                list.DoubleClick+=delegate { play(); };
+                watch.Click+=delegate { play(); };
+                refresh.Click+=delegate { scan(); };
+                window.AcceptButton=watch;
+                window.Shown+=delegate { scan(); list.Focus(); };
+                window.ShowDialog();
             }
         }
 
@@ -786,7 +836,12 @@ namespace ReflexCore.Practice
                         if(HasClosedDemo(source))
                         {
                             Directory.CreateDirectory(replayFolder);
-                            string destination=Path.Combine(replayFolder,Path.GetFileName(source));
+                            string manifest=Path.Combine(root,"Cargo.toml");
+                            string version=File.Exists(manifest)?Regex.Match(File.ReadAllText(manifest),
+                                "^(?m:version\\s*=\\s*\"([a-zA-Z0-9.+-]+)\")").Groups[1].Value:"";
+                            string label="ReflexCore-"+(version.Length>0?version:"unknown")+"_"+runStartedUtc.ToString(
+                                "yyyyMMdd'T'HHmmss'Z'",CultureInfo.InvariantCulture)+"_"+route.map+"_"+recordStem+".dem";
+                            string destination=Path.Combine(replayFolder,label);
                             File.Copy(source,destination,false);
                             latestReplay=destination;
                             return true;
@@ -801,14 +856,27 @@ namespace ReflexCore.Practice
 
         private static bool HasClosedDemo(string path)
         {
+            string map;
+            return HasClosedDemo(path,out map);
+        }
+
+        private static bool HasClosedDemo(string path,out string map)
+        {
+            map="Unknown";
             using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite))
             using(var reader=new BinaryReader(stream))
             {
-                if(stream.Length<544 || stream.Length>32*1024*1024)return false;
+                if(stream.Length<544)return false;
                 if(Encoding.ASCII.GetString(reader.ReadBytes(8))!="HLDEMO\0\0")return false;
+                stream.Position=16;
+                string mapName=Encoding.ASCII.GetString(reader.ReadBytes(260)).Split('\0')[0];
+                if(Regex.IsMatch(mapName,@"\A[a-zA-Z0-9_-]{1,64}\z"))map=mapName;
                 stream.Position=540;
                 int directory=reader.ReadInt32();
-                return directory>=544 && directory<stream.Length;
+                if(directory<544 || directory>stream.Length-4)return false;
+                stream.Position=directory;
+                int entries=reader.ReadInt32();
+                return entries>0 && entries<=(stream.Length-directory-4)/92;
             }
         }
 

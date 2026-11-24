@@ -75,3 +75,5 @@ The versioned companion snapshot binds the simulation tick, command sequence, ac
 
 
 Use **Watch replay** in the practice window to choose a finalized GoldSrc demo. Select the Counter-Strike 1.6 client on first use in that window. Studio stages a uniquely named copy in the client's cstrike folder and opens the client with the replay command. Close a running game client before launching playback if it refuses a second instance.
+
+In Studio, choose **Shared Control > Browse match replays**. The list scans the local recording folder, selects the newest completed file, and plays any selected row with a double-click or Enter. Refresh to include newly saved files. Older recordings show their map and file modification time, with the build version marked Unknown when it was not recorded. New filenames include the available source build version, UTC run start, map, and recording ID.

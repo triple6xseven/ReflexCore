@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Browse finalized CS 1.6 replays from Shared Control and label new recordings with the build version, test time, and map.
 - Add the owned Dust II adversarial round experiment with automatic routes, AK-47 combat telemetry and isolated replay scoring.
 - Add a persistent Agent execution mode with a non-activating background UIA fixture and native folder tasks.
 - Chain a verified folder check and an explicitly approved extension rename, with a run-bound Studio result and queue cancellation.
