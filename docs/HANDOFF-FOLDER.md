@@ -55,3 +55,13 @@ Review the current and proposed names, select **Rename files**, and confirm. The
 Select **Open rename logs** in the rename dialog to open `%LOCALAPPDATA%\ReflexCore\rename-history`. Each private JSON Lines file records the folder, UTC times, original and new filenames, and the final count. The app flushes an intent before each move and records completion immediately afterward. An intent without a completion calls for checking both filenames after an interruption. The app requires a writable journal before it starts. Moves use Windows no-overwrite semantics in the same folder. The worker stops at the first error and reports any files already renamed. This feature does not delete files or roll back successful moves automatically.
 
 Run `powershell.exe -NoProfile -File tasks/Test-ExtensionRename.ps1` to exercise the parser and verify changes on synthetic files.
+
+## Check, then rename
+
+In **Agent**, enter one supported two-step request, such as `Check README.md, then change .txt to .log.` or `Проверь, что в папке есть README.md, затем поменяй .txt на .log.`. **Preview request** shows the two steps. Choose the folder and review the checklist. When the first job finishes, select it in the task queue. Its result card shows counts for found, missing, mismatched, unreadable and changed files. **Open report** is available when the selected run's local report matches its receipt. The report path stays in private task storage.
+
+**Preview next step** is available after a verified **Ready** result. The preview uses the same folder. Confirm the displayed rename list to queue it. The worker checks that the approved preview still matches and checks the original checklist and folder again immediately before entering the rename operation. The readiness check is a point-in-time observation. Existing destinations remain protected.
+
+Use **Stop task** or **Cancel selected** to stop the queue worker between moves. Studio shows the completed count. **Partial** indicates a run that stopped after some moves. After **Interrupted**, the result card shows the count durably recorded in the local journal when available. An interruption during a move can leave its outcome unknown. Inspect the folder before retrying.
+
+Run `tasks/Test-Handoff.ps1` for both language forms, the result gate, an independent check of a queued rename, and pending cancellation. Run `tasks/Test-ExtensionRename.ps1` for cancellation after one file and partial-failure behavior.

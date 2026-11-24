@@ -680,7 +680,7 @@ namespace ReflexCore.Bridge
         private Process active;
         private string activeJob;
         private readonly QueueStore queue;
-        private bool notepadActive;
+        private bool cooperativeOnly;
         private bool cancelled, forceStopStarted, stopTimedOut;
         private DateTime stopDeadline;
         private Process stopHelper;
@@ -1114,7 +1114,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     cancelled = false;
                     forceStopStarted = false;
                     stopTimedOut = false;
-                    notepadActive=name=="notepad-save.ps1" || name=="notepad-visual.ps1";
+                    cooperativeOnly=name=="notepad-save.ps1" || name=="notepad-visual.ps1" || name=="rename-extensions.ps1";
                     ProcessStartInfo psi = new ProcessStartInfo();
                     psi.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
                         @"WindowsPowerShell\v1.0\powershell.exe");
@@ -1178,14 +1178,14 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             queue.Request(QueueStore.IdOf(activeJob),"cancel");
             cancelled = true;
             // Notepad can share a Windows process with private tabs. Its worker stops cooperatively.
-            stopDeadline = DateTime.UtcNow.AddMilliseconds(notepadActive ? 30000 : 900);
+            stopDeadline = DateTime.UtcNow.AddMilliseconds(cooperativeOnly ? 30000 : 900);
             SetState("stopping", -1, "Stop requested; waiting for worker cleanup");
         }
 
         private void PollStop()
         {
             if(!cancelled || stopTimedOut || DateTime.UtcNow<stopDeadline || active.HasExited)return;
-            if(!notepadActive && !forceStopStarted){
+            if(!cooperativeOnly && !forceStopStarted){
                 forceStopStarted=true;
                 stopDeadline=DateTime.UtcNow.AddSeconds(3);
                 try {
@@ -1270,7 +1270,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                                 reason=forceStopStarted||stopTimedOut?"cleanup_unconfirmed":code==2?"operator_cancelled":"cancelled_effect_unknown"
                             };
                         } else if(!verified && !cancelled && receipt!=null) {
-                            if(receipt.outcome=="unverified")terminal="completed";
+                            if(receipt.outcome=="unverified" || receipt.outcome=="partial")terminal="completed";
                             else if(receipt.outcome=="verified" || receipt.outcome=="cancelled")receipt=null;
                         }
                         queue.Finish(activeJob,terminal,receipt);

@@ -56,6 +56,10 @@ pub(crate) fn run_id() -> String {
 
 pub(crate) fn task_id() -> Option<String> {
     let manifest = std::env::var("REFLEXCORE_QUEUE_MANIFEST").ok()?;
+    job_id(&manifest).map(str::to_owned)
+}
+
+fn job_id(manifest: &str) -> Option<&str> {
     let id = manifest.strip_suffix(".job")?;
     let (stamp, nonce) = id.split_once('-')?;
     (stamp.len() == 17
@@ -64,7 +68,7 @@ pub(crate) fn task_id() -> Option<String> {
         && nonce
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-    .then(|| id.to_owned())
+    .then_some(id)
 }
 
 pub(crate) fn cancelled() -> bool {
@@ -81,6 +85,13 @@ fn claim_cancelled(bridge: &std::path::Path, id: &str) -> bool {
             .join("queue-requests")
             .join(format!("{id}.cancel"))
             .is_file()
+}
+
+pub(crate) fn guard_cancelled() -> bool {
+    let Ok(manifest) = std::env::var("REFLEXCORE_GUARD_MANIFEST") else {
+        return false;
+    };
+    job_id(&manifest).is_none_or(|id| claim_cancelled(std::path::Path::new("data/bridge"), id))
 }
 
 pub(crate) fn check_cancel() -> Result<()> {

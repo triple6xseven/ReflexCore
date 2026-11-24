@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([switch]$Benchmark,[ValidateRange(1,20)][int]$Sessions=4,
       [ValidateRange(1,30)][int]$WarmRuns=5,[string]$MetricsFile,[switch]$RequireOllamaStopped)
 $ErrorActionPreference='Stop'
@@ -26,9 +26,7 @@ function Close-Tray {
         $tray.Dispose();$script:tray=$null
     }
 }
-function Run-Job([string]$report,[string]$expectedOutcome) {
-    Check-Offline
-    $id=$store.SubmitHandoff($folder,$list,$report)
+function Terminal-Job([string]$id) {
     $timer=[Diagnostics.Stopwatch]::StartNew()
     do {
         [void]$pump.Invoke($tray,@())
@@ -39,10 +37,17 @@ function Run-Job([string]$report,[string]$expectedOutcome) {
     Require ($file.Count -eq 1) 'Queue did not publish exactly one terminal history entry'
     $lines=[IO.File]::ReadAllLines($file[0]);Require ($lines.Length -eq 3) 'Missing terminal receipt'
     $r=$lines[2]|ConvertFrom-Json
-    Require ($r.task_id -ceq $id -and $r.run_id -ceq $id -and $r.stage -ceq 'handoff') 'Foreign or missing receipt'
+    Require ($r.task_id -ceq $id -and $r.run_id -ceq $id) 'Foreign or missing receipt'
+    return $r
+}
+function Run-Job([string]$report,[string]$expectedOutcome) {
+    Check-Offline
+    $id=$store.SubmitHandoff($folder,$list,$report)
+    $r=Terminal-Job $id
+    Require ($r.stage -ceq 'handoff') 'Incorrect stage'
     Require ($r.outcome -ceq $expectedOutcome) ("Unexpected outcome: "+$r.outcome+"/"+$r.reason)
     Require ($r.metrics.model_calls -eq 0 -and $null -ne $r.metrics.worker_startup_us) 'Missing or invalid worker measurement'
-    Require (!$lines[2].Contains($folder) -and !$lines[2].Contains('Synthetic handoff')) 'Private input in shared receipt'
+    Require (!$r.PSObject.Properties['path'] -and !$r.PSObject.Properties['folder'] -and !$r.PSObject.Properties['checklist']) 'Private input in shared receipt'
     Require (!(Test-Path -LiteralPath (Join-Path $fixture "data/private/handoff/$id.json"))) 'Private request retained'
     if($r.outcome -ceq 'verified'){Require ($r.verification -ceq 'verified' -and $r.reason -ceq 'disk_readback') 'Unverified receipt'}
     Check-Offline
@@ -65,11 +70,15 @@ try{
     foreach($d in 'folder','tools','tasks','target/release','data/bridge/queue-history'){
         [void][IO.Directory]::CreateDirectory((Join-Path $fixture $d))
     }
-    foreach($f in 'tools/ReflexCore-QueuedWorker.ps1','tasks/verify-handoff.ps1','target/release/reflexcore.exe'){
+    foreach($f in 'tools/ReflexCore-QueuedWorker.ps1','tools/ReflexCore-ExtensionRename.cs','tasks/rename-extensions.ps1','tasks/verify-handoff.ps1','target/release/reflexcore.exe'){
         Copy-Item -LiteralPath (Join-Path $root $f) -Destination (Join-Path $fixture $f)
     }
     $sources=@('Queue','Tray','Companion','CompanionHost','MenuStyle')|ForEach-Object{Join-Path $root ("tools/ReflexCore-"+$_+".cs")}
-    Add-Type -Path $sources -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll,System.Management.dll,System.Web.Extensions.dll
+    $assembly=Join-Path $fixture 'QueueFixture.dll'
+    Add-Type -Path $sources -OutputAssembly $assembly -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll,System.Management.dll,System.Web.Extensions.dll
+    $null=[Reflection.Assembly]::Load([IO.File]::ReadAllBytes($assembly))
+    $workflowSources=@('ExtensionRename','HandoffDraft','FolderWorkflow')|ForEach-Object{Join-Path $root ("tools/ReflexCore-"+$_+".cs")}
+    Add-Type -Path $workflowSources -ReferencedAssemblies @($assembly,'System.Web.Extensions.dll')
     $store=[ReflexCore.Bridge.QueueStore]::new($fixture)
     $type=[ReflexCore.Bridge.TrayHost].Assembly.GetType('ReflexCore.Bridge.TrayWindow',$true)
     $constructor=$type.GetConstructor([type[]]@([string],[bool]))
@@ -104,7 +113,6 @@ try{
             [void](Run-Job $report 'failed');Require (!(Test-Path -LiteralPath $report)) 'Out-of-scope output published'
         }
     }finally{[IO.Directory]::Delete($junction)}
-    Add-Type -Path (Join-Path $root 'tools/ReflexCore-HandoffDraft.cs')
     [string[]]$draftLines=@()
     $draft=[ReflexCore.Control.HandoffDraft]::Build(('Verify "'+$unicode+'" SHA256: '+$good+' and absent.txt.'),[ref]$draftLines)
     Require ($draft.ToString() -ceq 'Draft') 'Text draft was rejected'
@@ -117,6 +125,50 @@ try{
     $r=Run-Job $report 'verified'
     Evaluate $report $r @(@{path=$unicode;sha256=$good.ToLowerInvariant()},@{path='absent.txt'}) @('present','missing') 'Needs attention'
     Write-Output 'Text draft passed through the native verifier and published a verified report.'
+    [string[]]$flowFiles=@(); [string]$old=''; [string]$new=''
+    $sentence='Check README.md, then change .txt to .log.'
+    Require ([ReflexCore.Control.FolderWorkflow]::TryBuild($sentence,[ref]$flowFiles,[ref]$old,[ref]$new)) 'English workflow request not recognized'
+    Require ($flowFiles.Count -eq 1 -and $flowFiles[0] -ceq 'README.md' -and $old -ceq '.txt' -and $new -ceq '.log') 'Wrong workflow fields'
+    $ru='Проверь, что в папке есть README.md, затем поменяй .txt на .log'
+    Require ([ReflexCore.Control.FolderWorkflow]::TryBuild($ru,[ref]$flowFiles,[ref]$old,[ref]$new)) 'Russian workflow request not recognized'
+    Checklist @(@{path='README.md'})
+    $guard=[ReflexCore.Bridge.FolderResultLink]::new()
+    $guard.folder=$folder;$guard.checklist=$list;$guard.checklist_sha256=(Get-FileHash -LiteralPath $list).Hash
+    $guard.old_extension='.txt';$guard.new_extension='.log'
+    foreach($ready in $false,$true){
+        if($ready){[IO.File]::WriteAllText((Join-Path $folder 'README.md'),'ready')}
+        $guard.report=Join-Path $fixture "workflow-$ready.json"
+        $task=$store.SubmitFolderCheck($guard)
+        [void](Terminal-Job $task)
+        $row=$store.Snapshot()|Where-Object Id -ceq $task
+        $link=$store.ReadFolderResult($task)
+        $valid=[ReflexCore.Control.FolderWorkflow]::MatchesReport($link.report,$row.Receipt)
+        Require $valid 'Local report did not match its receipt'
+        Require (([ReflexCore.Control.FolderWorkflow]::CanContinue($row.Receipt,$link,$valid)) -eq $ready) 'Readiness gate failed'
+        Require ($row.Receipt.handoff.present -eq [int]$ready -and $row.Receipt.handoff.missing -eq [int](!$ready)) 'Wrong card summary'
+        if($ready){
+            $other=Join-Path $fixture 'workflow-False.json'
+            Require (![ReflexCore.Control.FolderWorkflow]::MatchesReport($other,$row.Receipt)) 'Foreign report accepted'
+        }
+    }
+    $plan=[ReflexCore.Control.ExtensionRename]::Preview($folder,'.txt','.log')
+    [IO.File]::Delete((Join-Path $folder 'README.md'))
+    $blocked=$store.SubmitRename($folder,'.txt','.log',$plan.Fingerprint(),$link)
+    $r=Terminal-Job $blocked
+    Require ($r.outcome -ceq 'failed' -and $r.renamed -eq 0 -and [IO.File]::Exists((Join-Path $folder $unicode))) 'Stale readiness allowed a rename'
+    [IO.File]::WriteAllText((Join-Path $folder 'README.md'),'ready')
+    $renamed=$store.SubmitRename($folder,'.txt','.log',$plan.Fingerprint(),$link)
+    $r=Terminal-Job $renamed
+    Require ($r.stage -ceq 'rename' -and $r.outcome -ceq 'verified' -and $r.renamed -eq 1) 'Queued rename failed'
+    Require ([IO.File]::ReadAllText((Join-Path $folder ([IO.Path]::ChangeExtension($unicode,'.log')))) -ceq 'test') 'Wrong renamed artifact'
+    $journal=Join-Path ([ReflexCore.Control.ExtensionRename]::JournalDirectory) "$renamed.jsonl"
+    try { Require ([ReflexCore.Control.ExtensionRename]::ConfirmedCount($renamed) -eq 1) 'Journal count mismatch' }
+    finally { [IO.File]::Delete($journal) }
+    $pending=$store.SubmitRename($folder,'.txt','.log',$plan.Fingerprint(),$link)
+    Require ($store.Request($pending,'cancel')) 'Cancellation was not accepted'
+    $r=Terminal-Job $pending
+    Require ($r.outcome -ceq 'cancelled') 'Pending rename was not cancelled'
+    Write-Output 'Folder workflow passed both languages, result binding, readiness gating, queued rename and pending cancellation.'
     Close-Tray
     Write-Output 'Queue acceptance passed: ready, Unicode, missing, mismatch, unreadable, collision and scope rejection.'
     if($Benchmark){

@@ -39,6 +39,8 @@ struct Request {
     folder: PathBuf,
     checklist: PathBuf,
     report: PathBuf,
+    #[serde(default)]
+    checklist_sha256: Option<String>,
 }
 #[derive(Deserialize, Serialize, PartialEq, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -98,7 +100,9 @@ unsafe extern "system" fn on_console_event(event: u32) -> windows::core::BOOL {
     }
 }
 fn stopped() -> bool {
-    INTERRUPTED.load(std::sync::atomic::Ordering::Relaxed) || task_integrity::cancelled()
+    INTERRUPTED.load(std::sync::atomic::Ordering::Relaxed)
+        || task_integrity::cancelled()
+        || task_integrity::guard_cancelled()
 }
 fn cancel() -> Result<()> {
     if stopped() {
@@ -115,11 +119,16 @@ fn bounded(file: File, limit: u64) -> io::Result<Vec<u8>> {
     }
     Ok(b)
 }
-fn private_json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Result<T> {
+fn private_bytes(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let (_pin, path) = scope::target(path).map_err(|_| Fault::PreconditionFailed)?;
     let file = scope::open(&path, true, 1).map_err(|_| Fault::PreconditionFailed)?;
-    let bytes = bounded(file, limit).map_err(|_| Fault::PreconditionFailed)?;
-    serde_json::from_slice(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes))
+    bounded(file, limit).map_err(|_| Fault::PreconditionFailed)
+}
+fn private_json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Result<T> {
+    decode(&private_bytes(path, limit)?)
+}
+fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T> {
+    serde_json::from_slice(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes))
         .map_err(|_| Fault::PreconditionFailed)
 }
 fn validate(c: &Checklist) -> Result<()> {
@@ -270,10 +279,21 @@ fn readback(path: &Path, expected: &Report) -> Result<File> {
     }
     Ok(file)
 }
-fn execute(req: Request, id: &str, m: &mut Metrics) -> Result<()> {
+fn execute(
+    req: Request,
+    id: &str,
+    m: &mut Metrics,
+    summary: &mut Option<serde_json::Value>,
+) -> Result<()> {
     cancel()?;
     let start = Instant::now();
-    let c: Checklist = private_json(&req.checklist, MAX_CHECKLIST)?;
+    let bytes = private_bytes(&req.checklist, MAX_CHECKLIST)?;
+    if let Some(expected) = &req.checklist_sha256 {
+        if !expected.eq_ignore_ascii_case(&format!("{:x}", Sha256::digest(&bytes))) {
+            return Err(Fault::PreconditionFailed);
+        }
+    }
+    let c: Checklist = decode(&bytes)?;
     validate(&c)?;
     let root = Directory::local(&req.folder).map_err(|_| Fault::PreconditionFailed)?;
     let (_out_pin, out) = scope::target(&req.report).map_err(|_| Fault::PreconditionFailed)?;
@@ -343,6 +363,20 @@ fn execute(req: Request, id: &str, m: &mut Metrics) -> Result<()> {
     if stopped() {
         return Err(Fault::CancelledUnknown);
     }
+    let mut counts = [0; 5];
+    for finding in &report.results {
+        counts[match finding.status {
+            Status::Present => 0,
+            Status::Missing => 1,
+            Status::Mismatched => 2,
+            Status::Unreadable => 3,
+            Status::Changed => 4,
+        }] += 1;
+    }
+    *summary = Some(
+        json!({"ready":ready,"present":counts[0],"missing":counts[1],
+        "mismatched":counts[2],"unreadable":counts[3],"changed":counts[4]}),
+    );
     if incomplete {
         Err(Fault::EffectUnknown)
     } else {
@@ -396,6 +430,7 @@ pub(crate) fn run(args: &[String]) -> std::result::Result<(), Box<dyn Error>> {
             m.worker_startup_us = entered.checked_sub(b);
         }
     }
+    let mut summary = None;
     let result = (|| {
         cancel()?;
         let req = match args {
@@ -409,10 +444,21 @@ pub(crate) fn run(args: &[String]) -> std::result::Result<(), Box<dyn Error>> {
                 folder: folder.into(),
                 checklist: checklist.into(),
                 report: report.into(),
+                checklist_sha256: None,
             },
+            [folder, checklist, report, flag, hash]
+                if task.is_none() && flag == "--checklist-sha256" =>
+            {
+                Request {
+                    folder: folder.into(),
+                    checklist: checklist.into(),
+                    report: report.into(),
+                    checklist_sha256: Some(hash.clone()),
+                }
+            }
             _ => return Err(Fault::PreconditionFailed),
         };
-        execute(req, &id, &mut m)
+        execute(req, &id, &mut m, &mut summary)
     })();
     m.worker_us = elapsed(clock);
     m.peak_private_bytes = peak_private();
@@ -432,7 +478,7 @@ pub(crate) fn run(args: &[String]) -> std::result::Result<(), Box<dyn Error>> {
         ),
     };
     let receipt = json!({"schema":"reflexcore.task.receipt.v1","task_id":id,"run_id":id,"stage":"handoff","outcome":outcome,
-        "verification":verification,"reason":reason,"metrics":m});
+        "verification":verification,"reason":reason,"metrics":m,"handoff":summary});
     if task.is_some() {
         task_integrity::publish_receipt(&id, &id, &receipt)?;
     }

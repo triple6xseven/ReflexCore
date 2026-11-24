@@ -68,6 +68,18 @@ try {
     Require ([IO.File]::ReadAllText((Join-Path $fixture 'aaa.bak')) -ceq 'first') 'Renamed content lost'
     Require ([IO.File]::ReadAllText($locked) -ceq 'locked') 'Locked content lost'
     Require (![IO.File]::Exists((Join-Path $fixture 'zzz.bak'))) 'Failed move produced a destination'
+    $cancelFolder=Join-Path $fixture 'cancelled'
+    [void][IO.Directory]::CreateDirectory($cancelFolder)
+    [IO.File]::WriteAllText((Join-Path $cancelFolder 'aaa.txt'),'first')
+    [IO.File]::WriteAllText((Join-Path $cancelFolder 'zzz.txt'),'second')
+    $firstTarget=Join-Path $cancelFolder 'aaa.log'
+    $cancelPlan=[ReflexCore.Control.ExtensionRename]::Preview($cancelFolder,'.txt','.log')
+    $cancel=[Func[bool]]{[IO.File]::Exists($firstTarget)}
+    $id='20260101120000000-1234567890abcdef1234567890abcdef'
+    Require (!$cancelPlan.ApplyQueued($history,$id,$cancel,[ref]$count,[ref]$errorText) -and $count -eq 1) 'Mid-run cancellation count was wrong'
+    Require ([IO.File]::Exists((Join-Path $cancelFolder 'zzz.txt')) -and ![IO.File]::Exists((Join-Path $cancelFolder 'zzz.log'))) 'Second move executed after cancellation'
+    $journal=@([IO.File]::ReadLines((Join-Path $history "$id.jsonl"))|ForEach-Object{$_|ConvertFrom-Json})
+    Require ($journal[-1].action -ceq 'stopped' -and $journal[-1].renamed -eq 1) 'Cancellation count missing in journal'
     'Extension rename passed English and Russian parsing, preview, collisions, Unicode, filtering, fail-closed journaling and partial failure with no data loss.'
 } finally {
     $resolved = [IO.Path]::GetFullPath($fixture)

@@ -15,6 +15,7 @@ namespace ReflexCore.Bridge
         public string State { get; set; }
         public string Verification { get; set; }
         public string Reason { get; set; }
+        public TaskReceipt Receipt { get; set; }
     }
     public sealed class HandoffMetrics
     {
@@ -28,8 +29,28 @@ namespace ReflexCore.Bridge
         public long? peak_private_bytes {get; set;}
         public int model_calls {get; set;}
     }
+    public sealed class HandoffSummary
+    {
+        public bool ready { get; set; }
+        public int present { get; set; }
+        public int missing { get; set; }
+        public int mismatched { get; set; }
+        public int unreadable { get; set; }
+        public int changed { get; set; }
+    }
+    public sealed class FolderResultLink
+    {
+        public string folder { get; set; }
+        public string checklist { get; set; }
+        public string report { get; set; }
+        public string checklist_sha256 { get; set; }
+        public string old_extension { get; set; }
+        public string new_extension { get; set; }
+    }
     public sealed class TaskReceipt
     {
+        public HandoffSummary handoff { get; set; }
+        public int? renamed { get; set; }
         public HandoffMetrics metrics { get; set; }
         public string schema { get; set; }
         public string task_id { get; set; }
@@ -59,8 +80,31 @@ namespace ReflexCore.Bridge
         {
             return Submit("verify-handoff",true,new JavaScriptSerializer().Serialize(new {folder,checklist,report}));
         }
+        string ResultLink(string id) { return Path.Combine(Path.GetDirectoryName(bridge),"private","folder-results",id+".json"); }
+        public string SubmitFolderCheck(FolderResultLink link)
+        {
+            var json=new JavaScriptSerializer();
+            return Submit("verify-handoff",true,
+                json.Serialize(new {link.folder,link.checklist,link.report,link.checklist_sha256}),json.Serialize(link));
+        }
+        public FolderResultLink ReadFolderResult(string id)
+        {
+            if(!ValidId(id))return null;
+            try {
+                var file=new FileInfo(ResultLink(id));
+                if(!file.Exists || file.Length>16384 || (file.Attributes&FileAttributes.ReparsePoint)!=0)return null;
+                return new JavaScriptSerializer{MaxJsonLength=16384}.Deserialize<FolderResultLink>(File.ReadAllText(file.FullName));
+            } catch(IOException) { return null; }
+              catch(UnauthorizedAccessException) { return null; }
+              catch(ArgumentException) { return null; }
+              catch(InvalidOperationException) { return null; }
+        }
+        public string SubmitRename(string folder,string source,string destination,string fingerprint,FolderResultLink guard)
+        {
+            return Submit("rename-extensions",true,new JavaScriptSerializer().Serialize(new {folder,source,destination,fingerprint,guard}));
+        }
         public string Submit(string task,bool run) { return Submit(task,run,null); }
-        string Submit(string task,bool run,string input)
+        string Submit(string task,bool run,string input,string resultLink=null)
         {
             if(task==null || !Regex.IsMatch(task,@"\A[a-zA-Z0-9_-]{1,70}\z"))throw new ArgumentException("Invalid local task name");
             string script=Path.Combine(tasks,task+".ps1");
@@ -77,9 +121,14 @@ namespace ReflexCore.Bridge
                     Directory.CreateDirectory(Path.GetDirectoryName(privatePath));
                     using(var writer=new StreamWriter(new FileStream(privatePath,FileMode.CreateNew,FileAccess.Write,FileShare.None))){writer.Write(input);}
                 }
+                if(resultLink!=null){
+                    var linkPath=ResultLink(id);
+                    Directory.CreateDirectory(Path.GetDirectoryName(linkPath));
+                    using(var writer=new StreamWriter(new FileStream(linkPath,FileMode.CreateNew,FileAccess.Write,FileShare.None))){writer.Write(resultLink);}
+                }
                 File.WriteAllText(staging,(run?"RUN":"REVIEW")+"\n"+task+".ps1");
                 File.Move(staging,dest);
-            }catch{if(input!=null)DeleteMarker(HandoffInput(id));throw;}
+            }catch{if(input!=null)DeleteMarker(HandoffInput(id));if(resultLink!=null)DeleteMarker(ResultLink(id));throw;}
             finally{if(File.Exists(staging))File.Delete(staging);}
             return id;
         }
@@ -91,6 +140,7 @@ namespace ReflexCore.Bridge
                 string[] lines=File.ReadAllLines(path);
                 if(lines.Length==2 || lines.Length==3)switch(lines[1]){
                     case "verify-handoff.ps1":return "handoff";
+                    case "rename-extensions.ps1":return "rename";
                     case "agent-demo.ps1":return "uia";
                     case "notepad-save.ps1":return "notepad";
                     case "notepad-visual.ps1":return "visual";
@@ -130,10 +180,10 @@ namespace ReflexCore.Bridge
                 var value=new JavaScriptSerializer { MaxJsonLength=1024,RecursionLimit=4 }.Deserialize<TaskReceipt>(json);
                 if(value==null || value.schema!="reflexcore.task.receipt.v1" || value.task_id!=id ||
                     (value.run_id!=id && !Regex.IsMatch(value.run_id??"",@"\A(?:[a-f0-9]{32}|[a-f0-9]{56})\z")) ||
-                    !new[]{"goal","notepad","queue","handoff"}.Contains(value.stage) ||
-                    !new[]{"verified","unverified","failed","cancelled","interrupted"}.Contains(value.outcome) ||
+                    !new[]{"goal","notepad","queue","handoff","rename"}.Contains(value.stage) ||
+                    !new[]{"verified","unverified","failed","cancelled","interrupted","partial"}.Contains(value.outcome) ||
                     !new[]{"verified","failed","unknown","not_confirmed"}.Contains(value.verification) ||
-                    !new[]{"verified_goal","disk_readback","verification_failed","precondition_failed","focus_lost","infrastructure_error","operator_cancelled",
+                    !new[]{"verified_goal","disk_readback","rename_completed","rename_partial","verification_failed","precondition_failed","focus_lost","infrastructure_error","operator_cancelled",
                         "cancelled_effect_unknown","effect_unknown","no_effect_evidence","process_exited","process_failed","cleanup_unconfirmed","interrupted"}.Contains(value.reason))return null;
                 return value;
             } catch(ArgumentException) { return null; }
@@ -152,6 +202,9 @@ namespace ReflexCore.Bridge
                 if(kind=="handoff" && value.stage=="handoff" && value.run_id==IdOf(claim) &&
                    value.metrics!=null && value.metrics.model_calls==0 &&
                    (value.outcome!="verified" || (value.verification=="verified" && value.reason=="disk_readback")))return value;
+                if(kind=="rename" && value.stage=="rename" && value.run_id==IdOf(claim) &&
+                   value.renamed.HasValue && value.renamed.Value>=0 && value.renamed.Value<=4096 &&
+                   (value.outcome=="verified" || value.outcome=="partial" || value.outcome=="cancelled" || value.outcome=="failed"))return value;
                 if(kind=="uia" && value.stage=="goal")return value;
                 if((kind=="notepad" || kind=="visual") && value.stage=="notepad" && value.reason=="disk_readback")return value;
             } catch(IOException) { }
@@ -190,7 +243,7 @@ namespace ReflexCore.Bridge
             }
             var files=new DirectoryInfo(history).GetFiles().Where(f=>ValidId(IdOf(f.Name)) && Terminal(f.Extension.TrimStart('.')))
                 .OrderByDescending(f=>f.Name,StringComparer.Ordinal).Skip(HistoryLimit);
-            foreach(var file in files)file.Delete();
+            foreach(var file in files){file.Delete();DeleteMarker(ResultLink(IdOf(file.Name)));}
         }
         public void Recover()
         {
@@ -225,6 +278,7 @@ namespace ReflexCore.Bridge
             if(!File.Exists(path))return false;
             File.Delete(path);
             terminalKinds.Remove(id);
+            DeleteMarker(ResultLink(id));
             return true;
         }
         public List<QueueEntry> Snapshot()
@@ -256,7 +310,7 @@ namespace ReflexCore.Bridge
                         terminalReceipts[id]=receipt;
                     } catch(IOException) { }
                     result.Add(new QueueEntry{Id=id,Task=kind,State=label,Verification=receipt==null?"not_confirmed":receipt.verification,
-                        Reason=receipt==null?"":receipt.reason});
+                        Reason=receipt==null?"":receipt.reason,Receipt=receipt});
                     if(++shown==100)break;
                 }
             }

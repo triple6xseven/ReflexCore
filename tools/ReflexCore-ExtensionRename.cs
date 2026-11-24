@@ -142,12 +142,46 @@ namespace ReflexCore.Control
             return entries;
         }
 
+        public string Fingerprint()
+        {
+            var serialized = new System.Web.Script.Serialization.JavaScriptSerializer {MaxJsonLength=8*1024*1024}
+                .Serialize(new {folder,source,destination,entries=entries.ConvertAll(entry=>new {
+                    entry.Before,entry.After,entry.Length,write=entry.LastWrite.Ticks,created=entry.Created.Ticks})});
+            using(var sha = System.Security.Cryptography.SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(serialized)));
+        }
+
         public static string JournalDirectory
         {
             get {
                 return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "ReflexCore","rename-history");
             }
+        }
+
+        public static int? ConfirmedCount(string taskId)
+        {
+            if(taskId==null || !Regex.IsMatch(taskId,@"\A[0-9]{17}-[0-9a-f]{32}\z"))return null;
+            var file=new FileInfo(Path.Combine(JournalDirectory,taskId+".jsonl"));
+            try {
+                if(!file.Exists || file.Length>16*1024*1024 || (file.Attributes&FileAttributes.ReparsePoint)!=0)return null;
+                int count=0;
+                var parser=new System.Web.Script.Serialization.JavaScriptSerializer{MaxJsonLength=16384};
+                using(var reader=new StreamReader(new FileStream(file.FullName,FileMode.Open,FileAccess.Read,FileShare.ReadWrite))){
+                    for(int records=0;records<=8194;records++){
+                        var line=reader.ReadLine();
+                        if(line==null)return count;
+                        try {
+                            var record=parser.Deserialize<Dictionary<string,object>>(line);
+                            if(record==null || !record.ContainsKey("action") || !record.ContainsKey("renamed"))return count;
+                            if((record["action"] as string)=="renamed" && record["renamed"] is int && (int)record["renamed"]==count+1)count++;
+                        } catch(ArgumentException) { return count; } // The last line may be incomplete after a crash.
+                          catch(InvalidOperationException) { return count; }
+                    }
+                }
+                return count;
+            } catch(IOException) { return null; }
+              catch(UnauthorizedAccessException) { return null; }
         }
 
         sealed class RenameJournal : IDisposable
@@ -181,16 +215,24 @@ namespace ReflexCore.Control
 
         public bool Apply(string historyDirectory, out int renamed, out string error)
         {
+            return ApplyQueued(historyDirectory,null,()=>false,out renamed,out error);
+        }
+
+        public bool ApplyQueued(string historyDirectory,string taskId,Func<bool> cancelled,out int renamed,out string error)
+        {
             renamed = 0;
             error = "";
+            if(cancelled())return false;
+            if(taskId!=null && !Regex.IsMatch(taskId,@"\A[0-9]{17}-[0-9a-f]{32}\z"))
+                throw new ArgumentException("Invalid rename task ID.");
             RenameJournal journal;
             try {
                 string history = Path.GetFullPath(historyDirectory).TrimEnd(Path.DirectorySeparatorChar);
                 if (String.Equals(folder.TrimEnd(Path.DirectorySeparatorChar),history,StringComparison.OrdinalIgnoreCase))
                     throw new IOException("Cannot rename files in the history folder.");
                 Directory.CreateDirectory(history);
-                string name = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss",System.Globalization.CultureInfo.InvariantCulture)
-                    + "-" + Guid.NewGuid().ToString("N") + ".jsonl";
+                string name = taskId==null ? DateTime.UtcNow.ToString("yyyyMMdd-HHmmss",System.Globalization.CultureInfo.InvariantCulture)
+                    + "-" + Guid.NewGuid().ToString("N") + ".jsonl" : taskId+".jsonl";
                 journal = new RenameJournal(Path.Combine(history,name));
             } catch (IOException) {
                 error = "Could not create the rename log. No files were changed.";
@@ -206,15 +248,20 @@ namespace ReflexCore.Control
                     using (new FolderPins(folder)) {
                         VerifyPreview();
                         foreach (var entry in entries) {
+                            if(cancelled()) { error=StopAndRecord(journal,renamed);return false; }
                             var path = Path.Combine(folder,entry.Before);
                             if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint|FileAttributes.Directory)) != 0)
                                 throw new IOException("A source file changed.");
 
                             // A flushed intent preserves the original name even if the process stops during the move.
                             journal.Record("intent",null,entry,renamed);
-                            File.Move(path,Path.Combine(folder,entry.After));
+                            if(cancelled()) { error=StopAndRecord(journal,renamed);return false; }
+                            string target=Path.Combine(folder,entry.After);
+                            File.Move(path,target);
                             ++renamed;
                             journal.Record("renamed",null,entry,renamed);
+                            if(File.Exists(path) || (File.GetAttributes(target)&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)
+                                throw new IOException("Rename readback did not match.");
                         }
                     }
                     journal.Record("completed",null,null,renamed);

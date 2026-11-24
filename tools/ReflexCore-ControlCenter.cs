@@ -229,6 +229,59 @@ namespace ReflexCore.Control
             };
             AddButton(agent,"CANCEL SELECTED",18,514,182,32,()=>command("cancel"),false);
             AddButton(agent,"APPROVE SELECTED",211,514,182,32,()=>command("approve"),false);
+            var resultText=Info("",18,595,748);
+            resultText.Height=52;
+            agent.Controls.Add(resultText);
+            ReflexCore.Bridge.QueueEntry displayedResult=null;
+            ReflexCore.Bridge.FolderResultLink resultLink=null;
+            var openReport=new Button{Text="Open report",Location=new Point(18,650),Size=new Size(140,32),Enabled=false};
+            var continueWorkflow=new Button{Text="Preview next step",Location=new Point(168,650),Size=new Size(165,32),Enabled=false};
+            agent.Controls.Add(openReport);agent.Controls.Add(continueWorkflow);
+            System.Collections.Generic.List<ReflexCore.Bridge.QueueEntry> visibleRows=null;
+            Action showResult=delegate {
+                displayedResult=null;resultLink=null;
+                openReport.Enabled=false;continueWorkflow.Enabled=false;
+                resultText.Text="";
+                if(jobs.SelectedItems.Count==0 || visibleRows==null)return;
+                var row=visibleRows.FirstOrDefault(item=>item.Id==(string)jobs.SelectedItems[0].Tag);
+                if(row==null)return;
+                var receipt=row.Receipt;
+                if(row.Task=="rename" && row.State=="interrupted"){
+                    int? confirmed=ExtensionRename.ConfirmedCount(row.Id);
+                    resultText.Text=confirmed.HasValue?"Interrupted · "+confirmed.Value+" confirmed in the journal. Inspect the folder before retrying."
+                        :"Interrupted · completion count unavailable. Inspect the folder before retrying.";
+                    return;
+                }
+                if(row.Task=="rename" && receipt!=null && receipt.renamed.HasValue){
+                    resultText.Text=receipt.renamed.Value+" files renamed. See Open rename logs for details.";
+                    return;
+                }
+                if(row.Task!="handoff" || receipt==null || receipt.handoff==null)return;
+                var summary=receipt.handoff;
+                displayedResult=row;
+                resultLink=queue.ReadFolderResult(row.Id);
+                bool validReport=resultLink!=null && FolderWorkflow.MatchesReport(resultLink.report,receipt);
+                openReport.Enabled=validReport;
+                continueWorkflow.Enabled=FolderWorkflow.CanContinue(receipt,resultLink,validReport);
+                resultText.Text=(summary.ready?"Ready":"Needs attention")+" · "+summary.present+" found · "+summary.missing+
+                    " missing · "+summary.mismatched+" checksum mismatches · "+summary.unreadable+" unreadable · "+summary.changed+" changed"+
+                    (continueWorkflow.Enabled?Environment.NewLine+"Step 1 complete. Preview step 2 when ready.":"");
+            };
+            jobs.SelectedIndexChanged+=delegate { showResult(); };
+            openReport.Click+=delegate {
+                if(displayedResult==null || resultLink==null || !FolderWorkflow.MatchesReport(resultLink.report,displayedResult.Receipt)){
+                    showResult();return;
+                }
+                try{Process.Start(new ProcessStartInfo("notepad.exe",((char)34)+resultLink.report+((char)34)){UseShellExecute=false});}
+                catch(System.ComponentModel.Win32Exception){resultText.Text="Could not open this report.";}
+            };
+            continueWorkflow.Click+=delegate {
+                if(displayedResult==null || resultLink==null ||
+                    !FolderWorkflow.CanContinue(displayedResult.Receipt,resultLink,FolderWorkflow.MatchesReport(resultLink.report,displayedResult.Receipt))){
+                    showResult();return;
+                }
+                ShowExtensionRename(resultLink.old_extension,resultLink.new_extension,resultLink);
+            };
             string lastSnapshot=null;
             var taskTimer=new System.Windows.Forms.Timer{Interval=900};
             refreshQueue=delegate {
@@ -240,6 +293,7 @@ namespace ReflexCore.Control
                     string selected=jobs.SelectedItems.Count>0?(string)jobs.SelectedItems[0].Tag:"";
                     string topId=jobs.TopItem==null?null:(string)jobs.TopItem.Tag;
                     ListViewItem topRow=null;
+                    visibleRows=rows;
                     jobs.BeginUpdate();
                     try{
                         jobs.Items.Clear();
@@ -248,11 +302,17 @@ namespace ReflexCore.Control
                             string hour=DateTime.TryParseExact(row.Id.Substring(0,17),"yyyyMMddHHmmssfff",
                                 System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AssumeUniversal|System.Globalization.DateTimeStyles.AdjustToUniversal,out created)
                                 ?created.ToLocalTime().ToString("dd.MM HH:mm:ss"):"—";
-                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":row.Task=="handoff"?"Verify a handoff folder":"Local task";
+                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":row.Task=="handoff"?"Verify a handoff folder":row.Task=="rename"?"Change file extensions":"Local task";
                             string state=row.State=="pending"?"Pending":row.State=="running"?"Running":
                                 row.State=="stopping"?"Stopping":row.State=="completed"?(row.Verification=="verified"?"Verified":"Finished without verification"):
                                 row.State=="cancelled"?(row.Verification=="unknown"?"Cancelled · effect unknown":"Cancelled"):
                                 row.State=="interrupted"?"Interrupted":row.Reason=="focus_lost"?"Failed · focus lost":"Failed";
+                            if(row.Task=="rename" && row.Receipt!=null && row.Receipt.renamed.HasValue){
+                                var receipt=row.Receipt;
+                                if(receipt.outcome=="partial" || (receipt.outcome=="cancelled" && receipt.renamed.Value>0))state="Partial";
+                                else if(receipt.outcome=="verified")state="Completed";
+                                state+=" · "+receipt.renamed.Value+" renamed";
+                            }
                             var entry=new ListViewItem(new[]{hour,task,state});entry.Tag=row.Id;jobs.Items.Add(entry);
                             if(row.Id==selected)entry.Selected=true;
                             if(row.Id==topId)topRow=entry;
@@ -263,6 +323,7 @@ namespace ReflexCore.Control
                             "Select a pending task to approve or cancel it.";
                     }finally{jobs.EndUpdate();}
                     jobs.FillLastColumn();
+                    showResult();
                 }catch(IOException){notice.Text="Refreshing the task queue.";}
             };
             taskTimer.Tick+=delegate{refreshQueue();};
@@ -494,6 +555,13 @@ namespace ReflexCore.Control
         void PreviewFolderRequest(string request)
         {
             string from, to;
+            string[] steps;
+            if(FolderWorkflow.TryBuild(request,out steps,out from,out to)){
+                if(MessageBox.Show(this,"1. Verify the required files.\n2. Preview extension changes in the same folder if the result is Ready.",
+                    "Review two-step task",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)==DialogResult.OK)
+                    SelectHandoff(steps,from,to);
+                return;
+            }
             if(ExtensionRename.TryParse(request,out from,out to)){
                 ShowExtensionRename(from,to);
                 return;
@@ -508,10 +576,11 @@ namespace ReflexCore.Control
                 "Folder actions");
         }
 
-        void ShowExtensionRename(string source,string destination)
+        void ShowExtensionRename(string source,string destination,ReflexCore.Bridge.FolderResultLink guard=null)
         {
             using(var folder=new FolderBrowserDialog{Description="Select the folder whose files you want to rename"}){
-                if(folder.ShowDialog(this)!=DialogResult.OK)return;
+                if(guard==null && folder.ShowDialog(this)!=DialogResult.OK)return;
+                string selectedFolder=guard==null?folder.SelectedPath:guard.folder;
                 using(var dialog=new Form{Text="Change file extensions",StartPosition=FormStartPosition.CenterParent,
                     ClientSize=new Size(640,460),BackColor=BackColor,ForeColor=ForeColor,MinimizeBox=false,MaximizeBox=false}){
                     var settings=new TableLayoutPanel{Dock=DockStyle.Top,Height=86,ColumnCount=2,RowCount=3};
@@ -545,7 +614,7 @@ namespace ReflexCore.Control
                     inspect.Click+=delegate {
                         reset(this,EventArgs.Empty);
                         try{
-                            plan=ExtensionRename.Preview(folder.SelectedPath,from.Text,to.Text);
+                            plan=ExtensionRename.Preview(selectedFolder,from.Text,to.Text);
                             list.Items.AddRange(plan.Entries.Select(entry=>new ListViewItem(new[]{entry.Before,entry.After})).ToArray());
                             apply.Enabled=plan.Entries.Count>0;
                             status.Text=plan.Entries.Count==0?"No files match.":plan.Entries.Count+" files ready to rename.";
@@ -553,27 +622,15 @@ namespace ReflexCore.Control
                          catch(IOException error){status.Text=error.Message;}
                          catch(UnauthorizedAccessException){status.Text="The folder could not be read.";}
                     };
-                    bool renaming=false;
-                    dialog.FormClosing+=delegate(object sender,FormClosingEventArgs args) { if(renaming)args.Cancel=true; };
-                    apply.Click+=async delegate {
+                    apply.Click+=delegate {
                         if(plan==null || MessageBox.Show(dialog,"Rename "+plan.Entries.Count+" files as listed?",
                             "Confirm rename",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
-                        var approved=plan;
-                        renaming=true;
-                        settings.Enabled=false;actions.Enabled=false;
-                        status.Text="Renaming files and writing the local log...";
                         try {
-                            var result=await Task.Run(()=>{
-                                int renamed;string error;
-                                bool done=approved.Apply(ExtensionRename.JournalDirectory,out renamed,out error);
-                                return Tuple.Create(renamed,done,error);
-                            });
-                            reset(this,EventArgs.Empty);
-                            status.Text="Renamed "+result.Item1+" files."+(result.Item2?"":" "+result.Item3);
-                        } finally {
-                            renaming=false;
-                            settings.Enabled=true;actions.Enabled=true;
-                        }
+                            queue.SubmitRename(selectedFolder,from.Text,to.Text,plan.Fingerprint(),guard);
+                            dialog.Close();
+                            refreshQueue();
+                        } catch(IOException) { status.Text="Could not queue the rename."; }
+                          catch(UnauthorizedAccessException) { status.Text="Could not queue the rename."; }
                     };
                     dialog.Controls.Add(list);dialog.Controls.Add(status);dialog.Controls.Add(actions);dialog.Controls.Add(settings);
                     if(destination.Length>0)dialog.Shown+=delegate { inspect.PerformClick(); };
@@ -583,7 +640,7 @@ namespace ReflexCore.Control
         }
 
         void SelectHandoff() { SelectHandoff(null); }
-        void SelectHandoff(string[] draft)
+        void SelectHandoff(string[] draft,string source=null,string destination=null)
         {
             using(var folder=new FolderBrowserDialog { Description="Select the local handoff folder" })
             using(var list=new System.Windows.Forms.OpenFileDialog { Title="Choose a checklist or type a new checklist filename", Filter="JSON checklist|*.json", CheckFileExists=false, DefaultExt="json" })
@@ -607,7 +664,18 @@ namespace ReflexCore.Control
                     }
                     if(output.ShowDialog(this)!=DialogResult.OK)return;
                     if(File.Exists(output.FileName)){MessageBox.Show(this,"Choose a new report filename. This file already exists.");return;}
-                    queue.SubmitHandoff(folder.SelectedPath,checklist,output.FileName);
+                    string digest=null;
+                    if(destination!=null){
+                        using(var input=File.Open(checklist,FileMode.Open,FileAccess.Read,FileShare.Read))
+                        using(var sha=SHA256.Create()){
+                            if(input.Length>512*1024)throw new IOException("Checklist exceeds the supported size.");
+                            digest=BitConverter.ToString(sha.ComputeHash(input)).Replace("-","");
+                        }
+                    }
+                    queue.SubmitFolderCheck(new ReflexCore.Bridge.FolderResultLink {
+                        folder=folder.SelectedPath,checklist=checklist,report=output.FileName,
+                        checklist_sha256=digest,old_extension=source,new_extension=destination
+                    });
                     refreshQueue();
                 }catch(IOException){MessageBox.Show(this,"Could not save the checklist or submit the task.");}
                  catch(UnauthorizedAccessException){MessageBox.Show(this,"Access was denied. Choose a writable location.");}

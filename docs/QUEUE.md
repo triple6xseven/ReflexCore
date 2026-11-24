@@ -15,3 +15,7 @@ The terminal manifest retains its original two header lines and can contain a th
 ## Windows acceptance
 
 Run tasks/Test-Queue.ps1 for recovery, fresh approval, cross-process exclusion, failure, cancellation, stop-all and bounded history. With a release executable, `-UiaFixture` runs the single owned WinForms Goal and checks the verified receipt. `Measure-TaskStop.ps1` compares the stop handler and terminal latency with a synthetic worker, using `-SourceRoot` for an older checkout. With a release executable, -AllowInput also executes actual WinForms and Unicode Notepad fixtures. Add -VisualCancellation to cancel a real model request and check the resulting empty file. Cancelled visible fixtures remain in the local fixtures directory for inspection. The Studio -UiSmoke exercises the queue buttons against an isolated temporary store.
+
+## Folder workflows
+
+The existing tray queue supervises both handoff checks and approved extension renames. Extension renames cooperate with scoped cancellation between moves. Handoff summary counts and rename counts are available in terminal receipts. Report locations and workflow inputs remain in private sidecars. Select a completed handoff check in Studio to open its correlated report or preview the next step after a verified Ready result. See [Verify a Handoff Folder](HANDOFF-FOLDER.md).
