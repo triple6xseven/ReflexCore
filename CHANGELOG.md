@@ -2,6 +2,11 @@
 
 - Add a setting to replace graphics card names with numbered GPU labels while retaining utilization and memory readings.
 
+## Companion controls
+
+- Keep the companion menu available with left-click through enabled, and control Classic Live Status from that menu.
+- Expire stale Citadel activity in the companion bubble.
+
 ## ReflexVision capture and evaluation
 
 - Invalidate tracks on focus loss or resize, publish capture state changes immediately and slow down status text updates.

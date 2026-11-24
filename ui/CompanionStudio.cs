@@ -220,7 +220,7 @@ public sealed partial class StudioWindow
             SendWidgetCommand("reset-3d-position");
         }));
 
-        WidgetToggle(desktop, "Click-through", "clickthrough");
+        WidgetToggle(desktop, "Left-click through", "clickthrough");
         WidgetToggle(desktop, "Start with ReflexCore", "app_start");
         var notifications = Section(panels[4], "Notifications");
         WidgetToggle(notifications, "Windows activity notifications", "windows_notifications");

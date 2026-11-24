@@ -39,6 +39,10 @@ namespace ReflexCore.Bridge
                TrayWindow.TokensPerSecond("{\"last_tps\":10e2}")!=0)
                 throw new Exception("Tray throughput numeric regression");
             DateTime at=new DateTime(2026,1,1,0,0,3,DateTimeKind.Utc);
+            if(!TrayWindow.ActivityVisible("citadel_rust",at,at.AddSeconds(5)) ||
+               TrayWindow.ActivityVisible("citadel_rust",at,at.AddSeconds(7)) ||
+               !TrayWindow.ActivityVisible("vision_loop",at,at.AddSeconds(7)))
+                throw new Exception("Activity display expiry regression");
             bool precise;
             DateTime legacy=TrayWindow.ModelSampleTime("{}",at,out precise);
             if(legacy!=at || precise || !ActivityHud.ThroughputText(31.2,legacy,at,false).Contains("activity 0s ago"))
@@ -944,6 +948,12 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             return age>=-10 && age<=65;
         }
 
+        internal static bool ActivityVisible(string source,DateTime measuredUtc,DateTime now)
+        {
+            return Fresh(measuredUtc,now) &&
+                (source!="citadel_rust" || now-measuredUtc<=TimeSpan.FromSeconds(6));
+        }
+
         private static DateTime ActivityTime(string json,string field)
         {
             Match stamp=Regex.Match(json,"\""+field+"\"\\s*:\\s*\"(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,7})?(?:Z|\\+00:00))\"");
@@ -972,7 +982,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             if(capturing || !hudEnabled) { if(hud.Visible) hud.Hide(); }
             else if(!hud.Visible){ hud.Reposition(); hud.Show(); }
             hud.RefreshResources();
-            if(!Fresh(activeStageUtc,now) && lastActivityStage!="")
+            if(!ActivityVisible(lastActivitySource,activeStageUtc,now) && lastActivityStage!="")
             {
                 lastActivityStage="";lastActivitySource="";
                 activityMenu.Text="Activity: idle";
@@ -1002,8 +1012,8 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         {
             if(json.Length>2048||Value(json,"schema")!="reflexcore.activity.v1")return false;
             DateTime at=ActivityTime(json,"at_utc");
-            if(!Fresh(at,now))return at!=DateTime.MinValue;
             string source=Value(json,"source");
+            if(!ActivityVisible(source,at,now))return at!=DateTime.MinValue;
             if(source!="citadel_rust"&&source!="shared_control"&&source!="vision_loop")return false;
             string stage=Value(json,"stage");
             string label=StageText(stage);
