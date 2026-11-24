@@ -45,6 +45,45 @@ public sealed partial class StudioWindow
               </ControlTemplate>
             </Setter.Value></Setter>
             """);
+        Resources["ScrollPageButton"]=XamlReader.Parse("<ControlTemplate "+ns+
+            " TargetType='RepeatButton'><Border Background='Transparent'/></ControlTemplate>");
+        Style(typeof(System.Windows.Controls.Primitives.ToggleButton),palette + """
+            <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ToggleButton'>
+              <Border x:Name='surface' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}'
+                      BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='{DynamicResource ButtonCorner}'
+                      Padding='{TemplateBinding Padding}'>
+                <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/>
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property='IsChecked' Value='True'><Setter TargetName='surface' Property='BorderBrush' Value='{DynamicResource Accent}'/></Trigger>
+                <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='surface' Property='Background' Value='{DynamicResource SurfaceInset}'/></Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+            """);
+        Style(typeof(System.Windows.Controls.Primitives.ScrollBar), """
+            <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
+              <Grid Background='{DynamicResource Card}'>
+                <Track x:Name='PART_Track' Orientation='{TemplateBinding Orientation}'
+                       IsDirectionReversed='True'>
+                  <Track.DecreaseRepeatButton><RepeatButton x:Name='pageBack' Focusable='False' Command='ScrollBar.PageUpCommand'
+                      Template='{DynamicResource ScrollPageButton}'/></Track.DecreaseRepeatButton>
+                  <Track.IncreaseRepeatButton><RepeatButton x:Name='pageForward' Focusable='False' Command='ScrollBar.PageDownCommand'
+                      Template='{DynamicResource ScrollPageButton}'/></Track.IncreaseRepeatButton>
+                  <Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType='Thumb'>
+                    <Border Background='{DynamicResource Track}' BorderBrush='{DynamicResource Sub}'
+                            BorderThickness='1' CornerRadius='4' Margin='2'/>
+                  </ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+                </Track>
+              </Grid>
+              <ControlTemplate.Triggers>
+                <Trigger Property='Orientation' Value='Horizontal'>
+                  <Setter TargetName='PART_Track' Property='IsDirectionReversed' Value='False'/>
+                  <Setter TargetName='pageBack' Property='Command' Value='ScrollBar.PageLeftCommand'/>
+                  <Setter TargetName='pageForward' Property='Command' Value='ScrollBar.PageRightCommand'/>
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+            """);
         Style(typeof(ListBox), palette + "<Setter Property='BorderThickness' Value='1'/><Setter Property='Padding' Value='4'/><Setter Property='ScrollViewer.HorizontalScrollBarVisibility' Value='Disabled'/><Setter Property='ScrollViewer.CanContentScroll' Value='True'/>");
         Style(typeof(ListBoxItem), "<Setter Property='Foreground' Value='{DynamicResource Text}'/><Setter Property='Padding' Value='9,8'/><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListBoxItem'><Border x:Name='row' Background='Transparent' BorderBrush='Transparent' BorderThickness='1' CornerRadius='5' Padding='{TemplateBinding Padding}'><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='row' Property='Background' Value='{DynamicResource Track}'/></Trigger><Trigger Property='IsSelected' Value='True'><Setter TargetName='row' Property='Background' Value='{DynamicResource Track}'/><Setter TargetName='row' Property='BorderBrush' Value='{DynamicResource Accent}'/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>");
         Style(typeof(ComboBoxItem), """

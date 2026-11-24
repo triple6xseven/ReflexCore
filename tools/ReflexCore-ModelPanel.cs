@@ -75,7 +75,7 @@ namespace ReflexCore.Control
             };
             commands.Controls.Add(models);
             commands.Controls.Add(new Label{Text="Minutes",ForeColor=fg,Width=61,Height=30,TextAlign=ContentAlignment.MiddleRight});
-            minutes=new NumericUpDown{Minimum=1,Maximum=240,Value=15,Width=62,BackColor=panel,ForeColor=fg};commands.Controls.Add(minutes);
+            minutes=new ReflexCore.Diagnostics.Dashboard.ThemedNumericUpDown{Minimum=1,Maximum=240,Value=15,Width=62,BackColor=panel,ForeColor=fg};commands.Controls.Add(minutes);
             loadButton=MakeModelButton("▶  LOAD MODEL",147,()=>Call("Load",true));commands.Controls.Add(loadButton);
             stopButton=MakeModelButton("■  UNLOAD MODEL",161,()=>Call("Stop",true));commands.Controls.Add(stopButton);
             refreshButton=MakeModelButton("↻  REFRESH",145,()=>Call("List",false));commands.Controls.Add(refreshButton);
@@ -126,7 +126,7 @@ namespace ReflexCore.Control
         {
             var line=new Panel{Height=75,Width=775,BackColor=panel,Margin=new Padding(3,3,3,7)};
             line.Controls.Add(new Label{Text=title,Location=new Point(12,7),Width=310,Height=26,ForeColor=fg,Font=new Font("Segoe UI",10,FontStyle.Bold)});
-            var n=new NumericUpDown{Minimum=min,Maximum=max,Increment=step,DecimalPlaces=decimals,Width=144,Location=new Point(330,8),BackColor=Color.FromArgb(25,44,40),ForeColor=fg};line.Controls.Add(n);
+            var n=new ReflexCore.Diagnostics.Dashboard.ThemedNumericUpDown{Minimum=min,Maximum=max,Increment=step,DecimalPlaces=decimals,Width=144,Location=new Point(330,8),BackColor=Color.FromArgb(25,44,40),ForeColor=fg};line.Controls.Add(n);
             line.Controls.Add(new Label{Text=explanation,Location=new Point(12,40),Width=745,Height=28,ForeColor=muted,AutoEllipsis=true});parent.Controls.Add(line);
             line.Resize+=delegate{line.Controls[2].Width=Math.Max(290,line.ClientSize.Width-25);};return n;
         }

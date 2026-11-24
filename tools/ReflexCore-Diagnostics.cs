@@ -131,7 +131,7 @@ namespace ReflexCore.Diagnostics
             headerGrid.Controls.Add(tools,1,0);headerGrid.SetRowSpan(tools,2);
             var launch=new Button{Text="RUN VERIFIED BENCHMARK",FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(31,76,47),ForeColor=fg,Width=220,Height=33};
             launch.Click+=OnBenchmark;tools.Controls.Add(launch);
-            n=new ThemedBenchmarkCount{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=62,Margin=new Padding(3,8,3,3),
+            n=new ThemedNumericUpDown{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=62,Margin=new Padding(3,8,3,3),
                 AccessibleName="Benchmark runs"};tools.Controls.Add(n);
             var open=new Button{Text="OPEN REPORTS",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg,Width=135,Height=33};
             open.Click+=delegate{Directory.CreateDirectory(dir);Process.Start("explorer.exe","\""+dir+"\"");};tools.Controls.Add(open);
@@ -214,18 +214,18 @@ namespace ReflexCore.Diagnostics
                 }
             }
         }
-        sealed class ThemedBenchmarkCount : NumericUpDown
+        internal sealed class ThemedNumericUpDown : NumericUpDown
         {
-            public ThemedBenchmarkCount()
+            public ThemedNumericUpDown()
             {
                 foreach(System.Windows.Forms.Control child in Controls)
                     if(!(child is TextBox))new ArrowPainter(this,child);
             }
             sealed class ArrowPainter : NativeWindow
             {
-                private readonly ThemedBenchmarkCount owner;
+                private readonly ThemedNumericUpDown owner;
                 private readonly System.Windows.Forms.Control buttons;
-                public ArrowPainter(ThemedBenchmarkCount owner,System.Windows.Forms.Control buttons)
+                public ArrowPainter(ThemedNumericUpDown owner,System.Windows.Forms.Control buttons)
                 {
                     this.owner=owner;this.buttons=buttons;
                     buttons.HandleCreated+=OnCreated;

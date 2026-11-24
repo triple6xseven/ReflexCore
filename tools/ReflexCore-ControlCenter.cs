@@ -97,6 +97,31 @@ namespace ReflexCore.Control
             if(header!=IntPtr.Zero)SetWindowTheme(header,theme,null);
         }
     }
+    internal sealed class ThemedTabPage : TabPage
+    {
+        [DllImport("uxtheme.dll",CharSet=CharSet.Unicode)]
+        static extern int SetWindowTheme(IntPtr window,string theme,string subId);
+
+        public ThemedTabPage(string name) : base(name) {}
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyScrollbarTheme();
+        }
+
+        protected override void OnBackColorChanged(EventArgs e)
+        {
+            base.OnBackColorChanged(e);
+            if(IsHandleCreated)ApplyScrollbarTheme();
+        }
+
+        void ApplyScrollbarTheme()
+        {
+            SetWindowTheme(Handle,BackColor.GetBrightness()<.5f?"DarkMode_Explorer":"Explorer",null);
+        }
+    }
+
     internal class Dashboard : Form
     {
         readonly string root;
@@ -159,7 +184,7 @@ namespace ReflexCore.Control
             requestLabel.Height=34;
             agent.Controls.Add(requestLabel);
             var folderRequest=new TextBox{Location=new Point(18,88),Size=new Size(565,42),MaxLength=8192,
-                Multiline=true,BorderStyle=BorderStyle.FixedSingle,ScrollBars=ScrollBars.Vertical,TabIndex=0,
+                Multiline=true,BorderStyle=BorderStyle.FixedSingle,TabIndex=0,
                 AccessibleName="Ask Reflex",AccessibleDescription="Describe a file check or extension change in English or Russian.",
                 BackColor=surface,ForeColor=text};
             agent.Controls.Add(folderRequest);
@@ -520,7 +545,7 @@ namespace ReflexCore.Control
                 try{if(!IsDisposed&&IsHandleCreated)BeginInvoke((Action)(()=>{apiTestText.Text=result;}));}catch{}
             });
         }
-        TabPage Page(string name,TabControl tabs){var p=new TabPage(name){BackColor=bg,ForeColor=text,AutoScroll=true};tabs.TabPages.Add(p);return p;}
+        TabPage Page(string name,TabControl tabs){var p=new ThemedTabPage(name){BackColor=bg,ForeColor=text,AutoScroll=true};tabs.TabPages.Add(p);return p;}
         Label Header(string value,int x,int y){return new Label{Text=value,Font=new Font("Consolas",17,FontStyle.Bold),ForeColor=accent,Location=new Point(x,y),AutoSize=true};}
         Label Info(string value,int x,int y,int width){return new Label{Text=value,Location=new Point(x,y),Width=width,Height=62,ForeColor=muted,Font=new Font("Segoe UI",10),AutoSize=false};}
         Button AddButton(System.Windows.Forms.Control parent,string caption,int x,int y,int w,int h,Action action,bool prominent)

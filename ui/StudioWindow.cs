@@ -123,6 +123,11 @@ public sealed partial class StudioWindow : Window
         var mcpToggle=new System.Windows.Controls.Primitives.ToggleButton {
             IsChecked=System.IO.File.Exists(mcpEnabledPath),Margin=new Thickness(8,0,8,3)
         };
+        mcpToggle.SetResourceReference(Control.BackgroundProperty,"ButtonSurface");
+        mcpToggle.SetResourceReference(Control.ForegroundProperty,"ButtonText");
+        mcpToggle.SetResourceReference(Control.BorderBrushProperty,"PanelOutline");
+        mcpToggle.BorderThickness=new Thickness(1);
+        mcpToggle.Padding=new Thickness(10,7,10,7);
         void UpdateMcpLabel()
         {
             mcpToggle.Content=mcpToggle.IsChecked==true?"MCP On":"MCP Off";
