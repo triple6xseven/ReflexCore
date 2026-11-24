@@ -10,7 +10,7 @@ try {
         catch { Write-Warning 'Tray not started; main UI will still open.' }
     }
     # Combine existing native WinForms implementations into ONE in-process UI assembly.
-    $parts=@('ReflexCore-ControlCenter.cs','ReflexCore-Diagnostics.cs','ReflexCore-ModelPanel.cs','ReflexCore-UnifiedShell.cs','ReflexCore-ThemePalettes.cs','ReflexCore-Queue.cs','ReflexCore-MenuStyle.cs','ReflexCore-HandoffDraft.cs')
+    $parts=@('ReflexCore-ControlCenter.cs','ReflexCore-Diagnostics.cs','ReflexCore-ModelPanel.cs','ReflexCore-UnifiedShell.cs','ReflexCore-ThemePalettes.cs','ReflexCore-Queue.cs','ReflexCore-MenuStyle.cs','ReflexCore-HandoffDraft.cs','ReflexCore-ExtensionRename.cs')
     $sources=@($parts|ForEach-Object{[IO.File]::ReadAllText((Join-Path $root ('tools\'+$_)))})
     $tail=$sources | Select-Object -Skip 1 | ForEach-Object { [regex]::Replace($_,'(?m)^using\s+[A-Za-z0-9_.]+;\s*\r?\n','') }
     $imports="using System.Collections.Generic;`nusing System.Linq;`nusing System.Threading.Tasks;`nusing System.Web.Script.Serialization;`n"

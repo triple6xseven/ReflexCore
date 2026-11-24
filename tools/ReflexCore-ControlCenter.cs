@@ -9,6 +9,8 @@ using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using System.Net;
 using System.Threading;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace ReflexCore.Control
 {
@@ -158,11 +160,18 @@ namespace ReflexCore.Control
             AddButton(agent,"RUN AGENT DEMO",18,68,222,38,()=>RunTask("agent-demo"),true);
             AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
             AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
-            agent.Controls.Add(Header("Task queue",18,131));
-            AddButton(agent,"VERIFY A HANDOFF FOLDER",497,122,270,34,SelectHandoff,false);
+            agent.Controls.Add(Info("Describe a folder task · English or Russian",18,112,748));
+            var folderRequest=new TextBox{Location=new Point(18,144),Width=565,MaxLength=8192,
+                AccessibleName="Describe a folder task",BackColor=surface,ForeColor=text};
+            agent.Controls.Add(folderRequest);
+            AddButton(agent,"PREVIEW REQUEST",594,141,173,31,()=>PreviewFolderRequest(folderRequest.Text),false);
+            agent.Controls.Add(Info("Check README.md and docs/install.pdf.    /    Поменяй расширения всех файлов на .log",18,175,748));
+            AddButton(agent,"VERIFY A HANDOFF FOLDER",18,207,260,34,SelectHandoff,false);
+            AddButton(agent,"CHANGE FILE EXTENSIONS",288,207,260,34,()=>ShowExtensionRename("",""),false);
+            agent.Controls.Add(Header("Task queue",18,250));
             var jobs=new QueueListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
                 OwnerDraw=true,BorderStyle=BorderStyle.None,
-                Location=new Point(18,168),Size=new Size(748,215),AccessibleName="Task queue"};
+                Location=new Point(18,287),Size=new Size(748,215),AccessibleName="Task queue"};
             var selectionColor=Color.FromArgb(75,51,92);
             jobs.Tag=new Action<Color,Color,Color>((card,ink,highlight)=>{
                 selectionColor=Color.FromArgb((card.R*3+highlight.R)/4,(card.G*3+highlight.G)/4,(card.B*3+highlight.B)/4);
@@ -192,7 +201,7 @@ namespace ReflexCore.Control
             jobs.ContextMenuStrip.Items.Add("Refresh queue",null,(sender,args)=>{UpdateStatus();refreshQueue();});
             jobs.Columns.Add("Local time",180);jobs.Columns.Add("Task",235);jobs.Columns.Add("Status",290);
             agent.Controls.Add(jobs);
-            var notice=Info("No jobs yet. Choose a task above to get started.",18,437,748);
+            var notice=Info("No jobs yet. Choose a task above to get started.",18,556,748);
             agent.Controls.Add(notice);
             Func<ReflexCore.Bridge.QueueEntry> completedSelection=()=>{
                 if(jobs.SelectedItems.Count==0)return null;
@@ -218,8 +227,8 @@ namespace ReflexCore.Control
                 string id=(string)jobs.SelectedItems[0].Tag;
                 notice.Text=queue.Request(id,action)?"Request sent to the task supervisor.":"The task status has changed.";
             };
-            AddButton(agent,"CANCEL SELECTED",18,395,182,32,()=>command("cancel"),false);
-            AddButton(agent,"APPROVE SELECTED",211,395,182,32,()=>command("approve"),false);
+            AddButton(agent,"CANCEL SELECTED",18,514,182,32,()=>command("cancel"),false);
+            AddButton(agent,"APPROVE SELECTED",211,514,182,32,()=>command("approve"),false);
             string lastSnapshot=null;
             var taskTimer=new System.Windows.Forms.Timer{Interval=900};
             refreshQueue=delegate {
@@ -482,24 +491,108 @@ namespace ReflexCore.Control
             }
             var dir=Path.Combine(root,"data","bridge");Directory.CreateDirectory(dir);File.WriteAllText(Path.Combine(dir,"control.txt"),code);
         }
-        void SelectHandoff()
+        void PreviewFolderRequest(string request)
+        {
+            string from, to;
+            if(ExtensionRename.TryParse(request,out from,out to)){
+                ShowExtensionRename(from,to);
+                return;
+            }
+
+            string[] draft;
+            var state=HandoffDraft.Build(request,out draft);
+            if(state==HandoffDraftState.Draft) SelectHandoff(draft);
+            else MessageBox.Show(this,state==HandoffDraftState.OutsideScope
+                ? "Use relative file paths inside the selected folder."
+                : "Specify exact filenames or an extension. Example: Change extensions to .log.",
+                "Folder actions");
+        }
+
+        void ShowExtensionRename(string source,string destination)
+        {
+            using(var folder=new FolderBrowserDialog{Description="Select the folder whose files you want to rename"}){
+                if(folder.ShowDialog(this)!=DialogResult.OK)return;
+                using(var dialog=new Form{Text="Change file extensions",StartPosition=FormStartPosition.CenterParent,
+                    ClientSize=new Size(640,460),BackColor=BackColor,ForeColor=ForeColor,MinimizeBox=false,MaximizeBox=false}){
+                    var settings=new TableLayoutPanel{Dock=DockStyle.Top,Height=86,ColumnCount=2,RowCount=3};
+                    settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+                    settings.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+                    var from=new TextBox{Dock=DockStyle.Fill,Text=source,AccessibleName="Old extension filter"};
+                    var to=new TextBox{Dock=DockStyle.Fill,Text=destination,AccessibleName="New extension"};
+                    settings.Controls.Add(new Label{Text="Old extension (optional)",AutoSize=true},0,0);
+                    settings.Controls.Add(new Label{Text="New extension",AutoSize=true},1,0);
+                    settings.Controls.Add(from,0,1);settings.Controls.Add(to,1,1);
+                    var explained=new Label{Text="Only files in this folder are renamed. Contents stay the same.",AutoSize=true};
+                    settings.Controls.Add(explained,0,2);settings.SetColumnSpan(explained,2);
+                    var list=new ListView{Dock=DockStyle.Fill,View=View.Details,AccessibleName="Proposed renames",
+                        BackColor=BackColor,ForeColor=ForeColor};
+                    list.Columns.Add("Current filename",300);list.Columns.Add("New filename",300);
+                    var status=new Label{Dock=DockStyle.Bottom,Height=44};
+                    var actions=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=40};
+                    var inspect=new Button{Text="Preview",AutoSize=true};
+                    var apply=new Button{Text="Rename files",AutoSize=true,Enabled=false};
+                    actions.Controls.Add(inspect);actions.Controls.Add(apply);
+                    ExtensionRename plan=null;
+                    EventHandler reset=delegate { plan=null;apply.Enabled=false;list.Items.Clear();status.Text=""; };
+                    from.TextChanged+=reset;to.TextChanged+=reset;
+                    inspect.Click+=delegate {
+                        reset(this,EventArgs.Empty);
+                        try{
+                            plan=ExtensionRename.Preview(folder.SelectedPath,from.Text,to.Text);
+                            list.Items.AddRange(plan.Entries.Select(entry=>new ListViewItem(new[]{entry.Before,entry.After})).ToArray());
+                            apply.Enabled=plan.Entries.Count>0;
+                            status.Text=plan.Entries.Count==0?"No files match.":plan.Entries.Count+" files ready to rename.";
+                        }catch(ArgumentException error){status.Text=error.Message;}
+                         catch(IOException error){status.Text=error.Message;}
+                         catch(UnauthorizedAccessException){status.Text="The folder could not be read.";}
+                    };
+                    apply.Click+=delegate {
+                        if(plan==null || MessageBox.Show(dialog,"Rename "+plan.Entries.Count+" files as listed?",
+                            "Confirm rename",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
+                        int renamed;string error;
+                        bool done=plan.Apply(out renamed,out error);
+                        reset(this,EventArgs.Empty);
+                        status.Text="Renamed "+renamed+" files."+(done?"":" "+error);
+                    };
+                    dialog.Controls.Add(list);dialog.Controls.Add(status);dialog.Controls.Add(actions);dialog.Controls.Add(settings);
+                    if(destination.Length>0)dialog.Shown+=delegate { inspect.PerformClick(); };
+                    dialog.ShowDialog(this);
+                }
+            }
+        }
+
+        void SelectHandoff() { SelectHandoff(null); }
+        void SelectHandoff(string[] draft)
         {
             using(var folder=new FolderBrowserDialog { Description="Select the local handoff folder" })
             using(var list=new System.Windows.Forms.OpenFileDialog { Title="Choose a checklist or type a new checklist filename", Filter="JSON checklist|*.json", CheckFileExists=false, DefaultExt="json" })
             using(var output=new System.Windows.Forms.SaveFileDialog { Title="Choose a new report file", Filter="JSON report|*.json", FileName="handoff-report.json", OverwritePrompt=false })
             {
                 try{
-                    if(folder.ShowDialog(this)!=DialogResult.OK || list.ShowDialog(this)!=DialogResult.OK)return;
-                    if(!File.Exists(list.FileName) && !CreateHandoffChecklist(list.FileName))return;
+                    if(folder.ShowDialog(this)!=DialogResult.OK)return;
+                    string checklist;
+                    if(draft!=null){
+                        using(var saveList=new System.Windows.Forms.SaveFileDialog { Title="Save the checklist draft",
+                            Filter="JSON checklist|*.json",FileName="handoff-checklist.json",OverwritePrompt=false }){
+                            if(saveList.ShowDialog(this)!=DialogResult.OK)return;
+                            checklist=saveList.FileName;
+                            if(File.Exists(checklist)){MessageBox.Show(this,"Choose a new checklist filename.");return;}
+                        }
+                        if(!CreateHandoffChecklist(checklist,draft))return;
+                    }else{
+                        if(list.ShowDialog(this)!=DialogResult.OK)return;
+                        checklist=list.FileName;
+                        if(!File.Exists(checklist) && !CreateHandoffChecklist(checklist,null))return;
+                    }
                     if(output.ShowDialog(this)!=DialogResult.OK)return;
                     if(File.Exists(output.FileName)){MessageBox.Show(this,"Choose a new report filename. This file already exists.");return;}
-                    queue.SubmitHandoff(folder.SelectedPath,list.FileName,output.FileName);
+                    queue.SubmitHandoff(folder.SelectedPath,checklist,output.FileName);
                     refreshQueue();
                 }catch(IOException){MessageBox.Show(this,"Could not save the checklist or submit the task.");}
                  catch(UnauthorizedAccessException){MessageBox.Show(this,"Access was denied. Choose a writable location.");}
             }
         }
-        bool CreateHandoffChecklist(string path)
+        bool CreateHandoffChecklist(string path,string[] initialEntries)
         {
             using(var form=new Form{Text="Create handoff checklist",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(560,460),
                 BackColor=BackColor,ForeColor=ForeColor,MinimizeBox=false,MaximizeBox=false}){
@@ -511,6 +604,7 @@ namespace ReflexCore.Control
                     Text="Optional: describe what to check. Example: Check README.md and docs/install.pdf." };
                 description.AccessibleName = "Describe what to check";
                 entries.AccessibleName = "Review checklist entries";
+                if(initialEntries!=null) entries.Lines=initialEntries;
                 var draftButton = new Button { Dock=DockStyle.Top, Height=32, Text="Build checklist from text" };
                 var status = new Label { Dock=DockStyle.Top, Height=40 };
                 draftButton.Click += delegate {
@@ -560,7 +654,10 @@ namespace ReflexCore.Control
             buttons["NOTEPAD · CHECK WITH MODEL"].PerformClick();
             refreshQueue();
             var jobs=page.Controls.OfType<ListView>().Single();
-            if(!buttons["VERIFY A HANDOFF FOLDER"].Visible)throw new InvalidOperationException("Handoff action missing");
+            if(!buttons["VERIFY A HANDOFF FOLDER"].Visible || !buttons["CHANGE FILE EXTENSIONS"].Visible ||
+                !buttons["PREVIEW REQUEST"].Visible ||
+                !page.Controls.OfType<TextBox>().Any(input=>input.AccessibleName=="Describe a folder task" && input.Visible))
+                throw new InvalidOperationException("Folder actions are missing from the Agent page");
             queue.SubmitHandoff(root,Path.Combine(root,"examples","handoff-checklist.json"),Path.Combine(root,"smoke-report.json"));
             refreshQueue();
             if(jobs.Items.Count!=4 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=4)

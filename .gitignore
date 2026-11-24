@@ -47,3 +47,4 @@
 !/tasks/Test-HandoffDraft.ps1
 !/tasks/Measure-Queue.ps1
 !/tasks/Measure-TaskStop.ps1
+!/tasks/Test-ExtensionRename.ps1

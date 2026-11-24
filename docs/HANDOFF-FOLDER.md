@@ -40,8 +40,16 @@ cargo build --release --locked
 
 ## Build a draft from text
 
-When creating a checklist in Studio, enter a description and select **Build checklist from text**. Review the proposed entries in the editor before saving, then choose a report destination to run the check. Existing lists can still be reused directly.
+In Studio, open **Agent**, type into **Describe a folder task**, and select **Preview request**. Choose your folder and a new checklist filename. You can also draft from text while creating a checklist. Review the proposed entries in the editor before saving, then choose a report destination to run the check. Existing lists can still be reused directly.
 
 The local parser handles short English and Russian requests with explicit filenames. Quote names with spaces and extensionless filenames. Attach each digest to its file using syntax such as `Check release.zip SHA-256: <64 hexadecimal digits> and README.md.` Requests like "check the latest archive" require a filename. The parser leaves the editor untouched when it needs clarification or rejects a path. The native worker still enforces its filesystem boundary during execution.
 
 Run `powershell.exe -NoProfile -File tasks/Test-HandoffDraft.ps1` to evaluate extraction, clarification and scope validation. The optional draft runs without a model or a network call.
+
+## Change file extensions
+
+In **Agent**, select **Change file extensions** or enter a supported request in the same text field and select **Preview request**. Try `Change extensions from .txt to .log` or `Поменяй расширения всех файлов на .log`. Pick a local folder. If using the button, enter the new extension and select **Preview**. Leave the old extension blank to include files with any extension and extensionless files.
+
+Review the current and proposed names, select **Rename files**, and confirm. The action renames files in the selected folder and skips subfolders and links. Existing destinations block the preview or execution. If Windows blocks a rename after some files have moved, the dialog shows how many completed. The action changes filenames only; it does not convert the file format.
+
+Run `powershell.exe -NoProfile -File tasks/Test-ExtensionRename.ps1` to exercise the parser and verify changes on synthetic files.
