@@ -61,6 +61,17 @@ The isolated `de_reflex_lab` match in the `2a61c29` implementation was independe
 Private artifacts under `data/private/cs16-baseline-v1` retain the route, map, anonymized one-round evidence, JSON metrics and demo. Map SHA-256 `6f125d6509ffc60d635a804abe64275b11a90e950abf66f51f591e3c86285163`. Demo SHA-256 `19f1cfe2218a50156365c6fb26fe1fc93eae1583296f104c92fbdb20037f2651`. Route SHA-256 `5cf4bd76b80327f1c30e38b59ec4ec4af0991be6430898ff834acace66e139a1`.
 
 
+## ReflexVision capture maintenance
+
+Windows visible fixture, 100 measured frames per run with eight warmups. Two pairs per capture mode, interleaved baseline `b19e4a8` and candidate. Each direct run reported 100 frames with tracks. Each CPU-scale run reported 85. Frame p95 includes capture, detection, tracking and painting.
+
+| Path | p95 before, ms | p95 after, ms | CPU % of one logical core before → after |
+| --- | --- | --- | --- |
+| Direct | 14.57, 11.18 | 14.43, 19.60 | 18.44 → 18.16, 19.99 → 21.24 |
+| CPU scale | 15.07, 13.82 | 15.21, 12.95 | 18.65 → 17.87, 21.73 → 19.90 |
+
+The full pipeline did not show a consistent latency improvement. The isolated CPU resampling loop, scaling 800×600 to 480×360 after 40 warmups with 50 batches of 20 calls, changed p50 from 0.8399 ms to 0.1469 ms and p95 from 0.8979 ms to 0.1656 ms. The sampled-pixel checksum was identical. The microbenchmark used the same C# compiler switches on both versions and excludes capture, painting and target eligibility. Live CS 1.6 gameplay was outside this comparison.
+
 ## ReflexVision v0.1
 
 The measurement host ran Windows 11 with a Ryzen 5 4600H, 8 GB of RAM and a GeForce GTX 1650 Ti with 4 GB of VRAM. Both paths used the classical detector and the same 480-pixel output width. Eight warmup frames preceded each measurement. The full-copy path used GDI for the copy and CPU code for scale. The direct path used a single scaled GDI blit to the detector buffer. The path name makes no claim about the display driver's hardware acceleration.

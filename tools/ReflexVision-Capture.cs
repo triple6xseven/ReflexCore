@@ -33,6 +33,8 @@ namespace ReflexCore.Vision
         private IntPtr dc, bitmap, previous;
         internal readonly IntPtr Pixels;
         internal readonly int Width, Height;
+        private int[] columnOffsets;
+        private int sampledWidth;
         internal Bitmap Image { get; private set; }
 
         internal Surface(int width, int height)
@@ -62,13 +64,19 @@ namespace ReflexCore.Vision
 
         internal unsafe void ScaleFrom(Surface source)
         {
+            if (sampledWidth != source.Width)
+            {
+                columnOffsets = new int[Width];
+                for (int x = 0; x < Width; x++) columnOffsets[x] = x * source.Width / Width;
+                sampledWidth = source.Width;
+            }
             var input = (uint*)source.Pixels;
             var output = (uint*)Pixels;
             for (int y = 0; y < Height; y++)
             {
                 var row = input + (y * source.Height / Height) * source.Width;
                 for (int x = 0; x < Width; x++)
-                    *output++ = row[x * source.Width / Width];
+                    *output++ = row[columnOffsets[x]];
             }
         }
 
@@ -77,7 +85,10 @@ namespace ReflexCore.Vision
             var pixels = (uint*)Pixels;
             for (int y = 8; y < Height; y += 16)
                 for (int x = 8; x < Width; x += 16)
-                    if ((pixels[y * Width + x] & 0x00f8f8f8) != 0) return false;
+                    if ((pixels[y * Width + x] & 0x00ffffff) != 0) return false;
+            // Thin or dim features can fall entirely between the coarse grid points.
+            for (int i = 0; i < Width * Height; i++)
+                if ((pixels[i] & 0x00ffffff) != 0) return false;
             return true;
         }
 
@@ -131,10 +142,9 @@ namespace ReflexCore.Vision
             return new Rectangle(pt.X, pt.Y, rect.Right, rect.Bottom);
         }
 
-        internal Surface Grab()
+        internal Surface Grab(Rectangle bounds)
         {
-            Rectangle bounds = Bounds();
-            if (!ForegroundOwned() || bounds.Width < 160 || bounds.Height < 120 ||
+            if (bounds.Width < 160 || bounds.Height < 120 || !ForegroundOwned() ||
                 bounds.Width > 3840 || bounds.Height > 2160 ||
                 !System.Windows.Forms.SystemInformation.VirtualScreen.Contains(bounds))
                 return null;
@@ -142,7 +152,9 @@ namespace ReflexCore.Vision
             int height = Math.Max(72, bounds.Height * width / bounds.Width);
             if (height > 640) return null;
             Resize(ref output, width, height);
-            if (cpuScale) Resize(ref fullFrame, bounds.Width, bounds.Height);
+            bool needsScale = width != bounds.Width || height != bounds.Height;
+            bool scaleOnCpu = cpuScale && needsScale;
+            if (scaleOnCpu) Resize(ref fullFrame, bounds.Width, bounds.Height);
             var sourceWindow = fixture ? hwnd : IntPtr.Zero;
             var source = GetDC(sourceWindow);
             if (source == IntPtr.Zero) return null;
@@ -150,13 +162,13 @@ namespace ReflexCore.Vision
             try
             {
                 var sourceBounds = fixture ? new Rectangle(0, 0, bounds.Width, bounds.Height) : bounds;
-                captured = (cpuScale ? fullFrame : output).Copy(source, sourceBounds, !cpuScale);
+                captured = (scaleOnCpu ? fullFrame : output).Copy(source, sourceBounds, needsScale && !scaleOnCpu);
                 GdiFlush();
             }
             finally { ReleaseDC(sourceWindow, source); }
-            if (!captured || !ForegroundOwned() || Bounds() != bounds) return null;
-            if (cpuScale) output.ScaleFrom(fullFrame);
-            return output.IsBlack() ? null : output;
+            if (!captured) return null;
+            if (scaleOnCpu) output.ScaleFrom(fullFrame);
+            return output.IsBlack() || !ForegroundOwned() || Bounds() != bounds ? null : output;
         }
 
         private static void Resize(ref Surface image, int width, int height)

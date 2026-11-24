@@ -1,3 +1,9 @@
+## ReflexVision capture and evaluation
+
+- Invalidate tracks on focus loss or resize, publish capture state changes immediately and slow down status text updates.
+- Reuse CPU scaling offsets, avoid redundant copies and keep sparse dark frames with nonzero pixels.
+- Stream detector evaluation and separate false positives outside a match from empty frames during a match.
+
 ## Local CS 1.6 experiment coach
 
 - Combine verified GoldSrc results, optional ReflexVision scoring and SQLite skill statistics in bounded local Ollama advice after an offline drill.

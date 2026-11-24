@@ -44,7 +44,7 @@ fn decode(bytes: &[u8], now: u64) -> Result<Snapshot> {
         || frame.status != "live"
         || frame.sequence == 0
         || now.abs_diff(frame.captured_unix_ms) > MAX_AGE_MS
-        || frame.captured_unix_ms > now + 100
+        || frame.captured_unix_ms > now.saturating_add(100)
         || !(160..=640).contains(&frame.width)
         || !(72..=640).contains(&frame.height)
         || frame.objects.len() > 20
