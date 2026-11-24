@@ -111,7 +111,7 @@ namespace ReflexCore.Diagnostics
             var outer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,BackColor=bg};
             outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
             outer.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
-            outer.RowStyles.Add(new RowStyle(SizeType.Absolute,27));
+            outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             outer.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             Controls.Add(outer);
             var header=new Panel{Dock=DockStyle.Fill,BackColor=panel};outer.Controls.Add(header,0,0);
@@ -179,7 +179,9 @@ namespace ReflexCore.Diagnostics
             var inspect=new Button{Text="REFRESH QWEN REVIEW",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg};inspect.SetBounds(20,8,240,32);toolbar.Controls.Add(inspect);
             inspect.Click+=delegate{LaunchKnownScript("Review-ReflexPerformance.ps1","");};
             help=MakeLabel("Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",new Font("Segoe UI",9),Color.Gray);
-            help.Dock=DockStyle.Fill;help.AutoEllipsis=true;outer.Controls.Add(help,0,1);
+            help.Dock=DockStyle.Top;help.AutoSize=true;help.Padding=new Padding(12,3,12,5);
+            outer.SizeChanged+=delegate{help.MaximumSize=new Size(Math.Max(1,outer.ClientSize.Width-6),0);};
+            outer.Controls.Add(help,0,1);
             var screens=new[]{overview,details,resourcePage,modelPage};
             var sectionNames=new[]{"Benchmark / history","Evidence / decisions","Live resources","Qwen / bottlenecks"};
             var sectionButtons=new List<Button>();

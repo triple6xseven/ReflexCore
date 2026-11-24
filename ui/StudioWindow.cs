@@ -111,7 +111,16 @@ public sealed partial class StudioWindow : Window
         InitCaption();background.Children.Add(wallpaper);background.Children.Add(rain);background.Children.Add(layout);
         layout.ColumnDefinitions.Add(railWidth);layout.ColumnDefinitions.Add(new ColumnDefinition());
         sidebar.BorderThickness=new Thickness(0,0,1,0);sidebar.SetResourceReference(Border.BorderBrushProperty,"PanelOutline");
-        sidebar.Child=rail;layout.Children.Add(sidebar);
+        var sidebarLayout=new DockPanel();
+        var support=Command("GitHub Support",()=>System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo("https://github.com/sponsors/triple6xseven"){UseShellExecute=true}));
+        support.ToolTip="GitHub Support";
+        support.Margin=new Thickness(8,8,8,10);
+        DockPanel.SetDock(support,Dock.Bottom);
+        sidebarLayout.Children.Add(support);
+        SizeChanged+=(_,_)=>support.Content=ActualWidth<1000?"♥":"GitHub Support";
+        sidebarLayout.Children.Add(new ScrollViewer{Content=rail,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        sidebar.Child=sidebarLayout;layout.Children.Add(sidebar);
         brand.Text="ReflexCore";brand.FontSize=23;brand.FontWeight=FontWeights.SemiBold;brand.Margin=new Thickness(16,24,10,26);
         brand.SetResourceReference(TextBlock.ForegroundProperty,"Text");rail.Children.Add(brand);
         nav.Margin=new Thickness(8,0,8,0);rail.Children.Add(nav);
