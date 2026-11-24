@@ -1,5 +1,7 @@
 # Windows acceptance measurements
 
+The UIA Goal benchmark passes a unique run ID to each owned subprocess. It accepts the run-scoped report only when its schema and ID match and the subprocess succeeds. The latest Flow snapshot stays available for local diagnostics. Run `tools/Run-ReflexBenchmark.ps1 -SelfTest` to check the fixture and rejection of unrelated or truncated reports.
+
 ## Supervised task stop and receipts
 
 Windows synthetic comparison with eight runs per revision, using the same queued PowerShell worker and the same legacy stop-all command. The worker polls a cancellation marker and acknowledges it before returning. The harness measures the command handler on the WinForms thread and polls for the terminal queue entry every 20 ms.

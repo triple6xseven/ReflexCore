@@ -8,7 +8,8 @@ use crate::task_integrity::{self, Fault};
 use std::{
     error::Error,
     fs,
-    path::Path,
+    path::{Path, PathBuf},
+    io::Read,
     process::{Child, Command, Stdio},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -205,6 +206,23 @@ fn save_report(report: &FlowReport) -> Result<()> {
     Ok(())
 }
 
+fn save_benchmark_report(dir: &Path, report: &FlowReport, run: &str) -> Result<()> {
+    if run.len() != 32 || !run.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        return Err("Invalid benchmark run ID".into());
+    }
+    fs::create_dir_all(dir)?;
+    let mut payload = serde_json::to_value(report)?;
+    payload["run_id"] = serde_json::json!(run);
+    let temp = dir.join(format!("{}.tmp", task_integrity::run_id()));
+    let result = fs::write(&temp, serde_json::to_vec(&payload)?)
+        .and_then(|_| fs::rename(&temp, dir.join(format!("{run}.json"))));
+    if result.is_err() {
+        let _ = fs::remove_file(temp);
+    }
+    result?;
+    Ok(())
+}
+
 pub(super) fn has_terminal_assertion(bytes: &[u8]) -> bool {
     std::str::from_utf8(bytes).ok()
         .and_then(|source| parse_flow(source).ok())
@@ -322,6 +340,11 @@ fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>) -> Result<()> {
     }
     final_report.outcome = "passed";
     save_report(&final_report)?;
+    if fixture.is_some() {
+        if let Ok(benchmark_run) = std::env::var("REFLEXCORE_BENCHMARK_RUN_ID") {
+            save_benchmark_report(Path::new("data/benchmark-runs"), &final_report, &benchmark_run)?;
+        }
+    }
     println!("[ReflexCore] FLOW PASSED: {} steps, {} ms", flow.steps.len(), final_report.duration_ms);
     println!("[Privacy] Redacted execution report: {REPORT}");
     Ok(())
@@ -349,6 +372,11 @@ fn demo(execute: bool) -> Result<()> {
         println!("[ReflexCore] To run against a temporary test window: flow demo --execute");
         return Ok(());
     }
+    let (fixture, hwnd) = start_fixture(None)?;
+    execute_flow(&flow, Some((&hwnd, fixture.0.id())))
+}
+
+fn start_fixture(save_to: Option<&Path>) -> Result<(FixtureProcess, String)> {
     task_integrity::check_cancel()?;
     if fixture_window(None).is_some() {
         return Err("A ReflexCore Test Window already exists; close it before demo".into());
@@ -357,13 +385,17 @@ fn demo(execute: bool) -> Result<()> {
     if !path.is_file() {
         return Err("Missing test fixture: tools/ReflexCore-Fixture.ps1".into());
     }
-    let child = Command::new("powershell.exe")
-        .args(["-NoProfile", "-Sta", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File"])
+    let mut command = Command::new("powershell.exe");
+    command.args(["-NoProfile", "-Sta", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?;
+        .env_remove("REFLEXCORE_FIXTURE_SAVE_PATH");
+    if let Some(path) = save_to {
+        command.env("REFLEXCORE_FIXTURE_SAVE_PATH", path);
+    }
+    let child = command.spawn()?;
     let mut fixture = FixtureProcess(child);
     let started = Instant::now();
     let hwnd = loop {
@@ -377,8 +409,139 @@ fn demo(execute: bool) -> Result<()> {
         }
         thread::sleep(Duration::from_millis(150));
     };
-    println!("[ReflexCore] Test fixture launched; running full UIA flow...");
-    execute_flow(&flow, Some((&hwnd, fixture.0.id())))
+    Ok((fixture, hwnd))
+}
+
+struct FixtureArtifact(PathBuf);
+
+impl FixtureArtifact {
+    fn new() -> Result<Self> {
+        let dir = std::env::temp_dir().join(format!("ReflexCore-save-{}", task_integrity::run_id()));
+        fs::create_dir(&dir)?;
+        Ok(Self(dir))
+    }
+
+    fn path(&self) -> PathBuf {
+        self.0.join("saved.txt")
+    }
+}
+
+impl Drop for FixtureArtifact {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.path());
+        let _ = fs::remove_dir(&self.0);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FixtureState {
+    Empty,
+    Prepared,
+    Saved,
+}
+
+impl FixtureState {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::Prepared => "prepared",
+            Self::Saved => "saved",
+        }
+    }
+}
+
+fn verify_transition<T>(
+    ctx: &mut T,
+    from: FixtureState,
+    to: FixtureState,
+    mut observe: impl FnMut(&mut T, FixtureState) -> Result<bool>,
+    dispatch: impl FnOnce(&mut T) -> Result<()>,
+) -> Result<()> {
+    task_integrity::check_cancel()?;
+    match observe(ctx, from) {
+        Ok(true) => {}
+        Ok(false) => return Err(Fault::PreconditionFailed.into()),
+        Err(error) => return Err(error),
+    }
+    task_integrity::check_cancel()?;
+    dispatch(ctx)?;
+    task_integrity::check_cancel().map_err(|_| Fault::CancelledUnknown)?;
+    match observe(ctx, to) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(Fault::VerificationFailed.into()),
+        Err(_) => Err(Fault::EffectUnknown.into()),
+    }
+}
+
+pub(crate) fn verified_demo() -> Result<()> {
+    let skills = [
+        ("prepare-editor", FixtureState::Empty, FixtureState::Prepared, 0),
+        ("save-document", FixtureState::Prepared, FixtureState::Saved, 2),
+    ];
+    let edges = skills.map(|(id, from, to, _)| (id, from.id(), to.id(), 1));
+    let plan = crate::agent::plan_edges(FixtureState::Empty.id(), FixtureState::Saved.id(), &edges)?;
+    let _lock = FlowLock::acquire()?;
+    let artifact = FixtureArtifact::new()?;
+    let path = artifact.path();
+    let (fixture, hwnd) = start_fixture(Some(&path))?;
+    let owned = (&*hwnd, fixture.0.id());
+    let flow = parse_flow(include_str!("../examples/smoke_flow.json"))?;
+    let expected = flow.steps[0].value.as_deref().ok_or("Missing fixture text")?;
+    let run = task_integrity::run_id();
+    let mut next = 0;
+    let mut action = |step: &Step| -> Result<serde_json::Value> {
+        if fixture_window(Some(owned.1)).as_deref() != Some(owned.0) {
+            return Err(Fault::FocusLost.into());
+        }
+        let mut args = build_action_args(&flow, step);
+        args[1] = format!("--hwnd={hwnd}");
+        next += 1;
+        crate::uia_actions::execute(&args[1..], &run, next, Some(owned.1))
+    };
+    let read_saved = || -> Result<bool> {
+        let mut bytes = Vec::new();
+        fs::File::open(&path)?.take(4097).read_to_end(&mut bytes)?;
+        Ok(bytes == expected.as_bytes())
+    };
+    // Both skills use the same owned window. The final effect is checked on disk.
+    for index in plan {
+        let (_, from, to, step) = skills[index];
+        verify_transition(&mut action, from, to, |action, state| {
+            if state == FixtureState::Saved {
+                return read_saved();
+            }
+            let mut assertion = flow.steps[1].clone();
+            assertion.value = Some(if state == FixtureState::Empty { "" } else { expected }.into());
+            fixture_value_matches(action(&assertion)?)
+        }, |action| {
+            if to == FixtureState::Saved && path.try_exists()? {
+                return Err(Fault::PreconditionFailed.into());
+            }
+            let reply = action(&flow.steps[step]).map_err(|error| {
+                error.downcast_ref::<Fault>().copied().unwrap_or(Fault::EffectUnknown)
+            })?;
+            match reply["status"].as_str() {
+                Some("issued") => Ok(()),
+                Some("cancelled") => Err(Fault::Cancelled.into()),
+                Some("focus_lost") => Err(Fault::FocusLost.into()),
+                _ => Err(Fault::EffectUnknown.into()),
+            }
+        })?;
+    }
+    if !read_saved().map_err(|_| Fault::EffectUnknown)? {
+        return Err(Fault::VerificationFailed.into());
+    }
+    println!("[ReflexCore] GOAL VERIFIED: two guarded skills and independent file readback");
+    Ok(())
+}
+
+fn fixture_value_matches(reply: serde_json::Value) -> Result<bool> {
+    match reply["status"].as_str() {
+        Some("assertion_passed") if reply["verification"] == "verified" => Ok(true),
+        Some("assertion_failed") => Ok(false),
+        Some("cancelled") => Err(Fault::Cancelled.into()),
+        _ => Err(Fault::EffectUnknown.into()),
+    }
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -417,6 +580,51 @@ pub fn run(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_state_blocks_the_next_skill() {
+        let mut dispatches = 0;
+        let error = verify_transition(&mut dispatches, FixtureState::Prepared, FixtureState::Saved,
+            |_, _| Ok(false), |count| { *count += 1; Ok(()) }).unwrap_err();
+        assert!(matches!(error.downcast_ref::<Fault>(), Some(Fault::PreconditionFailed)));
+        assert_eq!(dispatches, 0);
+    }
+
+    #[test]
+    fn lost_effect_evidence_does_not_repeat_dispatch() {
+        let mut dispatches = 0;
+        let error = verify_transition(&mut dispatches, FixtureState::Prepared, FixtureState::Saved,
+            |_, state| {
+                if state == FixtureState::Prepared { Ok(true) } else { Err("Unavailable readback".into()) }
+            },
+            |count| { *count += 1; Ok(()) }).unwrap_err();
+        assert!(matches!(error.downcast_ref::<Fault>(), Some(Fault::EffectUnknown)));
+        assert_eq!(dispatches, 1);
+    }
+
+    #[test]
+    fn overlapping_benchmark_reports_keep_their_run_identity() {
+        let artifact = FixtureArtifact::new().unwrap();
+        let report = FlowReport {
+            schema: "reflexcore.flow.execution.v1", started_ms: 0, duration_ms: 1,
+            outcome: "passed", completed_steps: 0, total_steps: 0, steps: vec![],
+        };
+        let runs = ["0123456789abcdef0123456789abcdef", "abcdef0123456789abcdef0123456789"];
+        std::thread::scope(|scope| {
+            for run in runs {
+                let dir = &artifact.0;
+                let report = &report;
+                scope.spawn(move || save_benchmark_report(dir, report, run).unwrap());
+            }
+        });
+        for run in runs {
+            let path = artifact.0.join(format!("{run}.json"));
+            let bytes = fs::read(&path).unwrap();
+            fs::remove_file(path).unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(value["run_id"], run);
+        }
+    }
 
     #[test]
     fn unrelated_assertions_cannot_confirm_an_effect() {

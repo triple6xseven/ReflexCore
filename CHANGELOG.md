@@ -1,3 +1,8 @@
+## Guarded Goal transitions and benchmark correlation
+
+- Add a two-skill Windows fixture run with fresh preconditions, postconditions, and independent file readback before the Goal receipt.
+- Publish a private Flow report for each benchmark invocation and reject reports with a different run ID. Reference the queue serializer in the submission benchmark.
+
 ## Task verification and cancellation
 
 - Correlate private UIA worker replies with their requesting run and action. Bind verification to a supported effect contract.

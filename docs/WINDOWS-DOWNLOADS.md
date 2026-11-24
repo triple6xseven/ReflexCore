@@ -10,6 +10,8 @@ The Windows x64 preview includes the compiled Rust core, Studio assembly, Godot 
 
 ## Building the packages
 
+Current packaging requires a clean tracked tree and records the source commit in `ReflexCore/SOURCE-REVISION.txt` inside the ZIP and setup payload.
+
 From the [release source revision](https://github.com/triple6xseven/ReflexCore/tree/c972406), run `packaging/Build-WindowsRelease.ps1` with Windows PowerShell 5.1 and the project's normal Rust and .NET build prerequisites. Supply the official Godot 4.7.2 executable, the approved distribution copies of the Original and ZXC VRM pairs, a signed .NET 4.8 offline installer and an empty output directory. See [avatar attribution](COMPANION-ASSET-LICENSE.md).
 
 [Godot licensing](https://docs.godotengine.org/en/4.7/about/complying_with_licenses.html) · [Microsoft Framework installation guidance](https://learn.microsoft.com/en-us/dotnet/framework/install/on-windows-10)

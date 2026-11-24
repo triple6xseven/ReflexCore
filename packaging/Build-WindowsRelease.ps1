@@ -25,6 +25,10 @@ function Assert-Exit([string]$Step){
 }
 Push-Location $root
 try {
+    $revision = git rev-parse --verify HEAD
+    Assert-Exit 'Source revision'
+    git diff --quiet HEAD --
+    Assert-Exit 'Clean tracked source required for packaging'
     cargo build --release --locked
     Assert-Exit 'Rust build'
     dotnet build ui/ReflexCore.Studio.csproj -c Release --nologo
@@ -55,6 +59,7 @@ try {
     $defaults='{"edition":"zxc","zoom":1.0,"mode":"roam","midnight_stockings":true,"legwear_den":40,"legwear_color":"white","top":true,"fullscreen_overlay":true,"bubble":true,"bubble_style":"glass","app_start":true}'
     [IO.File]::WriteAllText((Join-Path $payload 'data/companion3d/settings.json'),$defaults)
     [IO.File]::WriteAllText((Join-Path $payload 'portable.flag'),'ReflexCore')
+    [IO.File]::WriteAllText((Join-Path $payload 'SOURCE-REVISION.txt'),$revision)
     [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/COPYRIGHT.txt' -OutFile (Join-Path $payload 'runtime/THIRD-PARTY.txt')
     Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/LICENSE.txt' -OutFile (Join-Path $payload 'runtime/LICENSE-GODOT.txt')

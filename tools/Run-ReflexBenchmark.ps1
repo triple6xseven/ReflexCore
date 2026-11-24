@@ -1,5 +1,5 @@
 # ReflexCore Measurement Lab 0.6.1 — repeatable, verified Windows UIA goal benchmark.
-# Uses EXISTING `reflexcore.exe agent demo --execute` and its Flow report.
+# Uses `reflexcore.exe agent demo --execute` and a run-scoped Flow report.
 # Does not measure Qwen. Never captures/screenshots/logs window text or model output.
 # The benchmark is opt-in because it temporarily opens and controls a known fixture window.
 param(
@@ -16,7 +16,6 @@ $binary=Join-Path $root 'target\release\reflexcore.exe'
 $fixture=Join-Path $root 'tools\ReflexCore-Fixture.ps1'
 $flowFixture=Join-Path $root 'examples\smoke_flow.json'
 $goalFixture=Join-Path $root 'examples\goal_agent_demo.json'
-$flowReport=Join-Path $root 'data\flow_last_run.json'
 $base=Join-Path $env:LOCALAPPDATA 'ReflexCore\diagnostics\measurement-lab'
 $runDir=Join-Path $base 'runs'
 $history=Join-Path $base 'history.jsonl'
@@ -51,6 +50,12 @@ function Read-Json([string]$path){
     if(-not(Test-Path -LiteralPath $path -PathType Leaf)){return $null}
     try{return (Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop)}catch{return $null}
 }
+function Read-RunReport([string]$path,[string]$runId){
+    $report=Read-Json $path
+    if($null -eq $report -or !$report.PSObject.Properties['schema'] -or !$report.PSObject.Properties['run_id']){return $null}
+    if($report.schema -ceq 'reflexcore.flow.execution.v1' -and $report.run_id -ceq $runId){return $report}
+    return $null
+}
 function Pctl([double[]]$numbers,[double]$q){
     if($numbers.Count -eq 0){return $null}
     $sorted=@($numbers|Sort-Object)
@@ -79,7 +84,17 @@ try {$fixtureHash=([BitConverter]::ToString($sha.ComputeHash($fixtureHashBytes))
 finally {$sha.Dispose()}
 if($SelfTest){
     if((Pctl -numbers ([double[]]@(8,2,5,12,1)) -q 0.5) -ne 5){throw 'Pctl median test failed'}
-    Write-Host '[ReflexCore] Measurement Lab fixture/schema/hash self-test PASSED. No UI opened.'
+    $reportPath=[IO.Path]::GetTempFileName()
+    try {
+        $id=[Guid]::NewGuid().ToString('N')
+        $other=[Guid]::NewGuid().ToString('N')
+        Write-JsonAtomic $reportPath @{schema='reflexcore.flow.execution.v1';run_id=$other}
+        if($null -ne (Read-RunReport $reportPath $id)){throw 'An unrelated run was accepted'}
+        if($null -eq (Read-RunReport $reportPath $other)){throw 'The matching run was rejected'}
+        [IO.File]::WriteAllText($reportPath,'{')
+        if($null -ne (Read-RunReport $reportPath $id)){throw 'A truncated report was accepted'}
+    } finally {[IO.File]::Delete($reportPath)}
+    Write-Host '[ReflexCore] Measurement Lab fixture, hashes and run correlation passed.'
     exit 0
 }
 if(-not $AllowVisibleUI){
@@ -94,12 +109,13 @@ $failed=0
 function Execute-One([int]$iteration,[bool]$warmup){
     $runId=[Guid]::NewGuid().ToString('N')
     $startUtc=[DateTime]::UtcNow
-    $startEpoch=([DateTimeOffset]$startUtc).ToUnixTimeMilliseconds()
+    $flowReport=Join-Path $root "data/benchmark-runs/$runId.json"
     $proc=New-Object Diagnostics.Process
     $info=New-Object Diagnostics.ProcessStartInfo
     $info.FileName=$binary
     $info.Arguments='agent demo --execute'
     $info.WorkingDirectory=$root
+    $info.EnvironmentVariables["REFLEXCORE_BENCHMARK_RUN_ID"]=$runId
     $info.UseShellExecute=$false
     $info.CreateNoWindow=$true
     $info.RedirectStandardInput=$false
@@ -149,20 +165,19 @@ function Execute-One([int]$iteration,[bool]$warmup){
             $peakWorking=[Math]::Max($peakWorking,[Math]::Round($proc.PeakWorkingSet64/1MB,2))
         }catch{}
         # The report is written by the real Flow engine, not fabricated by the benchmark.
-        $flowData=Read-Json $flowReport
-        $fresh=($null -ne $flowData -and $flowData.schema -eq 'reflexcore.flow.execution.v1' -and
-            [double]$flowData.started_ms -ge ($startEpoch-1000))
-        $verified=(-not $stopped -and $fresh -and $null -ne $exitCode -and $exitCode -eq 0 -and
+        $flowData=Read-RunReport $flowReport $runId
+        $matched=$null -ne $flowData
+        $verified=(-not $stopped -and -not $timedOut -and $matched -and $null -ne $exitCode -and $exitCode -eq 0 -and
             $flowData.outcome -eq 'passed' -and [int]$flowData.completed_steps -eq 4 -and
             [int]$flowData.total_steps -eq 4 -and $flowData.steps.Count -eq 4)
-        $reason=if($stopped){'USER_STOP'}elseif($timedOut){'TIMEOUT'}elseif($null -eq $exitCode){'PROCESS_NO_EXIT'}elseif($exitCode -ne 0){'AGENT_PROCESS_FAILED'}elseif(-not $fresh){'FLOW_REPORT_MISSING_OR_STALE'}elseif(-not $verified){'FLOW_GOAL_UNVERIFIED'}else{'UIA_GOAL_VERIFIED'}
+        $reason=if($stopped){'USER_STOP'}elseif($timedOut){'TIMEOUT'}elseif($null -eq $exitCode){'PROCESS_NO_EXIT'}elseif($exitCode -ne 0){'AGENT_PROCESS_FAILED'}elseif(-not $matched){'FLOW_REPORT_MISSING_OR_UNMATCHED'}elseif(-not $verified){'FLOW_GOAL_UNVERIFIED'}else{'UIA_GOAL_VERIFIED'}
     }catch{
         $reason='BENCHMARK_PROCESS_ERROR'
         $watch.Stop()
         try{if(-not $proc.HasExited){$proc.Kill()}}catch{}
-    }finally{$proc.Dispose()}
+    }finally{$proc.Dispose();[IO.File]::Delete($flowReport)}
     $details=@()
-    if($null -ne $flowData -and $flowData.schema -eq 'reflexcore.flow.execution.v1' -and [double]$flowData.started_ms -ge ($startEpoch-1000)){
+    if($null -ne $flowData){
         foreach($step in @($flowData.steps)){
             $act=[string]$step.action
             if($act -notin @('set-value','assert-value','invoke','inspect','assert-name','focus','toggle','select')){$act='unknown'}

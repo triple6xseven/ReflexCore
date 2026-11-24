@@ -1,4 +1,4 @@
-# Isolated local Windows Forms test fixture. No network, admin or file writes.
+# Isolated local Windows Forms test fixture. The guarded demo may supply an owned output.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -52,6 +52,13 @@ $script:RcOutputBox.ReadOnly = $true
 
 # Explicit script-scoped references survive the WinForms Click event scope.
 $apply.Add_Click({
+    if ($env:REFLEXCORE_FIXTURE_SAVE_PATH) {
+        $file = [IO.File]::Open($env:REFLEXCORE_FIXTURE_SAVE_PATH, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+        try {
+            $bytes = [Text.Encoding]::UTF8.GetBytes($script:RcInputBox.Text)
+            $file.Write($bytes, 0, $bytes.Length)
+        } finally { $file.Dispose() }
+    }
     $script:RcOutputBox.Text = $script:RcInputBox.Text
 })
 $form.Controls.AddRange(@(
