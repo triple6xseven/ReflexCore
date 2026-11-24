@@ -241,6 +241,22 @@ namespace ReflexCore.Bridge
             return enabled;
         }
 
+        private static void PreferHighPerformanceGpu(string executable)
+        {
+            try
+            {
+                using (var preferences = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
+                    @"Software\Microsoft\DirectX\UserGpuPreferences"))
+                {
+                    if (preferences != null && preferences.GetValue(executable) == null)
+                        preferences.SetValue(executable, "GpuPreference=2;", Microsoft.Win32.RegistryValueKind.String);
+                }
+            }
+            catch (UnauthorizedAccessException) {}
+            catch (System.Security.SecurityException) {}
+            catch (IOException) {}
+        }
+
         private void Start()
         {
             if(child!=null)
@@ -266,6 +282,7 @@ namespace ReflexCore.Bridge
                 !Path.GetExtension(executable).Equals(".exe",StringComparison.OrdinalIgnoreCase) ||
                 !File.Exists(executable)){message="Godot executable is unavailable.";return;}
             foreach(string name in new[]{"stop.flag","status.json"})if(File.Exists(InBridge(name)))File.Delete(InBridge(name));
+            PreferHighPerformanceGpu(executable);
             var start=new ProcessStartInfo {
                 FileName=executable,Arguments="--resolution 1x1 --position -32000,-32000 --path \""+project+"\" -- \""+DirectoryPath+"\"",
                 WorkingDirectory=project,UseShellExecute=false,CreateNoWindow=true

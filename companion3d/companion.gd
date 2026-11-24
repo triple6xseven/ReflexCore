@@ -6,6 +6,8 @@ const Wardrobe = preload("res://wardrobe.gd")
 const Cloud = preload("res://magic_cloud.gd")
 const BASE_SIZE := Vector2i(344, 500)
 const VIEW_MARGIN := Vector2i(80, 48)
+const REGION_ROLES := ["head","chest","hips","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand","leftLowerLeg","rightLowerLeg","leftFoot","rightFoot"]
+const PROJECTED_ROLES := ["head","chest","hips","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand","leftUpperLeg","rightUpperLeg","leftLowerLeg","rightLowerLeg","leftFoot","rightFoot"]
 const STATUS_SCHEMA := "reflexcore.companion.runtime.v1"
 const DEFAULTS := {
 	"model": "", "mode": "taskbar", "x": -1, "y": -1, "zoom": 1.0, "physics": true,
@@ -467,13 +469,7 @@ func _apply_options(resize_window := true) -> void:
 		if not initial:
 			motion.position+=Vector2(float(old_body.x-body_size.x)/2,float(old_body.y-body_size.y))
 	window.always_on_top=bool(options.top)
-	# A doubled window has four times the pixels. Keep the MSAA sample budget bounded.
-	var effective_msaa := int(options.msaa)
-	if float(options.zoom)>=1.40:
-		effective_msaa=mini(effective_msaa,1)
-	if float(options.zoom)>=1.80:
-		effective_msaa=0
-	window.msaa_3d=effective_msaa as Viewport.MSAA
+	window.msaa_3d=int(options.msaa) as Viewport.MSAA
 	bubble_style.bg_color=Color("#101b27e9") if options.bubble_style=="minimal" else Color("#182238ed")
 	bubble_style.set_corner_radius_all(5 if options.bubble_style=="minimal" else 13)
 	_camera_layout()
@@ -739,8 +735,10 @@ func _process(delta: float) -> void:
 		rig.animate(dt,now,avatar_state,gaze,animation_velocity,bool(options.hair),preview or bool(options.animate),seated,motion.impact,cloud_pose,physical=="sit" and (preview or _is_midnight_loaded()),"relaxed" if preview else str(options.sit_style),1.0 if preview else float(options.intensity),new_touch,preview)
 		var edge := float(motion.support.position.y) if motion.seated and not preview else motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO
 		var hip_pad := 11*float(options.zoom)
-		var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
-		var target_offset := (hip_y-(edge-actual.y))*camera.size/window.size.y if seated else 0.0
+		var target_offset := 0.0
+		if seated:
+			var hip_y := camera.unproject_position(rig.world_bone("hips")).y+hip_pad
+			target_offset=(hip_y-(edge-actual.y))*camera.size/window.size.y
 		var contact_y := -1.0
 		var stand_on_floor := not preview and not pressed and not seated and not motion.supported \
 			and physical in ["idle","sleepy","walk","run","landing","recovering"]
@@ -753,9 +751,10 @@ func _process(delta: float) -> void:
 		seat_offset=lerpf(seat_offset,target_offset,1-exp(-14*dt))
 		sole_contact_y=roundi(actual.y+contact_y-seat_offset*window.size.y/camera.size) if contact_y>=0.0 else -1
 		pivot.position.y+=seat_offset
-		seat_contact_y=roundi(actual.y+camera.unproject_position(rig.world_bone("hips")).y+hip_pad) if seated else -1
-		for role in rig.roles:
-			projected_bones[role]=camera.unproject_position(rig.world_bone(role))
+		for role in PROJECTED_ROLES:
+			if rig.roles.has(role):
+				projected_bones[role]=camera.unproject_position(rig.world_bone(role))
+		seat_contact_y=roundi(actual.y+projected_bones.hips.y+hip_pad) if seated else -1
 		head=projected_bones["head"]
 		projected_ears.clear()
 		for ear in rig.ear_anchors():
@@ -1006,7 +1005,7 @@ func _update_window_region() -> void:
 	var zoom := float(options.zoom)
 	var centers := PackedVector2Array()
 	var radii := PackedVector2Array()
-	for role in ["head","chest","hips","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand","leftLowerLeg","rightLowerLeg","leftFoot","rightFoot"]:
+	for role in REGION_ROLES:
 		if not projected_bones.has(role):
 			continue
 		var center: Vector2=projected_bones[role]
@@ -1037,9 +1036,11 @@ func _update_window_region() -> void:
 		landmarks.append(rect.position)
 		landmarks.append(rect.end)
 	var stable := landmarks.size()==region_landmarks.size()
+	var region_scale := maxf(1.0,zoom)
 	if stable:
+		var threshold_sq := 9.0*region_scale*region_scale
 		for i in landmarks.size():
-			if landmarks[i].distance_squared_to(region_landmarks[i])>9:
+			if landmarks[i].distance_squared_to(region_landmarks[i])>threshold_sq:
 				stable=false
 				break
 	if stable:
@@ -1048,10 +1049,10 @@ func _update_window_region() -> void:
 	var points := PackedVector2Array()
 	for n in centers.size():
 		for i in 8:
-			points.append(centers[n]+Vector2.from_angle(i*TAU/8)*(radii[n]+Vector2(4,4)))
+			points.append(centers[n]+Vector2.from_angle(i*TAU/8)*(radii[n]+Vector2(4,4)*region_scale))
 	var outline := Geometry2D.convex_hull(points)
 	for rect in rects:
-		outline=_add_region_rect(outline,rect.grow(4))
+		outline=_add_region_rect(outline,rect.grow(4*region_scale))
 	if outline!=native_region:
 		native_region=outline
 		get_window().mouse_passthrough_polygon=native_region
@@ -1227,7 +1228,7 @@ func _loaded_edition() -> String:
 func _runtime_status() -> Dictionary:
 	return {
 		"schema":STATUS_SCHEMA,"ready":rig!=null and not stopping,"running":not stopping,
-		"model_loaded":rig!=null,"error":model_error,"renderer":renderer,"stage":avatar_state,"paused":paused,
+		"model_loaded":rig!=null,"error":model_error,"renderer":renderer,"gpu":RenderingServer.get_video_adapter_name(),"stage":avatar_state,"paused":paused,
 		"bones":rig.skeleton.get_bone_count() if rig!=null else 0,"meshes":rig.meshes.size() if rig!=null else 0,
 		"animations":rig.animation_player.get_animation_list().size() if rig!=null and rig.animation_player!=null else 0,
 		"mapped_bones":rig.roles.size() if rig!=null else 0,"facial_binds":rig.expression_binds if rig!=null else 0,

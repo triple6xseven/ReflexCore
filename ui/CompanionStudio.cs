@@ -449,6 +449,9 @@ public sealed partial class StudioWindow
         bool loaded = WidgetSettings.Bool(runtime, "model_loaded");
         companionStatus.Text = loaded && fps > 0 && frame > 0 ? String.Format(CultureInfo.InvariantCulture,
             "Running · {0:0} FPS · {1:0.0} ms", fps, frame) : loaded ? "Running" : "Running · waiting for a model";
+        var gpu = WidgetSettings.String(runtime, "gpu");
+        if (loaded && !String.IsNullOrWhiteSpace(gpu))
+            companionStatus.Text += " · " + gpu;
     }
 
     static bool TrayIsRunning()

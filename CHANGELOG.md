@@ -1,3 +1,8 @@
+## Companion high-scale rendering and GPU
+
+- Preserve selected MSAA at 200%, reduce redundant rig projections and native input-region updates, and show the actual graphics adapter in Studio.
+- Request the Windows high-performance adapter for an unconfigured Godot renderer path.
+
 ## Automatic local CS 1.6 plant routes
 
 - Discover brush bombsites from the current BSP and plan from the actual Terrorist spawn. Replan once on a stalled route.
