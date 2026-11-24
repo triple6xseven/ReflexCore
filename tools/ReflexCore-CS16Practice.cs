@@ -146,6 +146,11 @@ namespace ReflexCore.Practice
         public string route_stop { get; set; }
         public bool verified_plant { get; set; }
         public bool match_mode { get; set; }
+        public bool adversarial { get; set; }
+        public bool round_completed { get; set; }
+        public bool actor_died { get; set; }
+        public int preplant_contacts { get; set; }
+        public CombatReport combat { get; set; }
         public bool verified_bot_defeat { get; set; }
         public bool verified_round_win { get; set; }
         public string outcome { get; set; }
@@ -154,10 +159,20 @@ namespace ReflexCore.Practice
         public int plant_ms { get; set; }
     }
 
+    internal sealed class CombatReport
+    {
+        public int shots { get; set; }
+        public int hits { get; set; }
+        public int defender_preplant_shots { get; set; }
+    }
+
     internal sealed class MatchBenchmark
     {
         public string schema { get; set; }
         public int verified_plant_bot_round_wins { get; set; }
+        public int verified_completed_actor_rounds { get; set; }
+        public int verified_completed_actor_wins { get; set; }
+        public int verified_plants { get; set; }
     }
 
     internal static class PracticeEndpoint
@@ -331,10 +346,11 @@ namespace ReflexCore.Practice
                 button.Padding=new Padding(6,2,6,2);
             }
             top.Controls.Add(start); top.Controls.Add(stop);
-            if(matchMode){ top.Controls.Add(spectate); top.Controls.Add(replays); }
+            if(matchMode){ top.Controls.Add(mapSelection); top.Controls.Add(spectate); top.Controls.Add(replays); }
             else { top.Controls.Add(mapSelection); top.Controls.Add(drillRecord); top.Controls.Add(replays); }
             ConfigureLabel(status,FontStyle.Bold);
             ConfigureLabel(evidence,FontStyle.Regular);
+            if(matchMode)evidence.Height=48;
             status.Text="Ready for an isolated server";
             evidence.Text="No live actor sample";
             var bottom=new Panel {Dock=DockStyle.Bottom,Height=70,Padding=new Padding(11,0,8,0)};
@@ -355,9 +371,8 @@ namespace ReflexCore.Practice
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            if(!matchMode)
             {
-                mapSelection.Items.Add("Saved route");
+                mapSelection.Items.Add(matchMode?"Original lab (saved route)":"Saved route");
                 mapSelection.SelectedIndex=0;
                 try
                 {
@@ -370,7 +385,7 @@ namespace ReflexCore.Practice
                         foreach(string file in files)
                         {
                             string name=Path.GetFileNameWithoutExtension(file);
-                            if(Regex.IsMatch(name,@"\Ade_[a-z0-9_]{1,29}\z"))mapSelection.Items.Add(name);
+                            if(matchMode?name=="de_dust2":Regex.IsMatch(name,@"\Ade_[a-z0-9_]{1,29}\z"))mapSelection.Items.Add(name);
                             if(mapSelection.Items.Count>=257)break;
                         }
                     }
@@ -380,6 +395,7 @@ namespace ReflexCore.Practice
                 catch(IOException) {}
                 catch(UnauthorizedAccessException) {}
             }
+            if(matchMode && String.IsNullOrEmpty(requestedMap) && mapSelection.Items.Count>1)mapSelection.SelectedIndex=1;
             if(!String.IsNullOrEmpty(requestedMap)){
                 int mapIndex=mapSelection.Items.IndexOf(requestedMap);
                 if(mapIndex<=0){status.Text="Requested map unavailable in the owned server";return;}
@@ -416,13 +432,13 @@ namespace ReflexCore.Practice
             {
                 runStartedUtc=DateTime.UtcNow;
                 settings=PracticeSettings.Load(root);
-                autoRoute=!matchMode && mapSelection.SelectedIndex>0;
+                autoRoute=mapSelection.SelectedIndex>0;
                 route=autoRoute
                     ? new PracticeRoute {map=(string)mapSelection.SelectedItem,site="automatic"}
                     : PracticeRoute.Load(settings.route);
-                if(autoRoute && (!settings.MayStartServer || !settings.stationary_opponent))
+                if(autoRoute && (!settings.MayStartServer || (!matchMode && !settings.stationary_opponent)))
                     throw new InvalidOperationException("Automatic maps require the owned local practice server and stationary opponent.");
-                if(matchMode && (route.map!="de_reflex_lab" || !settings.MayStartServer || settings.port>=65535))
+                if(matchMode && (route.map!=(autoRoute?"de_dust2":"de_reflex_lab") || !settings.MayStartServer || settings.port>=65535))
                     throw new InvalidOperationException("An owned local lab is required for a match.");
                 recordStem=null;
                 consoleLog=null;
@@ -633,7 +649,7 @@ namespace ReflexCore.Practice
                     File.WriteAllBytes(capture,bytes);
                 }
                 string options="cs16 benchmark "+Quote(capture)+" --player "+
-                    result.engine_subject_id.ToString(CultureInfo.InvariantCulture)+" --require-plant-kill-win";
+                    result.engine_subject_id.ToString(CultureInfo.InvariantCulture)+(result.adversarial?"":" --require-plant-kill-win");
                 var psi=ProcessInfo(settings.runner_exe,options,root);
                 psi.RedirectStandardOutput=true;
                 using(var benchmark=Process.Start(psi))
@@ -642,7 +658,12 @@ namespace ReflexCore.Practice
                     if(!benchmark.WaitForExit(3500)){benchmark.Kill();return false;}
                     if(benchmark.ExitCode!=0 || !output.Wait(500))return false;
                     var evidence=Decode<MatchBenchmark>(output.Result,512*1024);
-                    if(evidence.schema!="reflexcore.cs16.benchmark.v1" || evidence.verified_plant_bot_round_wins!=1)return false;
+                    if(evidence.schema!="reflexcore.cs16.benchmark.v1" ||
+                        (result.adversarial
+                            ? evidence.verified_completed_actor_rounds!=1 ||
+                              evidence.verified_completed_actor_wins!=(result.verified_round_win?1:0) ||
+                              evidence.verified_plants!=(result.verified_plant?1:0)
+                            : evidence.verified_plant_bot_round_wins!=1))return false;
                     Directory.CreateDirectory(replayFolder);
                     File.WriteAllText(Path.Combine(replayFolder,recordStem+".json"),output.Result);
                     return true;
@@ -783,6 +804,19 @@ namespace ReflexCore.Practice
                 report.map==route.map && report.verified_plant && report.outcome=="verified" && report.engine_subject_id!=0 &&
                 report.total_ms>=0 && report.total_ms<=130000 && report.navigation_ms>=0 && report.navigation_ms<=report.total_ms &&
                 report.plant_ms>=0 && report.plant_ms<=report.total_ms;
+            if(matchMode && autoRoute && report!=null && report.adversarial && report.map==route.map && report.engine_subject_id>0)
+            {
+                bool confirmed=code==0 && report.round_completed && VerifyMatchLog(report);
+                bool replay=SaveRecording();
+                string detail="Contacts before plant: "+report.preplant_contacts.ToString(CultureInfo.InvariantCulture)+
+                    " | Plant: "+(report.verified_plant?"yes":"no")+" | Rifle kill: "+(report.verified_bot_defeat?"yes":"no")+
+                    " | Killed by defender: "+(report.actor_died?"yes":"no");
+                if(report.combat!=null)detail+=Environment.NewLine+"Shots: "+report.combat.shots+" | Hits: "+report.combat.hits+
+                    " | Defender shots before plant: "+report.combat.defender_preplant_shots;
+                Finish(cancellation?"Match stopped":confirmed?(report.verified_round_win?"Round win verified":"Round completed; no Terrorist win"):
+                    "Round result not verified",detail+(replay?" | Replay saved.":" | Replay unavailable."));
+                return;
+            }
             if(matchMode && verified)
             {
                 bool win=report.match_mode && report.verified_bot_defeat && report.verified_round_win && VerifyMatchLog(report);

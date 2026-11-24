@@ -4,6 +4,7 @@
 #include <csx>
 #include <fakemeta>
 #include <hamsandwich>
+#include <fun>
 
 #define RC_TICK 6701
 #define RC_SUBJECT "ReflexCore"
@@ -21,6 +22,9 @@ new bool:g_spawn_view_pending;
 new g_passive_ct, g_passive_userid;
 new bool:g_match, bool:g_bot_defeated, bool:g_bot_visible, bool:g_round_live;
 new g_round_generation;
+new bool:g_adversarial, bool:g_round_closed, bool:g_actor_died;
+new g_shots, g_hits, g_preplant_shots, g_defender_shots, g_defender_preplant_shots;
+new Float:g_defender_origin[3], Float:g_defender_distance;
 new Float:g_bomb_position[3], Float:g_target_yaw, Float:g_target_pitch;
 new Float:g_last_shot;
 new g_map[49], g_directory[192], g_command[224], g_state[224], g_staging[224];
@@ -28,7 +32,7 @@ new g_status[16] = "ready";
 
 public plugin_init()
 {
-    register_plugin("ReflexCore CS16 Practice", "1.0", "ReflexCore");
+    register_plugin("ReflexCore CS16 Practice", "1.1", "ReflexCore");
     g_enabled = register_cvar("rc_practice_enabled", "0");
     g_max_clients = get_maxplayers();
     get_mapname(g_map, charsmax(g_map));
@@ -39,6 +43,7 @@ public plugin_init()
     formatex(g_staging, charsmax(g_staging), "%s/state.next", g_directory);
     register_event("HLTV", "new_round", "a", "1=0", "2=0");
     register_logevent("round_started", 2, "1=Round_Start");
+    register_logevent("round_closed", 2, "1=Round_End");
     RegisterHam(Ham_Killed, "player", "match_death", 1);
     register_event("SendAudio", "terrorist_win", "a", "2=%!MRAD_terwin");
     set_task(0.10, "practice_tick", RC_TICK, "", 0, "b");
@@ -107,6 +112,11 @@ bool:c4_equipped()
 public new_round()
 {
     g_round_generation++;
+    g_round_closed = false;
+    g_actor_died = false;
+    g_bot_visible = false;
+    g_shots = 0; g_hits = 0; g_preplant_shots = 0; g_defender_shots = 0; g_defender_preplant_shots = 0;
+    g_defender_distance = 0.0;
     g_planted = false;
     g_t_won = false;
     g_bot_defeated = false;
@@ -119,6 +129,27 @@ public new_round()
 public round_started()
 {
     g_round_live = true;
+    if (g_adversarial && owns_subject() && is_user_alive(g_subject))
+    {
+        give_item(g_subject, "weapon_ak47");
+        cs_set_user_bpammo(g_subject, CSW_AK47, 90);
+    }
+    if (g_adversarial && owns_actor(g_passive_ct, g_passive_userid))
+        pev(g_passive_ct, pev_origin, g_defender_origin);
+}
+
+public round_closed()
+{
+    g_round_closed = true;
+    g_round_live = false;
+}
+
+public client_damage(attacker, victim, damage, weapon, hitplace, teamattack)
+{
+    if (g_adversarial && g_round_live && !teamattack && damage > 0 && weapon == CSW_AK47
+        && attacker == g_subject && victim == g_passive_ct && owns_subject()
+        && owns_actor(g_passive_ct, g_passive_userid))
+        g_hits++;
 }
 
 public bomb_planted(planter)
@@ -130,9 +161,20 @@ public bomb_planted(planter)
     }
 }
 
+public client_death(killer, victim, weapon, hitplace, teamattack)
+{
+    if (!g_adversarial || !g_round_live || teamattack || !owns_subject()
+        || !owns_actor(g_passive_ct, g_passive_userid))
+        return;
+    if (victim == g_subject && killer == g_passive_ct)
+        g_actor_died = true;
+    if (victim == g_passive_ct && killer == g_subject && weapon == CSW_AK47)
+        g_bot_defeated = true;
+}
+
 public match_death(victim, killer, gib)
 {
-    if (g_match && g_planted && killer == g_subject && victim == g_passive_ct
+    if (g_match && !g_adversarial && g_planted && killer == g_subject && victim == g_passive_ct
         && owns_subject() && owns_actor(g_passive_ct, g_passive_userid) && !is_user_alive(victim))
         g_bot_defeated = true;
 }
@@ -196,7 +238,7 @@ bool:is_number(const token[], bool:fraction)
 
 read_command()
 {
-    new line[256], extra[2], parts[7][16];
+    new line[256], extra[2], parts[8][16];
     new bytes = file_size(g_command, 0), file;
     if (bytes > 0 && bytes < sizeof(line))
     {
@@ -212,10 +254,11 @@ read_command()
     if (!delete_file(g_command))
         return;
 
-    if (parse(line, parts[0], 15, parts[1], 15, parts[2], 15, parts[3], 15,
-        parts[4], 15, parts[5], 15, parts[6], 15, extra, 1) != 7)
+    new count = parse(line, parts[0], 15, parts[1], 15, parts[2], 15, parts[3], 15,
+        parts[4], 15, parts[5], 15, parts[6], 15, parts[7], 15, extra, 1);
+    if (count != 7 && count != 8)
         return;
-    for (new i = 0; i < 7; i++)
+    for (new i = 0; i < count; i++)
     {
         if (!is_number(parts[i], i >= 2 && i <= 4))
             return;
@@ -230,6 +273,12 @@ read_command()
 
     g_sequence = sequence;
     new operation = str_to_num(parts[1]);
+    if (g_adversarial && (operation == 2 || operation == 4 || operation == 8 || operation == 9)
+        && (count != 8 || !g_round_live || g_round_closed || str_to_num(parts[7]) != g_round_generation))
+    {
+        copy(g_status, charsmax(g_status), "rejected");
+        return;
+    }
     new Float:yaw = str_to_float(parts[2]);
     new Float:forward_speed = str_to_float(parts[3]);
     new Float:side_speed = str_to_float(parts[4]);
@@ -304,26 +353,30 @@ read_command()
         }
         case 7:
         {
-            if (!owns_actor(g_passive_ct, g_passive_userid) && equal(g_map, "de_reflex_lab"))
+            if (!owns_actor(g_passive_ct, g_passive_userid) && (equal(g_map, "de_reflex_lab") || equal(g_map, "de_dust2")))
             {
                 g_passive_ct = add_fake_client(RC_MATCH_CT, "2");
                 g_passive_userid = g_passive_ct > 0 ? get_user_userid(g_passive_ct) : 0;
                 g_match = owns_actor(g_passive_ct, g_passive_userid);
+                g_adversarial = g_match && equal(g_map, "de_dust2");
             }
             copy(g_status, charsmax(g_status), g_match ? "match_ct" : "unavailable");
         }
         case 8:
         {
-            if (g_match && g_planted && owns_subject() && is_user_alive(g_subject))
+            if (g_match && (g_planted || (g_adversarial && g_round_live)) && owns_subject() && is_user_alive(g_subject))
             {
-                engclient_cmd(g_subject, "weapon_glock18");
+                if (g_adversarial)
+                    engclient_cmd(g_subject, "weapon_ak47");
+                else
+                    engclient_cmd(g_subject, "weapon_glock18");
                 copy(g_status, charsmax(g_status), "equipped");
             }
             else copy(g_status, charsmax(g_status), "rejected");
         }
         case 9:
         {
-            if (g_bot_defeated || match_shot())
+            if (g_bot_defeated || match_shot() || g_adversarial)
                 copy(g_status, charsmax(g_status), "fired");
             else copy(g_status, charsmax(g_status), "rejected");
         }
@@ -434,10 +487,14 @@ advance_defender()
     pev(g_passive_ct, pev_origin, origin);
     new Float:time = get_gametime();
     new Float:destination[3];
-    if (g_planted)
+    if (g_adversarial && !g_planted && owns_subject() && is_user_alive(g_subject))
+    {
+        pev(g_subject, pev_origin, destination);
+    }
+    else if (g_planted)
     {
         destination[0] = g_bomb_position[0];
-        destination[1] = g_bomb_position[1] + 58.0;
+        destination[1] = g_bomb_position[1] + (g_adversarial ? 0.0 : 58.0);
     }
     else
     {
@@ -452,14 +509,15 @@ advance_defender()
     if (pev(g_passive_ct, pev_fixangle) == 1)
         set_pev(g_passive_ct, pev_fixangle, 0);
 
-    new buttons = 0;
-    new Float:speed = distance > 12.0 ? (g_planted ? 160.0 : 64.0) : 0.0;
-    if (g_planted && distance < 105.0 && owns_subject() && is_user_alive(g_subject))
+    new buttons = (g_adversarial && g_planted && distance <= 52.0) ? IN_USE : 0;
+    new Float:speed = distance > 12.0 ? (g_planted ? 160.0 : (g_adversarial ? 185.0 : 64.0)) : 0.0;
+    if ((g_adversarial || (g_planted && distance < 105.0)) && owns_subject() && is_user_alive(g_subject))
     {
         new Float:aim[3];
         if (target_angles(g_passive_ct, g_subject, aim))
         {
             speed = 0.0;
+            buttons = 0;
             aim[1] += floatsin(time * 8.0) * 10.0;
             angles[0] = aim[0];
             angles[1] = aim[1];
@@ -470,9 +528,25 @@ advance_defender()
             }
         }
     }
-    engfunc(EngFunc_RunPlayerMove, g_passive_ct, angles, speed, 0.0, 0.0, buttons, 0, 95);
+    new old_clip = g_adversarial ? active_clip(g_passive_ct) : -1;
+    new Float:side = 0.0;
+    if (g_adversarial && speed > 0.0)
+        side = floatsin(time * 2.0) * 95.0;
+    engfunc(EngFunc_RunPlayerMove, g_passive_ct, angles, speed, side, 0.0, buttons, 0, 95);
+    if (g_adversarial)
+    {
+        new Float:after[3];
+        pev(g_passive_ct, pev_origin, after);
+        g_defender_distance = floatmax(g_defender_distance, get_distance_f(after, g_defender_origin));
+        new clip = active_clip(g_passive_ct);
+        if ((buttons & IN_ATTACK) && old_clip > clip && clip >= 0)
+        {
+            g_defender_shots++;
+            if (!g_planted) g_defender_preplant_shots++;
+        }
+    }
 
-    if (g_planted && owns_subject() && is_user_alive(g_subject) && target_angles(g_subject, g_passive_ct, angles))
+    if ((g_planted || g_adversarial) && owns_subject() && is_user_alive(g_subject) && target_angles(g_subject, g_passive_ct, angles))
     {
         g_bot_visible = true;
         g_target_pitch = angles[0];
@@ -480,20 +554,40 @@ advance_defender()
     }
 }
 
+active_clip(actor)
+{
+    new weapon = get_ent_data_entity(actor, "CBasePlayer", "m_pActiveItem");
+    return pev_valid(weapon) == 2 ? cs_get_weapon_ammo(weapon) : -1;
+}
+
+active_weapon(actor)
+{
+    new weapon = get_ent_data_entity(actor, "CBasePlayer", "m_pActiveItem");
+    return pev_valid(weapon) == 2 ? cs_get_weapon_id(weapon) : 0;
+}
+
 bool:match_shot()
 {
-    if (!g_match || !g_planted || !owns_subject() || !is_user_alive(g_subject)
+    if (!g_match || (!g_planted && !g_adversarial) || (g_adversarial && !g_round_live) || !owns_subject() || !is_user_alive(g_subject)
         || !owns_actor(g_passive_ct, g_passive_userid) || !is_user_alive(g_passive_ct))
         return false;
     new weapon = get_ent_data_entity(g_subject, "CBasePlayer", "m_pActiveItem");
-    if (pev_valid(weapon) != 2 || cs_get_weapon_id(weapon) != CSW_GLOCK18)
+    if (pev_valid(weapon) != 2 || cs_get_weapon_id(weapon) != (g_adversarial ? CSW_AK47 : CSW_GLOCK18))
         return false;
     new Float:angles[3];
     if (!target_angles(g_subject, g_passive_ct, angles))
         return false;
     // Release before each single shot so a semi-auto weapon can re-arm.
     engfunc(EngFunc_RunPlayerMove, g_subject, angles, 0.0, 0.0, 0.0, 0, 0, 20);
+    new before = cs_get_weapon_ammo(weapon);
+    if (g_adversarial && before <= 0)
+        return true;
     engfunc(EngFunc_RunPlayerMove, g_subject, angles, 0.0, 0.0, 0.0, IN_ATTACK, 0, 80);
+    if (g_adversarial && cs_get_weapon_ammo(weapon) < before)
+    {
+        g_shots++;
+        if (!g_planted) g_preplant_shots++;
+    }
     return true;
 }
 
@@ -529,14 +623,23 @@ publish_state()
     if (g_match)
     {
         // Companion file keeps the v1 route/debug consumers compatible.
-        new match_state[224];
+        new match_state[224], match_next[224];
+        formatex(match_next, charsmax(match_next), "%s/match-next.txt", g_directory);
         formatex(match_state, charsmax(match_state), "%s/match-state.txt", g_directory);
-        new match = fopen(match_state, "wt");
+        new match = fopen(match_next, "wt");
         if (match)
         {
+            if (g_adversarial)
+                fprintf(match, "reflexcore_cs16_match_v2 %d %d %d %d %d %.6f %.6f %d %.6f %d %d %d %d %d %d %d %d %d %d %d^n",
+                    g_sequence, g_passive_userid, g_bot_visible, g_bot_defeated, g_round_live, g_target_pitch, g_target_yaw,
+                    g_round_generation, snapshot_tick, userid, g_round_closed, active_weapon(g_subject), active_clip(g_subject),
+                    g_shots, g_hits, g_preplant_shots, g_defender_shots, g_defender_preplant_shots, floatround(g_defender_distance), g_actor_died);
+            else
             fprintf(match, "reflexcore_cs16_match_v1 %d %d %d %d %d %.6f %.6f^n",
                 g_sequence, g_passive_userid, g_bot_visible, g_bot_defeated, g_round_live, g_target_pitch, g_target_yaw);
             fclose(match);
+            if (!file_exists(match_state) || delete_file(match_state))
+                rename_file(match_next, match_state, 1);
         }
     }
     fclose(file);

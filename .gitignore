@@ -50,3 +50,4 @@
 !/tasks/Test-ExtensionRename.ps1
 !/tasks/rename-extensions.ps1
 !/tasks/agent-background.ps1
+/tools/__pycache__/

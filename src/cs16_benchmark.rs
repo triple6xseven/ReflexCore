@@ -370,6 +370,8 @@ struct Report {
     verified_spawn_to_plant: usize,
     verified_easy_bot_round_wins: usize,
     verified_plant_bot_round_wins: usize,
+    verified_completed_actor_rounds: usize,
+    verified_completed_actor_wins: usize,
     round_start_to_plant: Option<Timing>,
     spawn_to_plant: Option<Timing>,
     rounds: Vec<RoundReport>,
@@ -658,6 +660,17 @@ fn analyze(log: &str, player: u32) -> Result<Report> {
             }
         }
     }
+    let completed = |round: &&RoundReport| {
+        matches!(round.close, Close::RoundEnd)
+            && round.terrorist_win.is_some()
+            && round.c4_acquired_from_round_start_seconds.is_some()
+    };
+    let verified_completed_actor_rounds = rounds.iter().filter(completed).count();
+    let verified_completed_actor_wins = rounds
+        .iter()
+        .filter(completed)
+        .filter(|round| round.terrorist_win == Some(true))
+        .count();
     Ok(Report {
         schema: "reflexcore.cs16.benchmark.v1",
         evidence: "goldsrc_server_log",
@@ -668,6 +681,8 @@ fn analyze(log: &str, player: u32) -> Result<Report> {
         verified_spawn_to_plant: spawn_to_plant.len(),
         verified_easy_bot_round_wins,
         verified_plant_bot_round_wins,
+        verified_completed_actor_rounds,
+        verified_completed_actor_wins,
         round_start_to_plant: timing(round_start_to_plant),
         spawn_to_plant: timing(spawn_to_plant),
         rounds,

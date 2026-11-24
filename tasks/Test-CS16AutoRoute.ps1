@@ -4,9 +4,17 @@ param(
     [Parameter(Mandatory)][string]$Server,
     [Parameter(Mandatory)][ValidatePattern('^de_[a-z0-9_]{1,29}$')][string]$Map,
     [ValidateRange(1024,65534)][int]$Port=27125,
+    [switch]$Match,
+    [string]$SavedRoute,
+    [string]$EvidenceDirectory,
+    [switch]$CancelInRound,
+    [switch]$Record,
     [switch]$Coach,
     [string]$CoachVisionReport
 )
+if($SavedRoute -and (!$Match -or $Map -cne 'de_reflex_lab')){throw 'SavedRoute requires the original match'}
+if($CancelInRound -and (!$Match -or !$EvidenceDirectory)){throw 'Cancellation requires match evidence output'}
+if($Record -and (!$EvidenceDirectory -or $Port -eq 65534)){throw 'Recording requires evidence output and a spare adjacent port'}
 $ErrorActionPreference='Stop'
 if($CoachVisionReport -and !$Coach){throw '-CoachVisionReport requires -Coach'}
 $serverPath=(Resolve-Path -LiteralPath $Server).Path
@@ -31,6 +39,14 @@ $process=$null
 $console=Join-Path $lab 'qconsole.log'
 $offset=if(Test-Path -LiteralPath $console){(Get-Item -LiteralPath $console).Length}else{0}
 $coachEvidence=$null
+$runId=[guid]::NewGuid().ToString('N')
+$artifact=$null
+if($EvidenceDirectory){$artifact=Join-Path ([IO.Directory]::CreateDirectory($EvidenceDirectory).FullName) $runId}
+$worker=$null
+$recorder=$null
+$recordingState="not_requested"
+$stopConfigs=@()
+$peak=0L
 $log=Join-Path ([IO.Path]::GetTempPath()) ('reflex-route-'+[guid]::NewGuid().ToString('N')+'.log')
 Push-Location $root
 try{
@@ -50,11 +66,52 @@ try{
         Start-Sleep -Milliseconds 150
     }
     if($clock.Elapsed.TotalSeconds -ge 15){throw 'No fresh map state'}
-    $output=& $exe cs16 practice $mail auto --allow-offline --stationary-opponent
-    $result=$LASTEXITCODE
+    if($Record){
+        $tv=Join-Path $lab 'hltv.exe'
+        if(!(Test-Path -LiteralPath $tv -PathType Leaf) -or
+           (Get-NetUDPEndpoint -LocalPort ($Port+1) -ErrorAction SilentlyContinue)){
+            $recordingState='recorder_unavailable'
+        }else{
+            $stopName="rc-$runId-stop.cfg"
+            $stopConfigs=@((Join-Path $lab $stopName),(Join-Path $lab "cstrike/$stopName"))
+            foreach($path in $stopConfigs){[IO.File]::WriteAllText($path,'')}
+            $recordArgs="-ip 127.0.0.1 -port $($Port+1) -nomaster -noipx +delay 0 +name ReflexCoreRecorder +connect 127.0.0.1:$Port +record rc-$runId +loopcmd 2 1 exec $stopName"
+            $recorder=Start-Process $tv -WorkingDirectory $lab -WindowStyle Hidden -PassThru -ArgumentList $recordArgs
+            $recordingState='started'
+            Start-Sleep -Seconds 3
+        }
+    }
+    $route=if($SavedRoute){(Resolve-Path -LiteralPath $SavedRoute).Path}else{'auto'}
+    $opponent=if($Match){'--match'}else{'--stationary-opponent'}
+    if($artifact){
+        $cancel=$artifact+'.cancel'
+        $arguments='cs16 practice "'+$mail+'" "'+$route+'" --allow-offline '+$opponent+' --cancel-file "'+$cancel+'"'
+        $worker=Start-Process $exe -WorkingDirectory $root -WindowStyle Hidden -PassThru -ArgumentList $arguments -RedirectStandardOutput ($artifact+'.result.json') -RedirectStandardError ($artifact+'.stderr.txt')
+        $null=$worker.Handle
+        while(!$worker.WaitForExit(100)){
+            $worker.Refresh();$peak=[Math]::Max($peak,$worker.PeakWorkingSet64)
+            if($CancelInRound -and ![IO.File]::Exists($cancel)){
+                try {
+                    $signals=[IO.File]::ReadAllText((Join-Path $mail 'match-state.txt')).Trim() -split ' '
+                    $snapshot=[IO.File]::ReadAllText($state).Trim() -split ' '
+                    if($signals[0] -ceq 'reflexcore_cs16_match_v2' -and $signals[5] -ceq '1' -and $snapshot[5] -ceq '1' -and $snapshot[-1] -ceq 'moved'){
+                        [IO.File]::WriteAllText($cancel,'stop')
+                    }
+                }catch [IO.IOException]{}
+            }
+            if($clock.Elapsed.TotalSeconds -gt 185){throw 'Controller deadline expired'}
+        }
+        $result=$worker.ExitCode
+        $output=Get-Content -LiteralPath ($artifact+'.result.json')
+        @{run_id=$runId;map=$Map;exit_code=$result;peak_worker_bytes=$peak;cancelled_requested=[IO.File]::Exists($cancel)} |
+            ConvertTo-Json | Set-Content -LiteralPath ($artifact+'.trial.json') -Encoding UTF8
+    } else {
+        $output=& $exe cs16 practice $mail $route --allow-offline $opponent
+        $result=$LASTEXITCODE
+    }
     $output | Write-Output
     $report=($output -join [Environment]::NewLine)|ConvertFrom-Json
-    if($result -ne 0 -or !$report.verified_plant -or $report.map -cne $Map){throw 'Automatic drill did not verify a plant'}
+    if(!$report -or $report.map -cne $Map){throw 'Controller evidence missing'}
     $file=[IO.File]::Open($console,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
     try{
         if($file.Length -lt $offset -or $file.Length-$offset -gt 512KB){throw 'Invalid fresh game log range'}
@@ -62,13 +119,41 @@ try{
         $reader=[IO.StreamReader]::new($file)
         try{[IO.File]::WriteAllText($log,$reader.ReadToEnd())}finally{$reader.Dispose()}
     }finally{$file.Dispose()}
+    if($artifact){Copy-Item -LiteralPath $log -Destination ($artifact+'.log')}
+    if($report.engine_subject_id -eq 0){throw "Actor setup failed: $($report.outcome)"}
     $evidence=& $exe cs16 benchmark $log --player $report.engine_subject_id
+    if($artifact){$evidence | Set-Content -LiteralPath ($artifact+'.benchmark.json') -Encoding UTF8}
     if($LASTEXITCODE -ne 0){throw 'Independent game log parser failed'}
     $evidence | Write-Output
     $parsed=($evidence -join [Environment]::NewLine)|ConvertFrom-Json
-    if($parsed.verified_plants -lt 1){throw 'Fresh game log did not verify a plant by the owned actor'}
+    if($CancelInRound){
+        if($report.outcome -cne 'cancelled'){throw 'Cancellation was not observed'}
+    }elseif($Match -and !$SavedRoute){
+        if($result -ne 0 -or !$report.round_completed -or $parsed.verified_completed_actor_rounds -ne 1 -or
+           $parsed.verified_completed_actor_wins -ne [int]$report.verified_round_win -or
+           $parsed.verified_plants -ne [int]$report.verified_plant){throw "Round not verified: $($report.outcome)"}
+    }elseif($SavedRoute){
+        if($result -ne 0 -or $parsed.verified_plant_bot_round_wins -ne 1){throw 'Original lab match regression failed'}
+    }elseif($result -ne 0 -or $parsed.verified_plants -lt 1){throw 'Automatic drill did not verify a plant'}
     if($Coach){$coachEvidence=$evidence -join [Environment]::NewLine}
 }finally{
+    if($recorder){
+        if(!$recorder.HasExited){
+            foreach($path in $stopConfigs){[IO.File]::WriteAllLines($path,@('stoprecording','quit'))}
+            if(!$recorder.WaitForExit(5500)){$recorder.Kill();$recorder.WaitForExit();$recordingState='recorder_timeout'}
+        }
+        if($recordingState -ne 'recorder_timeout'){
+            $demos=@(Get-ChildItem -LiteralPath $lab,(Join-Path $lab 'cstrike') -Filter "rc-$runId*.dem" -File)
+            if($demos.Count -eq 1 -and $demos[0].Length -gt 544){
+                Move-Item -LiteralPath $demos[0].FullName -Destination ($artifact+'.dem')
+                $recordingState='saved'
+            }else{$recordingState='no_finalized_demo'}
+        }
+        $recorder.Dispose()
+    }
+    foreach($path in $stopConfigs){[IO.File]::Delete($path)}
+    if($artifact){$recordingState|Set-Content -LiteralPath ($artifact+'.replay.txt') -Encoding ASCII}
+    if($worker -and !$worker.HasExited){$worker.Kill();$worker.WaitForExit()}
     if($null -ne $process){
         if(!$process.HasExited){$process.Kill();$process.WaitForExit()}
         $process.Dispose()

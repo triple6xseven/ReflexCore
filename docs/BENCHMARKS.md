@@ -208,3 +208,11 @@ The metadata worker met the 1-second warm p95 target. The largest measured cost 
 ### Handoff checklist drafting
 
 On the same Ryzen 5 4600H Windows host, a fixed evaluation set specified before implementing the parser produced 8/8 exact drafts, 7/7 clarifications, and 7/7 scope rejections. Across 440 warmed calls, parser p50 was 0.012 ms and p95 was 0.0223 ms. This includes PowerShell-to-.NET dispatch and excludes window interaction, queue wait and filesystem verification. The CPU parser makes zero model calls. The small set exercises the supported grammar and does not estimate accuracy on free-form requests.
+
+## Dust II adversarial practice experiment
+
+Windows 11, Ryzen 5 4600H, 8 GB installed RAM. The owned server ran GoldSrc protocol 48 on loopback with AMX Mod X 1.10.0.5488. The controller used zero model calls and no desktop input.
+
+Five exploratory Dust II rounds on the first compatible snapshot protocol closed with an independently verified C4 plant and Terrorist win. They used one observed spawn. Two had pre-plant contact and a defender discharge. Two attack requests from the controller produced zero confirmed actor discharges, damage events or rifle kills. An initial setup attempt and a later batch of setup attempts exposed match snapshot compatibility failures. The raw reports remain private. The saved-route laboratory independently confirmed a plant, defender kill and win.
+
+The vision pilot used two manually labeled archival client crops at 480x360. One showed a visible player and one showed the game console. Neither had a synchronized server tick. YOLOX-Tiny used the upstream ONNX checkpoint at 416x416. Its SHA-256 is 427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7. The upstream repository supplies Apache-2.0 licensing. At IoU 0.50 the raw detector matched one player, missed zero and returned two false boxes on the console frame. Precision was 1/3 and recall was 1/1. Supplying manual scene labels suppressed both console boxes. Replay latency p50/p95 was 65.606/65.905 ms raw and 3.353/70.886 ms gated. This pilot excludes live capture and tracking. [Checkpoint release](https://github.com/Megvii-BaseDetection/YOLOX/releases/tag/0.1.1rc0) and [upstream license](https://github.com/Megvii-BaseDetection/YOLOX/blob/main/LICENSE).

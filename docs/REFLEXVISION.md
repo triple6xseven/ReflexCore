@@ -10,7 +10,7 @@ Open **Shared Control**. **Start ReflexVision** opens a preview with purple trac
 
 ### Replayable offline match
 
-**Play Offline Match** starts an owned loopback instance of the original de_reflex_lab. ReflexCore navigates the route, plants C4, and uses normal Glock input against a local AMX fixture defender. The defender patrols and attempts to retake the site after the plant. No stock difficulty is implied. The panel requires an independent GoldSrc log containing the selected actor's plant, CT bot kill and same-round Terrorist win.
+**Play Offline Match** opens the owned-server match panel. Select Dust II for automatic adversarial practice or **Original lab (saved route)** for the replay regression. The original preset starts an owned loopback instance of de_reflex_lab. ReflexCore navigates the route, plants C4, and uses normal Glock input against a local AMX fixture defender. The defender patrols and attempts to retake the site after the plant. No stock difficulty is implied. The panel requires an independent GoldSrc log containing the selected actor's plant, CT bot kill and same-round Terrorist win.
 
 The match starts an HLTV recorder on the next port after the practice server. **Copy spectate command** copies the loopback-only console command for live viewing. **Recordings** opens the saved HLTV demo and its redacted result in the local replay directory. To replay from a separate client, place `de_reflex_lab.bsp` in `cstrike/maps`, place the recorded `.dem` in `cstrike` and run `viewdemo <recording-name>` in the game console. A recording is saved only after the game's HLTV recorder finalizes the directory.
 
@@ -64,3 +64,14 @@ Ollama receives aggregate counts only. It selects one allowed investigation, suc
 Run `node tools/score-reflexvision.mjs <private-frame-records.jsonl>`. Each line contains a unique integer `frame`, a `scene` of `menu`, `console`, `loading`, `match`, `dead` or `spectator`, and arrays `truth` and `detections`. Match frames require an integer server `tick`. A truth box is `[x,y,width,height]` in frame pixels. A detection has `box` and a `score` between 0 and 1. Use empty truth for non-match scenes and empty corridors. The scorer streams JSONL and uses one-to-one matches at IoU 0.50. It reports precision, recall and the compatible total count of negative frames with detections. It also splits false boxes outside the match from false boxes in empty match frames. Input is bounded to 128 MiB, 100,000 frames and 256 boxes per list in a frame. Box extents must be finite and fit within 16,384 pixels.
 
 Prepare synchronized server ticks, frame numbers and visible ground-truth boxes before scoring. Server positions alone cannot label visible boxes without camera projection and occlusion checks. Keep datasets and recordings outside Git.
+
+## Evaluate annotated client frames
+
+Keep full-resolution recordings private. Export only the clean game client area at capture resolution. Create a local JSON array with an image filename, scene and hand-checked truth box list for each frame. Supply a server tick only when it was synchronized with the frame. The replay tool tags manually labeled inputs as annotated clips and the scorer reports how many match frames have a tick.
+
+~~~powershell
+py tools/evaluate-reflexvision.py <manifest.json> <local-model-directory> <observations.jsonl>
+node tools/score-reflexvision.mjs <observations.jsonl>
+~~~
+
+Pass --raw to evaluate detections in all scenes. Default replay runs YOLOX only on annotated match frames and suppresses output for menu, console, loading, death, spectator, unknown and stale labels. Replay age measures loading, masking and inference to result creation. This excludes live capture and tracking. Live player tracks remain disabled pending a trustworthy source of client scene transitions.

@@ -56,3 +56,19 @@ The CLI equivalent, from the project root with the same isolated practice plugin
 ```
 
 Automatic mode currently covers the plant objective on supported GoldSrc BSP v30 demolition maps. Ladders, jumps, crouching passages, moving geometry, point-only bombsites, hostage/assassination objectives and full adversarial matches across arbitrary maps require additional adapters or movement skills. The existing `de_reflex_lab` match remains the verified win baseline. Separate a successful route plan, a verified plant and a verified match win in all measurements.
+
+## Adversarial Dust II round
+
+The owned Dust II match uses a fresh BSP route, an AK-47 fixture and one moving CT. The defender can engage during navigation, after contact and after the plant. The original saved-route laboratory remains available in the same Studio map selector. The experimental match uses native fake-client game commands on the dedicated loopback server and does not send desktop input.
+
+Build the practice plugin with AMX Mod X 1.10 and install it in an isolated server with CStrike, CSX, FakeMeta, Ham Sandwich and Fun. Run the project release executable and matching plugin together. In Studio, open **Shared Control / Play Offline Match**, select Dust II and use **Run match again** or the existing automatic launch. The panel can open Recordings and issue a loopback spectator command. CLI fixture examples from the project root:
+
+~~~powershell
+cargo test --locked
+cargo build --release --locked
+.\tasks\Test-CS16AutoRoute.ps1 -Server <owned-hlds.exe> -Map de_dust2 -Match -EvidenceDirectory <private-output> -Record
+.\tasks\Test-CS16AutoRoute.ps1 -Server <owned-hlds.exe> -Map de_dust2 -Match -EvidenceDirectory <private-output> -CancelInRound
+.\tasks\Test-CS16AutoRoute.ps1 -Server <owned-hlds.exe> -Map de_reflex_lab -Match -SavedRoute <lab-route.json> -EvidenceDirectory <private-output>
+~~~
+
+The versioned companion snapshot binds the simulation tick, command sequence, actor and round generation. The plugin checks the generation on adversarial commands that move or equip the actor. Contact, accepted attack requests, clip decrements and AK-47 damage events have separate counters. The independent GoldSrc log establishes completion, plant, winner and combat kill evidence. A completed loss or a win without planting can be represented. Observation percentiles cover synchronized mailbox reads and retries. Decision percentiles cover the combat branch only, excluding mailbox commands and engine acknowledgement. Working set is sampled for the Rust worker by the harness. Keep resulting JSON, logs and demos outside the repository.

@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Add the owned Dust II adversarial round experiment with automatic routes, AK-47 combat telemetry and isolated replay scoring.
 - Add a persistent Agent execution mode with a non-activating background UIA fixture and native folder tasks.
 - Chain a verified folder check and an explicitly approved extension rename, with a run-bound Studio result and queue cancellation.
 - Record bulk extension changes in a private, timestamped journal and stop before a move if its intent cannot be logged.

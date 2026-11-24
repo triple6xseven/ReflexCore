@@ -11,5 +11,5 @@ if($SelfTest){
     [ReflexCore.Practice.PracticePanel]::SelfTest()
     exit 0
 }
-if($Map -and $Match){throw '-Map is for the automatic plant drill'}
+if($Map -and $Match -and $Map -cne 'de_dust2'){throw 'Automatic matches are available on de_dust2'}
 [ReflexCore.Practice.PracticePanel]::Run($root,[bool]$AutoStart,[bool]$Match,$Map)
