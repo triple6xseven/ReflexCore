@@ -27,7 +27,11 @@ fn flow_digest(flow: &str) -> Option<Vec<u8>> {
     if !crate::flow::has_terminal_assertion(&bytes) {
         return None;
     }
-    Some(Sha256::digest(&bytes).to_vec())
+    // Outcomes produced before effect binding must not influence the new verifier.
+    let mut digest = Sha256::new();
+    digest.update(b"reflexcore.flow.effect-proof.v2\0");
+    digest.update(&bytes);
+    Some(digest.finalize().to_vec())
 }
 
 pub(super) struct Memory {
@@ -104,6 +108,71 @@ impl Memory {
         tx.commit()?;
         Ok(())
     }
+}
+
+const REPLAY_PER_ENVIRONMENT: i64 = 1024;
+
+pub(crate) fn read_lab_checkpoint(id: &str) -> Result<Vec<u8>> {
+    let db = Connection::open_with_flags(Path::new(DB), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let bytes: Vec<u8> = db.query_row(
+        "SELECT weights FROM motion_checkpoints_v1 WHERE id = ?1 AND format = 1
+         AND length(weights) <= 8192", [id], |row| row.get(0))?;
+    if format!("{:x}", Sha256::digest(&bytes)) != id {
+        return Err("Checkpoint digest mismatch".into());
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn lab_reliability() -> Result<Vec<(String, String, u32, u32)>> {
+    if !Path::new(DB).exists() {
+        return Ok(Vec::new());
+    }
+    let db = Connection::open_with_flags(Path::new(DB), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='motion_replay_v1')", [], |row| row.get(0))?;
+    if !exists { return Ok(Vec::new()); }
+    let mut query = db.prepare("SELECT environment, skill, count(*), sum(json_extract(sample, '$.verified'))
+        FROM motion_replay_v1 WHERE version = 1
+        GROUP BY environment, skill ORDER BY environment, skill")?;
+    let rows = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+pub(crate) fn record_motion<'a>(
+    samples: impl IntoIterator<Item = &'a crate::learning::Experience>,
+    checkpoint: Option<(&str, &[u8])>,
+    skill: &'static str,
+) -> Result<()> {
+    let path = Path::new(DB);
+    fs::create_dir_all(path.parent().expect("fixed database path"))?;
+    let mut db = Connection::open(path)?;
+    db.busy_timeout(Duration::from_millis(100))?;
+    let tx = db.transaction()?;
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS motion_replay_v1 (
+            seq INTEGER PRIMARY KEY, environment TEXT NOT NULL,
+            skill TEXT NOT NULL, version INTEGER NOT NULL, sample TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS motion_checkpoints_v1 (
+            id TEXT PRIMARY KEY, weights BLOB NOT NULL, format INTEGER NOT NULL);",
+    )?;
+    let mut statement = tx.prepare("INSERT INTO motion_replay_v1(environment,skill,version,sample)
+        VALUES (?1, ?2, 1, ?3)")?;
+    for sample in samples {
+        statement.execute(params![sample.environment, skill, serde_json::to_string(sample)?])?;
+    }
+    drop(statement);
+    for context in ["ground_v1", "arena_v1", "cs16_offline_v1"] {
+        tx.execute("DELETE FROM motion_replay_v1 WHERE seq IN (
+            SELECT seq FROM motion_replay_v1 WHERE environment = ?1 ORDER BY seq DESC LIMIT -1 OFFSET ?2)",
+            params![context, REPLAY_PER_ENVIRONMENT])?;
+    }
+    if let Some((version, weights)) = checkpoint {
+        tx.execute("INSERT OR IGNORE INTO motion_checkpoints_v1 VALUES (?1, ?2, 1)", params![version, weights])?;
+        tx.execute("DELETE FROM motion_checkpoints_v1 WHERE rowid NOT IN
+                    (SELECT rowid FROM motion_checkpoints_v1 ORDER BY rowid DESC LIMIT 4)", [])?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 #[cfg(test)]

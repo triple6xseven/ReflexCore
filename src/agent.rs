@@ -6,7 +6,7 @@
 //! Runtime reports store structural status only, never goal text or UI values.
 
 #[path = "agent_memory.rs"]
-mod memory;
+pub(crate) mod memory;
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,7 +16,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Component, Path},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::Instant,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -157,48 +157,53 @@ fn read_goal(path: &Path) -> Result<Goal> {
 // stable tie-breakers so identical inputs yield identical plans.
 fn plan(goal: &Goal) -> Result<Vec<usize>> {
     validate(goal)?;
-    if goal.initial_state == goal.goal_state {
+    let edges: Vec<_> = goal.skills.iter().map(|s| (s.id.as_str(), s.from.as_str(), s.to.as_str(), s.cost)).collect();
+    plan_edges(&goal.initial_state, &goal.goal_state, &edges)
+}
+
+pub(crate) fn plan_edges(initial: &str, target: &str, skills: &[(&str, &str, &str, u32)]) -> Result<Vec<usize>> {
+    if initial == target {
         return Ok(Vec::new());
     }
     let mut best: HashMap<String, (u64, usize)> = HashMap::new();
     let mut predecessor: HashMap<String, (String, usize)> = HashMap::new();
     let mut queue: BinaryHeap<Reverse<(u64, usize, String)>> = BinaryHeap::new();
-    best.insert(goal.initial_state.clone(), (0, 0));
-    queue.push(Reverse((0, 0, goal.initial_state.clone())));
+    best.insert(initial.to_owned(), (0, 0));
+    queue.push(Reverse((0, 0, initial.to_owned())));
 
-    let mut indexes: Vec<usize> = (0..goal.skills.len()).collect();
-    indexes.sort_by(|&left, &right| goal.skills[left].id.cmp(&goal.skills[right].id));
+    let mut indexes: Vec<usize> = (0..skills.len()).collect();
+    indexes.sort_by(|&left, &right| skills[left].0.cmp(skills[right].0));
 
     let mut outgoing: HashMap<&str, Vec<usize>> = HashMap::new();
     for index in indexes {
-        outgoing.entry(&goal.skills[index].from).or_default().push(index);
+        outgoing.entry(skills[index].1).or_default().push(index);
     }
     while let Some(Reverse((cost, hops, state))) = queue.pop() {
         if best.get(&state) != Some(&(cost, hops)) {
             continue;
         }
-        if state == goal.goal_state {
+        if state == target {
             break;
         }
         let Some(edges) = outgoing.get(state.as_str()) else { continue };
         for &index in edges {
-            let skill = &goal.skills[index];
-            let next_cost = cost + u64::from(skill.cost);
+            let (_, _, to, edge_cost) = skills[index];
+            let next_cost = cost + u64::from(edge_cost);
             let next_hops = hops + 1;
             let candidate = (next_cost, next_hops);
-            if best.get(&skill.to).is_none_or(|old| candidate < *old) {
-                best.insert(skill.to.clone(), candidate);
-                predecessor.insert(skill.to.clone(), (state.clone(), index));
-                queue.push(Reverse((next_cost, next_hops, skill.to.clone())));
+            if best.get(to).is_none_or(|old| candidate < *old) {
+                best.insert(to.to_owned(), candidate);
+                predecessor.insert(to.to_owned(), (state.clone(), index));
+                queue.push(Reverse((next_cost, next_hops, to.to_owned())));
             }
         }
     }
-    if !best.contains_key(&goal.goal_state) {
+    if !best.contains_key(target) {
         return Err("No verified skill path reaches the requested goal".into());
     }
     let mut path = Vec::new();
-    let mut cursor = goal.goal_state.as_str();
-    while cursor != goal.initial_state {
+    let mut cursor = target;
+    while cursor != initial {
         let (previous, index) = predecessor
             .get(cursor)
             .ok_or("Planner predecessor chain is incomplete")?;
@@ -217,12 +222,6 @@ struct Event {
     completed_skills: usize,
     total_skills: usize,
     elapsed_ms: u128,
-}
-
-fn now_ns() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos())
 }
 
 fn log_event(run_id: &str, event: &Event, number: usize) -> Result<()> {
@@ -244,7 +243,7 @@ fn print_status() -> Result<()> {
     let last = fs::read_dir(directory)?
         .filter_map(|item| item.ok())
         .filter(|entry| entry.path().extension().is_some_and(|s| s == "json"))
-        .max_by_key(|entry| entry.file_name());
+        .max_by_key(|entry| (entry.metadata().and_then(|metadata| metadata.modified()).ok(), entry.file_name()));
     if let Some(last) = last {
         println!("{}", fs::read_to_string(last.path())?);
     } else {
@@ -253,20 +252,19 @@ fn print_status() -> Result<()> {
     Ok(())
 }
 
-fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memory>) -> Result<()> {
+fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memory>, run_id: &str) -> Result<()> {
     let started = Instant::now();
-    let run_id = format!("{:020}-{}", now_ns(), std::process::id());
     let total = planned.len();
     let mut completed = 0;
     let initial = Event {
         schema: "reflexcore.agent.event.v1",
-        run_id: run_id.clone(),
-        phase: if total == 0 { "verified" } else { "running" },
+        run_id: run_id.to_owned(),
+        phase: if total == 0 { "unverified" } else { "running" },
         completed_skills: completed,
         total_skills: total,
         elapsed_ms: 0,
     };
-    log_event(&run_id, &initial, 0)?;
+    log_event(run_id, &initial, 0)?;
 
     for (step, &index) in planned.iter().enumerate() {
         let skill = &goal.skills[index];
@@ -278,8 +276,11 @@ fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memor
         };
         let version = memory.as_ref().and_then(|_| memory::Memory::fingerprint(&skill.flow));
         let outcome = crate::flow::run(&args);
+        let fault = outcome.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
+            .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));
         if let (Some(db), Some(version)) = (memory.as_deref_mut(), version) {
             if memory::Memory::fingerprint(&skill.flow).as_ref() == Some(&version)
+                && matches!(fault, None | Some(crate::task_integrity::Fault::VerificationFailed))
                 && db.record(index, &version, outcome.is_ok()).is_err() {
                 eprintln!("[ReflexCore] Could not persist skill outcome.");
             }
@@ -287,27 +288,32 @@ fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memor
         if outcome.is_err() {
             let event = Event {
                 schema: "reflexcore.agent.event.v1",
-                run_id: run_id.clone(),
-                phase: "failed",
+                run_id: run_id.to_owned(),
+                phase: match fault {
+                    Some(crate::task_integrity::Fault::Cancelled | crate::task_integrity::Fault::CancelledUnknown) => "cancelled",
+                    Some(crate::task_integrity::Fault::EffectUnknown) => "unverified",
+                    _ => "failed",
+                },
                 completed_skills: completed,
                 total_skills: total,
                 elapsed_ms: started.elapsed().as_millis(),
             };
-            log_event(&run_id, &event, step + 1)?;
-            return Err(format!("Agent stopped: skill {} failed verification", step + 1).into());
+            log_event(run_id, &event, step + 1)?;
+            return outcome;
         }
         completed += 1;
         let event = Event {
             schema: "reflexcore.agent.event.v1",
-            run_id: run_id.clone(),
+            run_id: run_id.to_owned(),
             phase: if completed == total { "verified" } else { "running" },
             completed_skills: completed,
             total_skills: total,
             elapsed_ms: started.elapsed().as_millis(),
         };
-        log_event(&run_id, &event, step + 1)?;
+        log_event(run_id, &event, step + 1)?;
     }
 
+    if total == 0 { return Err(crate::task_integrity::Fault::EffectUnknown.into()); }
     println!("[ReflexCore] GOAL VERIFIED: {completed}/{total} skills, {} ms", started.elapsed().as_millis());
     Ok(())
 }
@@ -349,12 +355,17 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         _ => return Err("Unknown agent command".into()),
     };
-    let mut memory = memory::Memory::open(&goal, execute_flag).unwrap_or_else(|_| {
+    let mode = crate::learning::Mode::configured()?;
+    let mut memory = (if mode.records() || mode.adapts() {
+        memory::Memory::open(&goal, execute_flag && mode.records())
+    } else {
+        Ok(None)
+    }).unwrap_or_else(|_| {
         eprintln!("[ReflexCore] Skill memory unavailable. Using manifest costs.");
         None
     });
     let mut adjusted = goal.clone();
-    if let Some(db) = &memory {
+    if let Some(db) = memory.as_ref().filter(|_| mode.adapts()) {
         if db.apply(&mut adjusted).is_err() {
             adjusted = goal.clone();
             eprintln!("[ReflexCore] Could not read skill history. Using manifest costs.");
@@ -366,7 +377,12 @@ pub fn run(args: &[String]) -> Result<()> {
         println!("[ReflexCore] Preview only. Append --execute to run the verified skills.");
         return Ok(());
     }
-    execute(&goal, &planned, memory.as_mut())
+    let run_id = crate::task_integrity::run_id();
+    let result = execute(&goal, &planned, memory.as_mut(), &run_id);
+    let fault = result.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
+        .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));
+    crate::task_integrity::write_receipt(&run_id, fault, result.is_ok())?;
+    result
 }
 
 // Small, verified CS16 skill policy used by Unified Coordinator.

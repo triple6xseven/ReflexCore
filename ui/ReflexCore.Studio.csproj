@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="WindowsFormsIntegration" />
+    <Reference Include="System.Web.Extensions" />
     <Resource Include="Art/*.png" />
   </ItemGroup>
 </Project>

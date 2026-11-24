@@ -35,8 +35,9 @@ public sealed partial class StudioWindow : Window
     readonly List<TextBlock> navLabels = new();
     readonly List<int> history = new();
     readonly DispatcherTimer pulse = new() { Interval = TimeSpan.FromSeconds(1) };
-    readonly string[] names = { "Agent", "Models", "Diagnostics", "Shared Control", "Citadel Lab", "OpenAI API", "Appearance" };
-    readonly string[] glyphs = { "\uE80F", "\uE950", "\uE9D9", "\uE7FC", "\uE7FC", "\uE774", "\uE790" };
+    readonly string[] names = { "Agent", "Models", "Diagnostics", "Shared Control", "Citadel Lab", "OpenAI API", "Appearance", "Companion & Widgets" };
+    readonly string[] glyphs = { "\uE80F", "\uE950", "\uE9D9", "\uE7FC", "\uE7FC", "\uE774", "\uE790", "\uE790" };
+    readonly string projectRoot;
     Theme current;
     int active = -1, historyIndex = -1;
     bool smooth = true, animate, showWallpaper = true;
@@ -45,20 +46,33 @@ public sealed partial class StudioWindow : Window
     readonly WrapPanel gallery = new();
     readonly ComboBox category = new();
     readonly Sw motionSwitch = new(false);
+    readonly Sw captionSwitch = new(false);
     readonly Sw wallpaperSwitch = new(true);
 
     public StudioWindow(Forms.TabControl pages, string initialTheme, Action<string> save, Action stop, Func<string> readStage)
+        : this(pages, initialTheme, save, stop, readStage, null) { }
+
+    public StudioWindow(Forms.TabControl pages, string initialTheme, Action<string> save, Action stop, Func<string> readStage, string projectRoot)
     {
-        this.pages=pages; this.save=save; this.stop=stop; this.readStage=readStage;
-        Title="ReflexCore Studio"; Width=1180; Height=790; MinWidth=820; MinHeight=590;
+        this.pages=pages; this.save=save; this.stop=stop; this.readStage=readStage; this.projectRoot=projectRoot;
+        Title="ReflexCore Studio";
+        var iconPath = System.IO.Path.Combine(projectRoot ?? "", "assets", "reflexcore.ico");
+        if (System.IO.File.Exists(iconPath))
+            Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(System.IO.Path.GetFullPath(iconPath)));
+        Width=1180; Height=790; MinWidth=820; MinHeight=590;
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         current=Theme.All.FirstOrDefault(t=>t.Name==initialTheme) ?? Theme.All[0];
+        var appearanceSettings = WidgetSettings.Read(Path.Combine(WidgetSettings.Folder, "studio-appearance.json"));
+        animate = Fx.Fun = WidgetSettings.Bool(appearanceSettings, "theme_animations");
+        motionSwitch.Put(animate);
+        captionSwitch.Put(WidgetSettings.Bool(appearanceSettings, "themed_title_bar"));
         InitStudioButtons(); InitSurfaceStyles();
         BuildShell(); ApplyTheme(current,false);
         native.Child=pages;
         var hostedWheel=new HostedWheel(pages,()=>smooth);
         SelectPage(Math.Max(0,pages.SelectedIndex));
-        pulse.Tick+=(_,_)=>stage.Text=readStage();
+        pulse.Tick+=(_,_)=>{stage.Text=readStage();if(active==7)RefreshWidgetStatus();};
+        SourceInitialized+=(_,_)=>StudioTaskbar.Register(new System.Windows.Interop.WindowInteropHelper(this).Handle,projectRoot);
         ContentRendered+=(_,_)=>{ stage.Text=readStage(); if(WindowState!=WindowState.Minimized)pulse.Start(); };
         StateChanged+=(_,_)=>{ pulse.IsEnabled=WindowState!=WindowState.Minimized; RefreshBackground(); };
         SizeChanged+=(_,_)=>SizeRail();
@@ -67,7 +81,8 @@ public sealed partial class StudioWindow : Window
                 VisitHistory(e.ChangedButton==MouseButton.XButton1?-1:1);e.Handled=true;
             }
         };
-        Closed+=(_,_)=>{hostedWheel.Dispose();pulse.Stop();rain.SetRunning(false);native.Child=null;native.Dispose();};
+        Closing+=(_,e)=>{if(changedWidgetKeys.Count>0 && !ApplyWidgetChanges())e.Cancel=true;};
+        Closed+=(_,_)=>{hostedWheel.Dispose();widgetSave.Stop();pulse.Stop();rain.SetRunning(false);native.Child=null;native.Dispose();};
     }
     static Color Col(string hex)=>(Color)ColorConverter.ConvertFromString(hex);
     static SolidColorBrush Brush(string hex) { var b=new SolidColorBrush(Col(hex));b.Freeze();return b; }
@@ -96,7 +111,16 @@ public sealed partial class StudioWindow : Window
         InitCaption();background.Children.Add(wallpaper);background.Children.Add(rain);background.Children.Add(layout);
         layout.ColumnDefinitions.Add(railWidth);layout.ColumnDefinitions.Add(new ColumnDefinition());
         sidebar.BorderThickness=new Thickness(0,0,1,0);sidebar.SetResourceReference(Border.BorderBrushProperty,"PanelOutline");
-        sidebar.Child=rail;layout.Children.Add(sidebar);
+        var sidebarLayout=new DockPanel();
+        var support=Command("GitHub Support",()=>System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo("https://github.com/sponsors/triple6xseven"){UseShellExecute=true}));
+        support.ToolTip="GitHub Support";
+        support.Margin=new Thickness(8,8,8,10);
+        DockPanel.SetDock(support,Dock.Bottom);
+        sidebarLayout.Children.Add(support);
+        SizeChanged+=(_,_)=>support.Content=ActualWidth<1000?"♥":"GitHub Support";
+        sidebarLayout.Children.Add(new ScrollViewer{Content=rail,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        sidebar.Child=sidebarLayout;layout.Children.Add(sidebar);
         brand.Text="ReflexCore";brand.FontSize=23;brand.FontWeight=FontWeights.SemiBold;brand.Margin=new Thickness(16,24,10,26);
         brand.SetResourceReference(TextBlock.ForegroundProperty,"Text");rail.Children.Add(brand);
         nav.Margin=new Thickness(8,0,8,0);rail.Children.Add(nav);
@@ -119,11 +143,11 @@ public sealed partial class StudioWindow : Window
         DockPanel.SetDock(stage,Dock.Right);head.Children.Add(stage);
         title.FontSize=24;title.FontWeight=FontWeights.SemiBold;title.VerticalAlignment=VerticalAlignment.Center;title.SetResourceReference(TextBlock.ForegroundProperty,"Text");head.Children.Add(title);
         pageHead.Child=head;DockPanel.SetDock(pageHead,Dock.Top);main.Children.Add(pageHead);
-        body.Children.Add(native);body.Children.Add(appearance);main.Children.Add(body);
+        body.Children.Add(native);body.Children.Add(appearance);body.Children.Add(widgets);main.Children.Add(body);
     }
     void SizeRail()
     {
-        bool compact=ActualWidth<1000;railWidth.Width=new GridLength(compact?72:204);brand.Text=compact?"RC":"ReflexCore";
+        bool compact=ActualWidth<1000;railWidth.Width=new GridLength(compact?72:220);brand.Text=compact?"RC":"ReflexCore";
         foreach(var label in navLabels)label.Visibility=compact?Visibility.Collapsed:Visibility.Visible;
     }
     public void SelectPage(int index)=>SwitchPage(index,true);
@@ -140,11 +164,13 @@ public sealed partial class StudioWindow : Window
             history.Add(index);historyIndex=history.Count-1;
         }
         active=index;title.Text=names[index];
-        bool settings=index==names.Length-1;
-        if(settings && appearance.Content==null)BuildAppearance();
-        appearance.Visibility=settings?Visibility.Visible:Visibility.Collapsed;
-        native.Visibility=settings?Visibility.Collapsed:Visibility.Visible;
-        if(!settings)pages.SelectedIndex=index;
+        bool showAppearance=index==6, showWidgets=index==7;
+        if(showAppearance && appearance.Content==null)BuildAppearance();
+        if(showWidgets && widgets.Content==null)BuildWidgets();
+        appearance.Visibility=showAppearance?Visibility.Visible:Visibility.Collapsed;
+        widgets.Visibility=showWidgets?Visibility.Visible:Visibility.Collapsed;
+        native.Visibility=showAppearance||showWidgets?Visibility.Collapsed:Visibility.Visible;
+        if(!showAppearance && !showWidgets)pages.SelectedIndex=index;
         for(int i=0;i<navButtons.Count;i++)navButtons[i].SetResourceReference(Control.BackgroundProperty,i==index?"Track":"TransparentBrush");
         SizeRail();RefreshBackground();
     }
@@ -164,7 +190,7 @@ public sealed partial class StudioWindow : Window
         Resources["MaterialButtonTemplate"]=Resources[k==3?"AlienButtonTemplate":k==4?"FantasyButtonTemplate":k==5?"ZxcButtonTemplate":k==6?"OverdriveButtonTemplate":"ModernButtonTemplate"];
         FontFamily=new FontFamily(typeface??theme.Font);Background=background.Background=Brush(theme.Bg);
         sidebar.Background=Brush(theme.Card);pageHead.Background=Brush(theme.Card);
-        motionSwitch.RefreshSkin();wallpaperSwitch.RefreshSkin();
+        motionSwitch.RefreshSkin();captionSwitch.RefreshSkin();wallpaperSwitch.RefreshSkin();
         PaintPages(pages,theme);PaintTiles();RefreshBackground();
         if(persist)save(theme.Name);
     }
@@ -198,6 +224,7 @@ public sealed partial class StudioWindow : Window
             if(c.BackColor.A!=0)c.BackColor=bg;c.ForeColor=ink;
         }
         foreach(Forms.Control child in c.Controls)PaintPages(child,theme);
+        if(c.Tag is Action<System.Drawing.Color,System.Drawing.Color,System.Drawing.Color> paintChart)paintChart(card,ink,accent);
     }
     public void RestorePage(int page){SelectPage(page);if(WindowState==WindowState.Minimized)WindowState=WindowState.Normal;Activate();}
 }

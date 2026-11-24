@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param([switch]$AutoStart,[switch]$SelfTest)
+param([switch]$AutoStart,[switch]$Match,[switch]$SelfTest,[ValidatePattern('^de_[a-z0-9_]{1,29}$')][string]$Map)
 
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
@@ -11,4 +11,5 @@ if($SelfTest){
     [ReflexCore.Practice.PracticePanel]::SelfTest()
     exit 0
 }
-[ReflexCore.Practice.PracticePanel]::Run($root,[bool]$AutoStart)
+if($Map -and $Match){throw '-Map is for the automatic plant drill'}
+[ReflexCore.Practice.PracticePanel]::Run($root,[bool]$AutoStart,[bool]$Match,$Map)

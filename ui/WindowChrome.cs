@@ -23,13 +23,22 @@ public sealed partial class StudioWindow
             DockPanel.SetDock(button,Dock.Right);caption.Children.Add(button);
         }
         var name=Label("ReflexCore Studio",13);name.Margin=new Thickness(12,0,0,0);caption.Children.Add(name);
-        ApplyCaption(false);
+        StateChanged+=(_,_)=>UpdateChromeInset();
+        ApplyCaption(captionSwitch.On);
+    }
+    void UpdateChromeInset()
+    {
+        var border=SystemParameters.WindowResizeBorderThickness;
+        chromeRoot.Margin=caption.Visibility==Visibility.Visible && WindowState==WindowState.Maximized
+            ? new Thickness(border.Left+4,border.Top+4,border.Right+4,border.Bottom+4)
+            : new Thickness(0);
     }
     void ApplyCaption(bool custom)
     {
         caption.Visibility=custom?Visibility.Visible:Visibility.Collapsed;
         WindowChrome.SetWindowChrome(this,custom?new WindowChrome{CaptionHeight=34,ResizeBorderThickness=new Thickness(6),
             GlassFrameThickness=new Thickness(0),CornerRadius=new CornerRadius(0),UseAeroCaptionButtons=false}:null);
+        UpdateChromeInset();
     }
 }
 

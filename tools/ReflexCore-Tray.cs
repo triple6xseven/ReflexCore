@@ -16,6 +16,11 @@ namespace ReflexCore.Bridge
     {
         public static void SelfTest(string root)
         {
+            if(CompanionStateMachine.Resolve("Vision thinking")!=CompanionMood.Thinking ||
+               CompanionStateMachine.Resolve("Step verified")!=CompanionMood.Success ||
+               CompanionStateMachine.Resolve("Error")!=CompanionMood.Warning)
+                throw new InvalidOperationException("Companion state mapping failed.");
+            WindowSurfaces.SelfTest();
             if (!File.Exists(Path.Combine(root, "Cargo.toml")))
                 throw new Exception("Cargo.toml missing");
             if (!File.Exists(Path.Combine(root, "tools", "ReflexCore-Tray.cs")))
@@ -34,6 +39,10 @@ namespace ReflexCore.Bridge
                TrayWindow.TokensPerSecond("{\"last_tps\":10e2}")!=0)
                 throw new Exception("Tray throughput numeric regression");
             DateTime at=new DateTime(2026,1,1,0,0,3,DateTimeKind.Utc);
+            if(!TrayWindow.ActivityVisible("citadel_rust",at,at.AddSeconds(5)) ||
+               TrayWindow.ActivityVisible("citadel_rust",at,at.AddSeconds(7)) ||
+               !TrayWindow.ActivityVisible("vision_loop",at,at.AddSeconds(7)))
+                throw new Exception("Activity display expiry regression");
             bool precise;
             DateTime legacy=TrayWindow.ModelSampleTime("{}",at,out precise);
             if(legacy!=at || precise || !ActivityHud.ThroughputText(31.2,legacy,at,false).Contains("activity 0s ago"))
@@ -45,19 +54,36 @@ namespace ReflexCore.Bridge
             if(!ActivityHud.ThroughputText(31.2,at.AddSeconds(-66),at,true).Contains("no recent sample") ||
                !ActivityHud.ThroughputText(31.2,at.AddSeconds(11),at,true).Contains("no recent sample"))
                 throw new Exception("Throughput age bounds regression");
+            if(!TrayWindow.CaptureSignalActive(at.AddSeconds(-1),at) ||
+               TrayWindow.CaptureSignalActive(at.AddSeconds(-16),at) ||
+               TrayWindow.CaptureSignalActive(at.AddSeconds(1),at))
+                throw new Exception("HUD capture marker age bounds regression");
             Console.WriteLine("[ReflexCore] Tray/HUD C# compiled and self-test passed.");
         }
 
         [STAThread]
         public static void Run(string root)
         {
+            bool restart=false;
             bool created;
             using (Mutex mutex = new Mutex(true, @"Local\ReflexCoreAgentTray", out created))
             {
                 if (!created) return;
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new TrayWindow(root));
+                using(var tray=new TrayWindow(root))
+                {
+                    Application.Run(tray);
+                    restart=tray.RestartRequested;
+                }
+            }
+            if(restart)
+            {
+                string ps=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");
+                string entry=Path.Combine(root,"tools","Start-ReflexCore.ps1");
+                using(var launch=Process.Start(new ProcessStartInfo{
+                    FileName=ps,Arguments="-NoProfile -ExecutionPolicy Bypass -File \""+entry+"\"",
+                    WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true})){}
             }
         }
     }
@@ -429,6 +455,8 @@ namespace ReflexCore.Bridge
         private readonly object gpuLock = new object();
         private long nextHostSample, nextGpuSample;
         private bool gpuBusy, releasing;
+        private bool hostMetric=true,gpuMetric=true,ollamaMetric=true;
+        private bool gpuNames=true;
         private volatile TimestampedGpu gpuSample;
         private TimestampedGpu displayedGpuSample;
 
@@ -441,11 +469,12 @@ namespace ReflexCore.Bridge
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams
         {
-            get { CreateParams cp=base.CreateParams; cp.ExStyle|=0x08000000|0x00000080; return cp; }
+            get { CreateParams cp=base.CreateParams; cp.ExStyle|=0x08000000|0x00000080; if(clickThrough)cp.ExStyle|=0x20; return cp; }
         }
         public ActivityHud()
         {
             FormBorderStyle=FormBorderStyle.None;
+            Text="ReflexCore Live Status";
             ClientSize=new Size(368,132); TopMost=true;
             StartPosition=FormStartPosition.Manual; ShowInTaskbar=false;
             BackColor=Color.FromArgb(14,24,27); Opacity=0.94;
@@ -454,10 +483,35 @@ namespace ReflexCore.Bridge
             stageLabel=new Label { Text="Idle", Left=12, Top=29, Width=344, Height=23, AutoEllipsis=true,
                 ForeColor=Color.FromArgb(224,241,228), Font=new Font("Segoe UI",10,FontStyle.Regular) };
             hostLabel=Metric("CPU —    RAM —",55);
-            gpuLabel=Metric("GPU —    VRAM —",79);
+            gpuLabel=new GpuColumnsLabel { Text="GPU —  |  VRAM —  |  Shared —", Left=12, Top=79,
+                Width=344, Height=22, ForeColor=hostLabel.ForeColor, Font=hostLabel.Font };
             speedLabel=Metric("Ollama — tok/s  \u00b7  no recent sample",103);
             Controls.AddRange(new System.Windows.Forms.Control[] {header,stageLabel,hostLabel,gpuLabel,speedLabel});
             Reposition();
+        }
+
+        private sealed class GpuColumnsLabel : Label
+        {
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                int firstDivider=ClientSize.Width*43/100;
+                int secondDivider=ClientSize.Width*73/100;
+                int gap=Math.Max(6,Font.Height/2);
+                var flags=TextFormatFlags.NoPadding|TextFormatFlags.SingleLine|
+                    TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix;
+                int y=0;
+                foreach(string row in Text.Split(new[]{Environment.NewLine},StringSplitOptions.None))
+                {
+                    var fields=row.Split(new[]{"  |  "},3,StringSplitOptions.None);
+                    if(fields.Length!=3)continue;
+                    TextRenderer.DrawText(e.Graphics,fields[0],Font,new Rectangle(0,y,Math.Max(0,firstDivider-gap),Font.Height),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,"|",Font,new Point(firstDivider,y),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,fields[1],Font,new Rectangle(firstDivider+gap,y,Math.Max(0,secondDivider-firstDivider-2*gap),Font.Height),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,"|",Font,new Point(secondDivider,y),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,fields[2],Font,new Rectangle(secondDivider+gap,y,Math.Max(0,ClientSize.Width-secondDivider-gap),Font.Height),ForeColor,flags);
+                    y+=Font.Height;
+                }
+            }
         }
 
         private static Label Metric(string value,int top)
@@ -468,6 +522,13 @@ namespace ReflexCore.Bridge
 
         public void Reposition()
         {
+            if(positioned)
+            {
+                Rectangle screen=Screen.FromPoint(Location).WorkingArea;
+                Location=new Point(Math.Max(screen.Left,Math.Min(Left,screen.Right-Width)),
+                    Math.Max(screen.Top,Math.Min(Top,screen.Bottom-Height)));
+                return;
+            }
             Rectangle a=Screen.PrimaryScreen.WorkingArea;
             Location=new Point(a.Right-Width-12,a.Top+35);
         }
@@ -489,7 +550,7 @@ namespace ReflexCore.Bridge
 
         public void RefreshResources()
         {
-            if (!Visible) return;
+            if (!Visible && !feedWhenHidden) return;
             long now=Stopwatch.GetTimestamp();
             if(now>=nextHostSample)
             {
@@ -509,25 +570,28 @@ namespace ReflexCore.Bridge
             if(current!=null && now-current.Ticks>12*Stopwatch.Frequency) current=null;
             if(current==displayedGpuSample) return;
             displayedGpuSample=current;
-            var rows=new List<string>();
-            if(current!=null)
-                foreach(var gpu in current.Readings) rows.Add(GpuText(gpu));
-            if(rows.Count==0) rows.Add("GPU —    VRAM —");
-            gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
-            gpuLabel.Height=22+20*(rows.Count-1);
-            speedLabel.Top=gpuLabel.Bottom+2;
-            ClientSize=new Size(420,speedLabel.Bottom+7);
-            Reposition();
-            foreach(System.Windows.Forms.Control label in Controls)label.Width=396;
+            RenderGpuSample();
         }
 
-        private static string GpuText(ResourceCounters.GpuReading gpu)
+        private void RenderGpuSample()
+        {
+            var rows=new List<string>();
+            if(displayedGpuSample!=null)
+                foreach(var gpu in displayedGpuSample.Readings)
+                    rows.Add(GpuText(gpu,gpuNames?gpu.Name:"GPU "+(rows.Count+1).ToString(CultureInfo.InvariantCulture)));
+            if(rows.Count==0) rows.Add("GPU —  |  VRAM —  |  Shared —");
+            gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
+            gpuLabel.Height=22+20*(rows.Count-1);
+            LayoutClassic();
+        }
+
+        private static string GpuText(ResourceCounters.GpuReading gpu,string name)
         {
             string load=gpu.UtilizationPercent.HasValue?gpu.UtilizationPercent.Value.ToString(CultureInfo.InvariantCulture)+"%":"—";
             string vram=gpu.UsedBytes.HasValue && gpu.TotalBytes.HasValue
                 ?String.Format(CultureInfo.InvariantCulture,"{0}/{1} MiB",gpu.UsedBytes.Value>>20,gpu.TotalBytes.Value>>20):"—";
             string shared=gpu.SharedBytes.HasValue?(gpu.SharedBytes.Value>>20).ToString(CultureInfo.InvariantCulture)+" MiB":"—";
-            return gpu.Name+" "+load+"  |  VRAM "+vram+"  |  Shared "+shared;
+            return name+" "+load+"  |  VRAM "+vram+"  |  Shared "+shared;
         }
 
         private static string FormatGib(ulong used,ulong total)
@@ -600,7 +664,9 @@ namespace ReflexCore.Bridge
         private readonly ActivityHud hud;
         private readonly ToolStripMenuItem hudMenu;
         private bool hudEnabled=true;
+        private readonly CompanionHost companionHost;
         private readonly string captureSignalPath;
+        private static readonly TimeSpan CaptureSignalLifetime=TimeSpan.FromSeconds(15);
         private readonly ContextMenuStrip menu;
         private readonly ToolStripMenuItem statusMenu;
         private readonly ToolStripMenuItem activityMenu;
@@ -615,9 +681,14 @@ namespace ReflexCore.Bridge
         private string activeJob;
         private readonly QueueStore queue;
         private bool notepadActive;
-        private bool cancelled;
-        private bool hotkeyRegistered;
-        private bool exiting;
+        private bool cancelled, forceStopStarted, stopTimedOut;
+        private DateTime stopDeadline;
+        private Process stopHelper;
+        private bool hotkeyRegistered, emergencyHotkeyRegistered;
+        private bool exiting, exitAfterWorker;
+        private DateTime shutdownUntil, lastEmergencyStopUtc;
+        private bool shutdownRestart;
+        internal bool RestartRequested {get;private set;}
         private string currentState;
         private int lastPending = -1;
         private readonly DateTime sessionStartedUtc;
@@ -653,21 +724,77 @@ namespace ReflexCore.Bridge
 
             toast = new SilentToast();
             hud = new ActivityHud();
-            menu = new ContextMenuStrip();
+            var menuRenderer=ReflexCore.Presentation.DarkMenuRenderer.ForTray();
+            menu = new ContextMenuStrip{Renderer=menuRenderer};
             statusMenu = new ToolStripMenuItem("Status: ready");
             statusMenu.Enabled = false;
             activityMenu = new ToolStripMenuItem("Activity: idle");
             activityMenu.Enabled = false;
-            hudMenu=new ToolStripMenuItem("Hide corner status widget");
+            hudMenu=new ToolStripMenuItem("Hide Classic widget");
             hudMenu.Click += delegate { ToggleHud(); };
             menu.Items.Add(hudMenu);
-            var studioAction=menu.Items.Add("Open Studio", null, delegate(object s, EventArgs e) {
+            menu.Items.Add("Open Studio", null, delegate(object s, EventArgs e) {
                 string center = Path.Combine(root, "tools", "ReflexCore-ControlCenter.ps1");
                 string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
                 Process.Start(new ProcessStartInfo { FileName=ps, Arguments="-NoProfile -ExecutionPolicy Bypass -File \"" + center + "\"",WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true });
             });
+            if(!isolated)
+            {
+                hud.ConfigureClassicWidget();
+                companionHost=new CompanionHost(root,bridge,hud);
+                var companionMenu=new ToolStripMenuItem("Show ReflexCompanion 3D");
+                companionMenu.Click+=delegate {
+                    if(companionHost.CompanionRequested)companionHost.Hide3D();
+                    else companionHost.Show3D();
+                };
+                menu.Opening+=delegate {
+                    companionMenu.Text=companionHost.CompanionRequested?"Hide ReflexCompanion 3D":"Show ReflexCompanion 3D";
+                };
+                menu.Items.Insert(1,companionMenu);
+                var classicMenu=new ContextMenuStrip{Renderer=menuRenderer};
+                var gpuNamesOption=new ToolStripMenuItem("Show graphics card names");
+                gpuNamesOption.Click+=delegate{companionHost.SetClassicGpuNames(!hud.ClassicGpuNames);};
+                var clickOption=new ToolStripMenuItem("Click through");
+                clickOption.Click+=delegate{companionHost.SetClassicClickThrough(!hud.ClassicClickThrough);};
+                classicMenu.Items.AddRange(new ToolStripItem[]{gpuNamesOption,clickOption,new ToolStripSeparator(),
+                    new ToolStripMenuItem("Hide Classic widget",null,(s,e)=>SetHudVisible(false))});
+                classicMenu.Opening+=delegate{
+                    gpuNamesOption.Checked=hud.ClassicGpuNames;
+                    clickOption.Checked=hud.ClassicClickThrough;
+                };
+                hud.ContextMenuStrip=classicMenu;
+                hud.Disposed+=delegate{classicMenu.Dispose();};
+                var widgetOptions=new ToolStripMenuItem("Widget");
+                widgetOptions.DropDown.Renderer=menuRenderer;
+                widgetOptions.DropDownOpening+=delegate {
+                    while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
+                    var entries=widgetOptions.DropDownItems;
+                    if(companionHost.Running)
+                    {
+                        entries.Add("Restart 3D",null,(s,e)=>companionHost.Restart3D());
+                    }
+                    var input=new ToolStripMenuItem("3D mouse interaction"){Checked=companionHost.MouseInteractionEnabled()};
+                    input.Click+=(s,e)=>{
+                        try
+                        {
+                            bool enabled=companionHost.ToggleMouseInteraction();
+                            toast.Display(enabled?"3D mouse interaction enabled":"3D mouse interaction disabled");
+                        }
+                        catch(IOException){toast.Display("Could not save the 3D mouse setting");}
+                        catch(UnauthorizedAccessException){toast.Display("Could not save the 3D mouse setting");}
+                    };
+                    entries.Add(input);
+                    var classic=new ToolStripMenuItem("Classic options");
+                    classic.DropDown.Renderer=menuRenderer;
+                    hud.AddClassicActions(classic.DropDownItems,companionHost.SetClassicClickThrough);
+                    entries.Add(classic);
+                };
+                widgetOptions.DropDownItems.Add("Settings");
+                menu.Items.Add(widgetOptions);
+            }
             menu.Items.Add("Stop task · Ctrl+Alt+P", null, delegate(object s, EventArgs e) { StopJob(); });
             var toolsMenu=new ToolStripMenuItem("More");
+            toolsMenu.DropDown.Renderer=menuRenderer;
             toolsMenu.DropDownItems.Add("Run next pending job", null, delegate(object s, EventArgs e) { StartPending(true); });
             toolsMenu.DropDownItems.Add("Stop all · Reflex + Ollama", null, delegate(object s, EventArgs e) {
                 // Immediate local signal for Shared Control, then async unload local Ollama models.
@@ -683,15 +810,18 @@ namespace ReflexCore.Bridge
             toolsMenu.DropDownItems.Add("Open ReflexCore folder", null, delegate(object s, EventArgs e) {
                 Process.Start("explorer.exe", root);
             });
-            toolsMenu.DropDownItems.Add("Exit tray", null, delegate(object s, EventArgs e) { ExitTray(); });
+            toolsMenu.DropDownItems.Add("Emergency stop · Ctrl+Alt+F10", null, delegate { EmergencyStopAgents(); });
             menu.Items.Add(toolsMenu);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Restart",null,(s,e)=>RequestShutdown(true));
+            menu.Items.Add("Exit",null,(s,e)=>RequestShutdown(false));
 
             icon = new NotifyIcon();
             icon.ContextMenuStrip = menu;
             icon.Icon = SystemIcons.Information;
             icon.Text = "ReflexCore | ready";
             icon.Visible = !isolated;
-            string dragonIcon = Path.Combine(root,"assets","reflex_dragon.ico");
+            string dragonIcon = Path.Combine(root,"assets","reflexcore.ico");
             if(File.Exists(dragonIcon)) { try { icon.Icon = new Icon(dragonIcon); } catch(Exception) {} }
             icon.MouseDoubleClick += delegate(object s, MouseEventArgs e) {
                 string center = Path.Combine(root, "tools", "ReflexCore-ControlCenter.ps1");
@@ -721,13 +851,14 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             IntPtr hwnd = Handle;
             hotkeyRegistered = !isolated && RegisterHotKey(hwnd, HotkeyId, 0x4003u, 0x50u); // ALT+CTRL+NOREPEAT, P
             if(!isolated)RegisterHotKey(hwnd,7814,0x4003u,0x48u); // Ctrl+Alt+H
+            emergencyHotkeyRegistered = !isolated && RegisterHotKey(hwnd, 7815, 0x4003u, 0x79u);
             WriteStatus(-1);
-            if(!isolated)hud.Show();
+            if(!isolated)SetHudVisible(companionHost.ClassicPreferred);
 
             tick = new System.Windows.Forms.Timer();
             tick.Interval = 450;
             tick.Tick += delegate(object sender, EventArgs args) {
-                try { Pump(); PollActivity(); }
+                try { if(!CheckShutdown()){Pump(); if(!exiting)PollActivity();} }
                 catch (Exception) { SetState("error", -1, "Bridge error; check local files"); }
             };
             if(!isolated)tick.Start();
@@ -741,6 +872,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
 
         protected override void WndProc(ref Message m)
         {
+            if(m.Msg==WmHotkey && m.WParam.ToInt32()==7815){EmergencyStopAgents();return;}
             if(m.Msg==WmHotkey && m.WParam.ToInt32()==7814){ToggleHud();return;}
             if (m.Msg == WmHotkey && m.WParam.ToInt32() == HotkeyId)
             {
@@ -752,8 +884,14 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
 
         private void ToggleHud()
         {
-            hudEnabled=!hudEnabled;
-            hudMenu.Text=hudEnabled?"Hide corner status widget":"Show corner status widget";
+            SetHudVisible(!hudEnabled);
+        }
+
+        private void SetHudVisible(bool visible)
+        {
+            if(companionHost!=null && companionHost.ClassicPreferred!=visible)companionHost.RememberClassic(visible);
+            hudEnabled=visible;
+            hudMenu.Text=hudEnabled?"Hide Classic widget":"Show Classic widget";
             if(hudEnabled)hud.Show();else hud.Hide();
         }
 
@@ -787,7 +925,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             else if (state == "stopped") icon.Icon = SystemIcons.Warning;
             else icon.Icon = SystemIcons.Information;
             WriteStatus(code);
-            string dragon = Path.Combine(root,"assets","reflex_dragon.ico");
+            string dragon = Path.Combine(root,"assets","reflexcore.ico");
             if(File.Exists(dragon)) { try { icon.Icon = new Icon(dragon); } catch(Exception) {} }
             if (!isolated && notification != null && notification.Length > 0) toast.Display(notification);
         }
@@ -834,6 +972,12 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             return age>=-10 && age<=65;
         }
 
+        internal static bool ActivityVisible(string source,DateTime measuredUtc,DateTime now)
+        {
+            return Fresh(measuredUtc,now) &&
+                (source!="citadel_rust" || now-measuredUtc<=TimeSpan.FromSeconds(6));
+        }
+
         private static DateTime ActivityTime(string json,string field)
         {
             Match stamp=Regex.Match(json,"\""+field+"\"\\s*:\\s*\"(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,7})?(?:Z|\\+00:00))\"");
@@ -849,15 +993,20 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             return precise?ActivityTime(json,"last_tps_utc"):activityUtc;
         }
 
+        internal static bool CaptureSignalActive(DateTime writtenUtc,DateTime now)
+        {
+            return writtenUtc<=now && now-writtenUtc<=CaptureSignalLifetime;
+        }
+
         private void PollActivity()
         {
-            bool capturing=File.Exists(captureSignalPath);
+            var now=DateTime.UtcNow;
+            // A terminated capture worker can leave its marker behind.
+            bool capturing=CaptureSignalActive(File.GetLastWriteTimeUtc(captureSignalPath),now);
             if(capturing || !hudEnabled) { if(hud.Visible) hud.Hide(); }
             else if(!hud.Visible){ hud.Reposition(); hud.Show(); }
             hud.RefreshResources();
-
-            var now=DateTime.UtcNow;
-            if(!Fresh(activeStageUtc,now) && lastActivityStage!="")
+            if(!ActivityVisible(lastActivitySource,activeStageUtc,now) && lastActivityStage!="")
             {
                 lastActivityStage="";lastActivitySource="";
                 activityMenu.Text="Activity: idle";
@@ -879,15 +1028,16 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 catch(IOException) {} // A producer may be replacing the activity file.
                 catch(UnauthorizedAccessException) {}
             }
-            if(hud.Visible) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
+            if(hud.Visible||hud.feedWhenHidden) hud.RefreshThroughput(modelRate,modelSampleUtc,now,modelSampleTimePrecise);
+            if(companionHost!=null)companionHost.Update(lastPending<0?0:lastPending,currentState,capturing,SetHudVisible);
         }
 
         private bool RenderActivity(string json,DateTime now)
         {
             if(json.Length>2048||Value(json,"schema")!="reflexcore.activity.v1")return false;
             DateTime at=ActivityTime(json,"at_utc");
-            if(!Fresh(at,now))return at!=DateTime.MinValue;
             string source=Value(json,"source");
+            if(!ActivityVisible(source,at,now))return at!=DateTime.MinValue;
             if(source!="citadel_rust"&&source!="shared_control"&&source!="vision_loop")return false;
             string stage=Value(json,"stage");
             string label=StageText(stage);
@@ -917,7 +1067,10 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             {
                 string message=origin+": "+label;
                 toast.Display(message);
-                try {icon.ShowBalloonTip(2200,"ReflexCore",message,ToolTipIcon.Info);}catch{}
+                if(companionHost!=null && companionHost.WindowsNotificationsEnabled)
+                {
+                    try {icon.ShowBalloonTip(2200,"ReflexCore",message,ToolTipIcon.Info);}catch{}
+                }
             }
             return true;
         }
@@ -959,6 +1112,8 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     File.Move(path, moved);
                     activeJob = moved;
                     cancelled = false;
+                    forceStopStarted = false;
+                    stopTimedOut = false;
                     notepadActive=name=="notepad-save.ps1" || name=="notepad-visual.ps1";
                     ProcessStartInfo psi = new ProcessStartInfo();
                     psi.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -1012,37 +1167,44 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 return;
             }
             if(active.HasExited)return;
+            if(cancelled)return;
+            queue.Request(QueueStore.IdOf(activeJob),"cancel");
             cancelled = true;
-            if(notepadActive){
-                // Never tree-kill an editor that can share processes with personal tabs.
-                queue.Request(QueueStore.IdOf(activeJob),"cancel");
-                SetState("stopping",-1,"Waiting for guarded Notepad task to stop");
-                return;
+            // Notepad can share a Windows process with private tabs. Its worker stops cooperatively.
+            stopDeadline = DateTime.UtcNow.AddMilliseconds(notepadActive ? 30000 : 900);
+            SetState("stopping", -1, "Stop requested; waiting for worker cleanup");
+        }
+
+        private void PollStop()
+        {
+            if(!cancelled || stopTimedOut || DateTime.UtcNow<stopDeadline || active.HasExited)return;
+            if(!notepadActive && !forceStopStarted){
+                forceStopStarted=true;
+                stopDeadline=DateTime.UtcNow.AddSeconds(3);
+                try {
+                    stopHelper=Process.Start(new ProcessStartInfo {
+                        FileName=Path.Combine(Environment.SystemDirectory,"taskkill.exe"),
+                        Arguments="/PID "+active.Id.ToString()+" /T /F",
+                        CreateNoWindow=true,UseShellExecute=false,WindowStyle=ProcessWindowStyle.Hidden
+                    });
+                    return;
+                } catch(System.ComponentModel.Win32Exception) { }
             }
-            try
-            {
-                if (!active.HasExited)
-                {
-                    ProcessStartInfo psi = new ProcessStartInfo();
-                    psi.FileName = "taskkill.exe";
-                    psi.Arguments = "/PID " + active.Id.ToString() + " /T /F";
-                    psi.CreateNoWindow = true;
-                    psi.UseShellExecute = false;
-                    psi.WindowStyle = ProcessWindowStyle.Hidden;
-                    using (Process killer = Process.Start(psi))
-                    {
-                        if (!killer.WaitForExit(3000)) throw new Exception("taskkill timed out");
-                        if (killer.ExitCode != 0 && !active.HasExited)
-                            throw new Exception("taskkill failed");
-                    }
-                }
+            stopTimedOut=true;
+            exitAfterWorker=false;
+            SetState("error",-1,"Stop cleanup timed out; the queue is held while the worker is active");
+        }
+
+        private void EmergencyStopAgents()
+        {
+            try {
+                string signal = Path.Combine(bridge,"global-stop.signal");
+                File.WriteAllText(signal,TimeUtc());
+                lastEmergencyStopUtc = File.GetLastWriteTimeUtc(signal);
             }
-            catch (Exception)
-            {
-                SetState("error", -1, "Stop failed; check job process");
-                return;
-            }
-            SetState("stopping", -1, "Stop requested; terminating job tree");
+            catch (IOException) { SetState("error",-1,"Could not broadcast emergency stop"); }
+            catch (UnauthorizedAccessException) { SetState("error",-1,"Could not broadcast emergency stop"); }
+            StopAllJobs();
         }
 
         private void StopAllJobs()
@@ -1056,31 +1218,61 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         }
         private void Pump()
         {
+            var stopAt = File.GetLastWriteTimeUtc(Path.Combine(bridge,"global-stop.signal"));
+            if (stopAt >= sessionStartedUtc && stopAt > lastEmergencyStopUtc)
+            {
+                lastEmergencyStopUtc = stopAt;
+                StopAllJobs();
+            }
             queue.CancelPending();
             if (File.Exists(controlPath))
             {
-                string action = File.ReadAllText(controlPath).Trim().ToLowerInvariant();
-                File.Delete(controlPath);
+                string claimed=controlPath+"."+Guid.NewGuid().ToString("N")+".claimed";
+                try { File.Move(controlPath,claimed); }
+                catch(IOException) { return; }
+                string action;
+                try { action=File.ReadAllText(claimed).Trim().ToLowerInvariant(); }
+                finally { File.Delete(claimed); }
                 if (action == "stop") StopJob();
                 if (action == "stop-all") StopAllJobs();
-                if (action == "exit") { ExitTray(); return; }
+                if (action == "exit") { RequestShutdown(false); return; }
+                if (action == "restart") { RequestShutdown(true); return; }
             }
             if (active != null)
             {
                 if(!active.HasExited && !cancelled && queue.Requested(activeJob,"cancel"))StopJob();
+                PollStop();
                 if (active.HasExited)
                 {
                     int code = active.ExitCode;
+                    if(stopHelper!=null){stopHelper.Dispose();stopHelper=null;}
                     active.Dispose();
                     active = null;
+                    bool verified=false;
+                    string terminal=code==0?"completed":"failed";
                     if(activeJob!=null){
+                        TaskReceipt receipt=queue.ReadWorkerReceipt(activeJob);
+                        verified=code==0 && receipt!=null && receipt.outcome=="verified" && receipt.verification=="verified";
                         cancelled=cancelled || (code!=0 && queue.Requested(activeJob,"cancel"));
-                        queue.Finish(activeJob,cancelled ? "cancelled" : code==0 ? "completed" : "failed");
+                        terminal=verified?"completed":cancelled?"cancelled":code==0?"completed":"failed";
+                        if(!verified && cancelled && (receipt==null || receipt.outcome!="cancelled")){
+                            string id=QueueStore.IdOf(activeJob);
+                            receipt=new TaskReceipt {
+                                schema="reflexcore.task.receipt.v1",task_id=id,run_id=id,stage="queue",outcome="cancelled",
+                                verification=code==2&&!forceStopStarted?"not_confirmed":"unknown",
+                                reason=forceStopStarted||stopTimedOut?"cleanup_unconfirmed":code==2?"operator_cancelled":"cancelled_effect_unknown"
+                            };
+                        } else if(!verified && !cancelled && receipt!=null) {
+                            if(receipt.outcome=="unverified")terminal="completed";
+                            else if(receipt.outcome=="verified" || receipt.outcome=="cancelled")receipt=null;
+                        }
+                        queue.Finish(activeJob,terminal,receipt);
                     }
                     activeJob = null;
-                    if (cancelled) SetState("stopped", -1, "Agent stopped");
-                    else if (code == 0) SetState("completed", 0, "Agent finished successfully");
+                    if (terminal=="cancelled") SetState("stopped", -1, "Agent stopped; see the task receipt");
+                    else if (terminal=="completed") SetState("completed", code, verified?"Agent result verified":"Agent finished without verification");
                     else SetState("failed", code, "Agent failed (exit code " + code.ToString() + ")");
+                    if(exitAfterWorker)ExitTray();
                 }
                 return;
             }
@@ -1095,16 +1287,62 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             StartPending(false);
         }
 
+        private static bool StudioRunning()
+        {
+            try
+            {
+                using(var mutex=Mutex.OpenExisting(@"Local\ReflexCoreControlCenter"))return true;
+            }
+            catch(WaitHandleCannotBeOpenedException){return false;}
+        }
+        private void RequestShutdown(bool restartApplication)
+        {
+            if(exiting || shutdownUntil!=default(DateTime))return;
+            shutdownRestart=restartApplication;
+            if(!StudioRunning())
+            {
+                RestartRequested=shutdownRestart;
+                ExitTray();
+                return;
+            }
+            File.WriteAllText(Path.Combine(bridge,"ui-lifecycle.txt"),"exit");
+            shutdownUntil=DateTime.UtcNow.AddSeconds(6);
+        }
+        private bool CheckShutdown()
+        {
+            if(shutdownUntil==default(DateTime))return false;
+            if(!StudioRunning())
+            {
+                RestartRequested=shutdownRestart;
+                shutdownUntil=default(DateTime);
+                ExitTray();
+            }
+            else if(DateTime.UtcNow>=shutdownUntil)
+            {
+                string request=Path.Combine(bridge,"ui-lifecycle.txt");
+                if(File.Exists(request))File.Delete(request);
+                shutdownUntil=default(DateTime);
+                toast.Display("Studio did not close. Try again after closing its dialog.");
+            }
+            return true;
+        }
         private void ExitTray()
         {
             if (exiting) return;
+            if (active != null) {
+                exitAfterWorker=true;
+                StopJob();
+                return;
+            }
             exiting = true;
             tick.Stop();
-            if (active != null) StopJob();
+            if (stopHelper != null) stopHelper.Dispose();
             if (hotkeyRegistered) UnregisterHotKey(Handle, HotkeyId);
+            if(emergencyHotkeyRegistered)UnregisterHotKey(Handle,7815);
             if(!isolated)UnregisterHotKey(Handle,7814);
             icon.Visible = false;
             icon.Dispose();
+            if(companionHost!=null)companionHost.Dispose();
             hud.Close();hud.Dispose();
             toast.Close();
             toast.Dispose();

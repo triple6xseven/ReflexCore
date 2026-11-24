@@ -369,6 +369,7 @@ struct Report {
     verified_plants: usize,
     verified_spawn_to_plant: usize,
     verified_easy_bot_round_wins: usize,
+    verified_plant_bot_round_wins: usize,
     round_start_to_plant: Option<Timing>,
     spawn_to_plant: Option<Timing>,
     rounds: Vec<RoundReport>,
@@ -431,6 +432,7 @@ mod tests {
         assert_eq!(report.verified_plants, 1);
         assert_eq!(report.verified_spawn_to_plant, 1);
         assert_eq!(report.verified_easy_bot_round_wins, 1);
+        assert_eq!(report.verified_plant_bot_round_wins, 1);
         let round = &report.rounds[0];
         assert_eq!(round.round_start_to_plant_seconds, Some(25));
         assert_eq!(round.spawn_to_plant_seconds, Some(27));
@@ -632,6 +634,7 @@ fn analyze(log: &str, player: u32) -> Result<Report> {
     let mut round_start_to_plant = Vec::new();
     let mut spawn_to_plant = Vec::new();
     let mut verified_easy_bot_round_wins = 0;
+    let mut verified_plant_bot_round_wins = 0;
     let mut player_c4_rounds = 0;
     for round in &rounds {
         if round.c4_acquired_from_round_start_seconds.is_some() {
@@ -645,11 +648,14 @@ fn analyze(log: &str, player: u32) -> Result<Report> {
                 spawn_to_plant.push(elapsed);
             }
         }
-        if round.bot_difficulty == Some(0)
-            && round.terrorist_win == Some(true)
-            && round.ct_bot_kill_from_round_start_seconds.is_some()
+        if round.terrorist_win == Some(true) && round.ct_bot_kill_from_round_start_seconds.is_some()
         {
-            verified_easy_bot_round_wins += 1;
+            if round.bot_difficulty == Some(0) {
+                verified_easy_bot_round_wins += 1;
+            }
+            if round.outcome == Outcome::Planted {
+                verified_plant_bot_round_wins += 1;
+            }
         }
     }
     Ok(Report {
@@ -661,6 +667,7 @@ fn analyze(log: &str, player: u32) -> Result<Report> {
         verified_plants: round_start_to_plant.len(),
         verified_spawn_to_plant: spawn_to_plant.len(),
         verified_easy_bot_round_wins,
+        verified_plant_bot_round_wins,
         round_start_to_plant: timing(round_start_to_plant),
         spawn_to_plant: timing(spawn_to_plant),
         rounds,
@@ -692,15 +699,16 @@ pub fn run(args: &[String]) -> Result<()> {
     let args: Vec<_> = args.iter().map(String::as_str).collect();
     let ["benchmark", path, "--player", player, rest @ ..] = args.as_slice() else {
         return Err(
-            "Usage: reflexcore cs16 benchmark <server.log> --player <userid> [--require-bot-win]"
+            "Usage: reflexcore cs16 benchmark <server.log> --player <userid> [--require-bot-win|--require-plant-kill-win]"
                 .into(),
         );
     };
-    let require_bot_win = match rest {
-        [] => false,
-        ["--require-bot-win"] => true,
-        _ => return Err("Invalid CS16 benchmark arguments".into()),
-    };
+    if !matches!(
+        rest,
+        [] | ["--require-bot-win"] | ["--require-plant-kill-win"]
+    ) {
+        return Err("Invalid CS16 benchmark arguments".into());
+    }
     let player = decimal(player)
         .and_then(|id| u32::try_from(id).ok())
         .filter(|id| *id > 0)
@@ -710,8 +718,11 @@ pub fn run(args: &[String]) -> Result<()> {
     if report.verified_plants == 0 {
         return Err("No verified plant found in the selected player's rounds".into());
     }
-    if require_bot_win && report.verified_easy_bot_round_wins == 0 {
+    if rest == ["--require-bot-win"] && report.verified_easy_bot_round_wins == 0 {
         return Err("No verified easy-bot kill and Terrorist round win found".into());
+    }
+    if rest == ["--require-plant-kill-win"] && report.verified_plant_bot_round_wins == 0 {
+        return Err("No round with a verified plant, bot kill and Terrorist win found".into());
     }
     Ok(())
 }

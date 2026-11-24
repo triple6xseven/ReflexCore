@@ -1,5 +1,88 @@
 # Windows acceptance measurements
 
+## Supervised task stop and receipts
+
+Windows synthetic comparison with eight runs per revision, using the same queued PowerShell worker and the same legacy stop-all command. The worker polls a cancellation marker and acknowledges it before returning. The harness measures the command handler on the WinForms thread and polls for the terminal queue entry every 20 ms.
+
+| Revision | Terminal p50 / p95 | Handler p95 | Cooperative acknowledgements |
+| --- | ---: | ---: | ---: |
+| 3ec8e09 | 206.41 / 1158.29 ms | 1154.50 ms | 0/8 |
+| Correlated receipts and cooperative stop | 160.88 / 342.79 ms | 30.00 ms | 8/8 |
+
+The harness observed a WinForms timer tick before the terminal entry in all eight runs per revision. This measures progress in a controlled UI event loop. Handler latency separately measures where the baseline could block that loop. Candidate poll p95 was 69.69 ms. These measurements are synthetic and do not estimate cancellation latency for real UIA providers or model unloads. Reproduce with `tasks/Measure-TaskStop.ps1 -Runs 8`, passing the baseline checkout to `-SourceRoot` for the comparison.
+
+## CS 1.6 automatic plant routing
+
+### Fresh-round and recovery validation
+
+The earlier Inferno failure reproduced on the isolated server: one movement command was followed by `PoseDiscontinuity` and no plant. The controller now waits for a changed, live round generation and pairs it with the exact observation tick. Automatic steering and path simplification use stricter geometry checks. The engine's confirmed plant-zone flag can complete navigation early when the pose is valid. This fixed the Aztec case in which the player had entered the valid zone while the next planned waypoint still appeared unreachable.
+
+The test uses a stationary CT fixture on loopback. `Test-CS16AutoRoute.ps1` additionally checks the fresh GoldSrc log for a plant by the same owned actor. `de_train` was selected before tuning the candidate and was held out from route/steering tuning. Count match wins separately. The four controller runs below use one observed spawn per map and do not establish arbitrary-map or arbitrary-spawn reliability.
+
+| Map | Engine-confirmed zone and independently verified plant | Total wall time | Recovery attempts | Spawn to plant from game log |
+| --- | --- | ---: | ---: | ---: |
+| de_inferno | Yes | 46.84 s | 0 | 44 s |
+| de_train (held out) | Yes | 39.75 s | 1 | 38 s |
+| de_dust2 | Yes | 42.80 s | 1 | 41 s |
+| de_aztec | Yes | 48.81 s | 1 | 46 s |
+
+A separate Studio-panel run with Record replay enabled verified the Train plant again (40.2 s, one recovery) and saved a 389,117-byte HLTV demo. The plant was independently verified for the actual actor ID in the GoldSrc log.
+
+The earlier Dust II and Aztec totals below were shorter. The candidate uses smaller steering corrections and preserves more waypoints in narrow areas. These are single-run comparisons and do not isolate the cost of each change.
+
+Tested on the owned localhost GoldSrc server with a stationary CT fixture. These trials start from the actual actor spawn and use auto-discovered bombsites. The pass criterion is a fresh C4-plant acknowledgement from the engine.
+
+| Map | Verified C4 | Navigation | Total | Movement commands |
+| --- | --- | ---: | ---: | ---: |
+| de_dust2 | Yes | 28.55 s | 36.63 s | 258 |
+| de_aztec | Yes | 31.00 s | 39.96 s | 269 |
+| de_inferno | Initial route and same-site recovery stalled | 26.98 s | 33.62 s | 172 |
+| de_inferno (alternate-site build) | Stopped after a pose discontinuity | 0.04 s | 6.63 s | 1 |
+
+The static walker found routes from a representative spawn on Dust II (24 waypoints), Inferno (25), Aztec (25) and Nuke (24). It refused Office because the map has no brush bombsite. A successful static search does not verify an executable path. The full-match win benchmark remains the separate de_reflex_lab baseline.
+
+Across the real local map trials, 450 of 459 forward pulses produced plausible acknowledged movement. Acknowledgement latency was 110 ms p50 and 114 ms p95. Readback failures and discontinuities do not count as successful movement.
+
+## Local learning experiment
+
+Windows release build on AMD Ryzen 5 4600H. Training seed 701242, final evaluation seeds 710352 and 710362, 256 independent cases per fixture, common cases across policies. Ground uses an approximately linear pulse response. Arena uses a nonlinear response and a different delay effect. The source-only policy enters Arena with an unchanged Ground checkpoint and no Arena training. Inputs are normalized distance, measured progress and delay, with no map coordinates.
+
+| Fixture and selector | Success | Failed | Overshoots | Mean simulated duration | Mean CPU decision |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ground fixed | 244/256 | 12 | 125 | 608.9 ms | 36 ns |
+| Ground untrained MLP | 206/256 | 50 | 0 | 922.7 ms | 122 ns |
+| Ground adaptive, model-free | 256/256 | 0 | 0 | 528.4 ms | 39 ns |
+| Ground trained with replay | 256/256 | 0 | 0 | 531.8 ms | 170 ns |
+| Arena fixed | 242/256 | 14 | 0 | 677.2 ms | 38 ns |
+| Arena untrained MLP | 166/256 | 90 | 0 | 1053.7 ms | 120 ns |
+| Arena model trained only on Ground | 256/256 | 0 | 0 | 530.6 ms | 157 ns |
+| Arena adaptive, model-free | 256/256 | 0 | 0 | 530.6 ms | 38 ns |
+| Arena trained with replay | 256/256 | 0 | 0 | 533.2 ms | 164 ns |
+
+Durations include simulated settle time and a probe where used. CPU decision times are approximate microbenchmark averages and include timer overhead. The adaptive and neural paths have the same measured-gain safety limit. The overshoot counter counts crossing the target outside tolerance. The trained checkpoint passes the lab gate against fixed pulses and changes the outcomes of the untrained network. It does not outperform the simple adaptive rule across both fixtures.
+
+The two training phases took 3.177 ms and 3.712 ms, measured on the CPU path in a standalone process with a 7,143,424-byte peak working set (6.81 MiB). No GPU calls were made. This is not a system VRAM measurement. The checkpoint contains 87 parameters and takes 1,036 bytes serialized. Baseline weights SHA-256 `46da14fd42f372210bd6f354e750fb0f4dbdb700243e9f152be557a5f8243093`. Candidate SHA-256 `ab902e569d79bfcc384ad11d5c75dffa57a668dadd0d213d6ffba80bbeb26497`. Real-game and Windows task performance are outside this transfer benchmark.
+
+Run `target/release/reflexcore.exe learning experiment` from the project root. See [mode configuration and checkpoint validation](LOCAL-SKILL-LEARNING.md).
+
+### CS 1.6 regression baseline
+
+The isolated `de_reflex_lab` match in the `2a61c29` implementation was independently rechecked from the GoldSrc console log using `cs16 benchmark <round.log> --player 2 --require-plant-kill-win`. The carrier planted at 13 seconds and defeated the owned CT with the Glock at 15 seconds. The team win and round closure were observed at 15 seconds. One verified round with second-resolution timestamps is a regression reference, not a success-rate estimate. The route runner follows a map-specific waypoint file, observes live pose and plant flags, and uses engine visibility for the match reaction. Studio gates this match preset to `de_reflex_lab`. The offline plant drill can take a compatible route for another map, but rejects a map mismatch.
+
+Private artifacts under `data/private/cs16-baseline-v1` retain the route, map, anonymized one-round evidence, JSON metrics and demo. Map SHA-256 `6f125d6509ffc60d635a804abe64275b11a90e950abf66f51f591e3c86285163`. Demo SHA-256 `19f1cfe2218a50156365c6fb26fe1fc93eae1583296f104c92fbdb20037f2651`. Route SHA-256 `5cf4bd76b80327f1c30e38b59ec4ec4af0991be6430898ff834acace66e139a1`.
+
+
+## ReflexVision capture maintenance
+
+Windows visible fixture, 100 measured frames per run with eight warmups. Two pairs per capture mode, interleaved baseline `b19e4a8` and candidate. Each direct run reported 100 frames with tracks. Each CPU-scale run reported 85. Frame p95 includes capture, detection, tracking and painting.
+
+| Path | p95 before, ms | p95 after, ms | CPU % of one logical core before → after |
+| --- | --- | --- | --- |
+| Direct | 14.57, 11.18 | 14.43, 19.60 | 18.44 → 18.16, 19.99 → 21.24 |
+| CPU scale | 15.07, 13.82 | 15.21, 12.95 | 18.65 → 17.87, 21.73 → 19.90 |
+
+The full pipeline did not show a consistent latency improvement. The isolated CPU resampling loop, scaling 800×600 to 480×360 after 40 warmups with 50 batches of 20 calls, changed p50 from 0.8399 ms to 0.1469 ms and p95 from 0.8979 ms to 0.1656 ms. The sampled-pixel checksum was identical. The microbenchmark used the same C# compiler switches on both versions and excludes capture, painting and target eligibility. Live CS 1.6 gameplay was outside this comparison.
+
 ## ReflexVision v0.1
 
 The measurement host ran Windows 11 with a Ryzen 5 4600H, 8 GB of RAM and a GeForce GTX 1650 Ti with 4 GB of VRAM. Both paths used the classical detector and the same 480-pixel output width. Eight warmup frames preceded each measurement. The full-copy path used GDI for the copy and CPU code for scale. The direct path used a single scaled GDI blit to the detector buffer. The path name makes no claim about the display driver's hardware acceleration.

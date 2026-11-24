@@ -1,15 +1,18 @@
 ﻿param([switch]$SelfTest,[switch]$UiSmoke,[ValidateSet('Agent','Models','Diagnostics')][string]$InitialTab='Agent')
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $MyInvocation.MyCommand.Path -Parent) -Parent
+if (Test-Path -LiteralPath (Join-Path $root "portable.flag")) {
+    $env:REFLEXCORE_COMPANION_DIRECTORY = Join-Path $root "data/companion3d"
+}
 try {
     if (-not $SelfTest -and -not $UiSmoke) {
         try { & (Join-Path $root 'tools\Ensure-ReflexCore-Tray.ps1') }
         catch { Write-Warning 'Tray not started; main UI will still open.' }
     }
     # Combine existing native WinForms implementations into ONE in-process UI assembly.
-    $parts=@('ReflexCore-ControlCenter.cs','ReflexCore-Diagnostics.cs','ReflexCore-ModelPanel.cs','ReflexCore-UnifiedShell.cs','ReflexCore-ThemePalettes.cs','ReflexCore-Queue.cs')
+    $parts=@('ReflexCore-ControlCenter.cs','ReflexCore-Diagnostics.cs','ReflexCore-ModelPanel.cs','ReflexCore-UnifiedShell.cs','ReflexCore-ThemePalettes.cs','ReflexCore-Queue.cs','ReflexCore-MenuStyle.cs')
     $sources=@($parts|ForEach-Object{[IO.File]::ReadAllText((Join-Path $root ('tools\'+$_)))})
-    $tail=@($sources[1],$sources[2],$sources[3],$sources[4],$sources[5]) | ForEach-Object { [regex]::Replace($_,'(?m)^using\s+[A-Za-z0-9_.]+;\s*\r?\n','') }
+    $tail=$sources | Select-Object -Skip 1 | ForEach-Object { [regex]::Replace($_,'(?m)^using\s+[A-Za-z0-9_.]+;\s*\r?\n','') }
     $imports="using System.Collections.Generic;`nusing System.Linq;`nusing System.Threading.Tasks;`nusing System.Web.Script.Serialization;`n"
     $source=$imports+$sources[0]+"`n"+($tail -join "`n")
     $project=Join-Path $root 'ui\ReflexCore.Studio.csproj'

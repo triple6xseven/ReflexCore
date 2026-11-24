@@ -176,15 +176,28 @@ fn now_ms() -> Result<u128> {
 
 pub fn run(args: &[String]) -> Result<()> {
     let req = parse(args)?;
-    let (hwnd, window_title) = resolve_window(&req)?;
-    let temp = std::env::temp_dir().join(format!(
-        "reflexcore-act-{}-{}.json", std::process::id(), now_ms()?
-    ));
+    let run_id = crate::task_integrity::run_id();
+    let report = execute(args, &run_id, 1, None)?;
+    fs::create_dir_all("data")?;
+    fs::write("data/uia_last_action.json", serde_json::to_vec_pretty(&report)?)?;
+    print_report(&req, &report);
+    Ok(())
+}
+
+pub(crate) fn execute(args: &[String], run_id: &str, action_id: usize, fixture_owner: Option<u32>) -> Result<Value> {
+    crate::task_integrity::check_cancel()?;
+    let req = parse(args)?;
+    let (hwnd, window_title) = resolve_window(&req).map_err(|_| crate::task_integrity::Fault::Infrastructure)?;
+    let request = crate::task_integrity::ActionExchange::new(run_id, action_id)?;
+    let temp = request.path();
+    crate::task_integrity::check_cancel()?;
+    let mut wire = req.to_wire();
+    wire["fixture_owner"] = json!(fixture_owner);
     let mut child = Command::new(std::env::current_exe()?)
         .arg("uia-act-worker")
         .arg(hwnd.to_string())
         .arg(&temp)
-        .arg(serde_json::to_string(&req.to_wire())?)
+        .arg(request.encode(wire)?)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -194,14 +207,19 @@ pub fn run(args: &[String]) -> Result<()> {
     let limit = Duration::from_millis(req.timeout_ms.saturating_add(1_500));
     let status = loop {
         if let Some(s) = child.try_wait()? { break s; }
-        if started.elapsed() >= limit {
+        let stopped = crate::task_integrity::cancelled();
+        if stopped || started.elapsed() >= limit {
             let _ = child.kill();
             let _ = child.wait();
             let _ = fs::remove_file(&temp);
+            if stopped { return Err(crate::task_integrity::Fault::CancelledUnknown.into()); }
             return Err("UIA action worker timed out; result may be unknown if an action was already issued".into());
         }
         thread::sleep(Duration::from_millis(25));
     };
+    if !status.success() && crate::task_integrity::cancelled() {
+        return Err(crate::task_integrity::Fault::CancelledUnknown.into());
+    }
     if !status.success() {
         let _ = fs::remove_file(&temp);
         let mut err = String::new();
@@ -211,18 +229,17 @@ pub fn run(args: &[String]) -> Result<()> {
         return Err(format!("UIA action worker failed: {status}. {}", err.trim()).into());
     }
 
-    let bytes = fs::read(&temp)?;
-    let _ = fs::remove_file(&temp);
-    let mut report: Value = serde_json::from_slice(&bytes)?;
+    let mut report = request.read()?;
     report["window_title"] = json!(window_title);
     report["window_hwnd"] = json!(format!("0x{hwnd:X}"));
     crate::privacy::sanitize_uia_report(&mut report);
 
-    fs::create_dir_all("data")?;
-    fs::write("data/uia_last_action.json", serde_json::to_vec_pretty(&report)?)?;
+    Ok(report)
+}
 
+fn print_report(req: &Request, report: &Value) {
     println!("ReflexCore UIA Action Engine 0.0.5");
-    println!("Window: {} [0x{hwnd:X}]", report["window_title"].as_str().unwrap_or(""));
+    println!("Window: {} [{}]", report["window_title"].as_str().unwrap_or(""), report["window_hwnd"].as_str().unwrap_or(""));
     println!("Action: {} | execute: {} | nodes scanned: {} | matches: {}",
         req.action, req.execute, report["nodes_scanned"], report["match_count"]);
     if let Some(arr) = report["matches"].as_array() {
@@ -239,7 +256,6 @@ pub fn run(args: &[String]) -> Result<()> {
         eprintln!("UIA error: {error}");
     }
     println!("Report: data/uia_last_action.json");
-    Ok(())
 }
 
 impl Request {
@@ -395,7 +411,13 @@ pub fn run_worker(args: &[String]) -> Result<()> {
     if args.len() != 3 { return Err("Invalid action worker arguments".into()); }
     let hwnd: usize = args[0].parse()?;
     let output = PathBuf::from(&args[1]);
-    let req: Value = serde_json::from_str(&args[2])?;
+    let mut request = crate::task_integrity::ActionEnvelope::decode(args[2].as_bytes())?;
+    let req = &request.payload;
+    let fixture_owner = req["fixture_owner"].as_u64().map(u32::try_from).transpose()?;
+    let target_window = hwnd as *mut c_void;
+    if fixture_owner.is_some_and(|owner| owner != crate::observer::window_process(target_window)) {
+        return Err("Owned UIA fixture disappeared".into());
+    }
     let timeout_ms = req["timeout_ms"].as_u64().ok_or("Missing timeout")?;
     let max_nodes = req["max_nodes"].as_u64().ok_or("Missing max_nodes")? as usize;
     let started = Instant::now();
@@ -511,21 +533,34 @@ pub fn run_worker(args: &[String]) -> Result<()> {
         } else if req["execute"].as_bool() != Some(true) {
             result["status"] = json!("dry_run");
         } else {
-            match apply(element, &req) {
-                Ok(verified) => {
-                    result["status"] = json!("issued");
-                    result["verification"] = json!(verified);
-                },
-                Err(err) => {
-                    result["status"] = json!("action_error");
-                    result["error"] = json!(err.to_string());
-                },
+            if crate::task_integrity::cancelled() {
+                result["status"] = json!("cancelled");
+            } else if fixture_owner.map_or_else(
+                || crate::task_integrity::task_id().is_some() && crate::observer::foreground_window() != target_window,
+                |owner| crate::observer::window_process(target_window) != owner,
+            ) {
+                result["status"] = json!("focus_lost");
+            } else {
+                match apply(element, req) {
+                    Ok(verified) => {
+                        result["status"] = json!("issued");
+                        result["verification"] = json!(verified);
+                    }
+                    Err(err) => {
+                        result["status"] = json!("action_error");
+                        result["error"] = json!(err.to_string());
+                    }
+                }
             }
         }
     }
     result["duration_ms"] = json!(started.elapsed().as_millis());
     crate::privacy::sanitize_uia_report(&mut result);
-    fs::write(output, serde_json::to_vec_pretty(&result)?)?;
+    request.payload = result;
+    let staging = output.with_extension("tmp");
+    fs::OpenOptions::new().write(true).create_new(true).open(&staging)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, &serde_json::to_vec(&request)?))?;
+    fs::rename(staging, output)?;
     Ok(())
 }
 

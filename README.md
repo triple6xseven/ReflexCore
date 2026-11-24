@@ -48,3 +48,7 @@ powershell.exe -NoProfile -File .\tools\Start-ReflexCore.ps1
 In Studio, open **Agent** and select **NOTEPAD · CREATE FILE** to try the new-file task. Keep the new Notepad window in the foreground.
 
 Start with the [runtime architecture](docs/COGNITIVE-RUNTIME.md), [changelog](CHANGELOG.md), or [contributor notes](AGENTS.md). ReflexCore is [MIT-licensed](LICENSE).
+
+## Attribution
+
+When redistributing copies or modified versions, retain the MIT copyright and permission notice, including the author link to [triple6xseven](https://github.com/triple6xseven).

@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
@@ -42,7 +43,7 @@ namespace ReflexCore.Vision
                             window = fixtureWindow.Handle.ToInt64();
                         }
                         string relay = fixture ? null : Path.Combine(project, "data", "bridge", "reflexvision.json");
-                        using (var form = new PreviewWindow(pid, new IntPtr(window), width, cpu, samples, stop, relay, fixtureWindow))
+                        using (var form = new PreviewWindow(pid, new IntPtr(window), width, cpu, samples, stop, relay, fixtureWindow, project))
                         {
                             Application.Run(form);
                             return form.Report();
@@ -85,7 +86,7 @@ namespace ReflexCore.Vision
                         renderer.Visible.Add(results[0]);
                         renderer.DrawToBitmap(rendered, new Rectangle(0, 0, 320, 200));
                         Rectangle bounds = results[0].Object.Box;
-                        if (rendered.GetPixel(bounds.Left, bounds.Top + 4).G < 210)
+                        if (rendered.GetPixel(bounds.Left, bounds.Top + 4).ToArgb() != Overlay.TrackColor.ToArgb())
                             throw new InvalidOperationException("Preview did not draw a track border.");
                     }
                     int id = results[0].Id;
@@ -105,7 +106,48 @@ namespace ReflexCore.Vision
                 using (var independent = EventWaitHandle.OpenExisting(StopName + "_SelfTest")) independent.Set();
                 if (!stop.WaitOne(0)) throw new InvalidOperationException("Independent stop signal was not delivered.");
             }
-            return "ReflexVision self-test passed: empty scene, bounds, motion, confirmation, loss, expiry and independent stop.";
+            if (!PreviewWindow.ShouldPublish("paused", "live", 0) ||
+                PreviewWindow.ShouldPublish("paused", "paused", 9999) ||
+                !PreviewWindow.ShouldPublish("live", "paused", 0) ||
+                PreviewWindow.ShouldPublish("live", "live", 124) ||
+                !PreviewWindow.ShouldPublish("live", "live", 125))
+                throw new InvalidOperationException("Capture state transition publication regressed.");
+            using (var source = new Surface(5, 3))
+            using (var scaled = new Surface(3, 2))
+            {
+                if (!source.IsBlack()) throw new InvalidOperationException("Blank DIB was not detected.");
+                Marshal.WriteInt32(source.Pixels, (5 + 3) * 4, 1);
+                if (source.IsBlack()) throw new InvalidOperationException("Sparse, dim frame was rejected.");
+                scaled.ScaleFrom(source);
+                if (Marshal.ReadInt32(scaled.Pixels, (3 + 2) * 4) != 1)
+                    throw new InvalidOperationException("CPU scale changed source-to-destination mapping.");
+            }
+            var pixels = Enumerable.Repeat((byte)255, 100 * 100 * 4).ToArray();
+            PlayerDetector.MaskOverlay(pixels, 100, 100);
+            if (pixels[0] != 0 || pixels[(23 * 100 + 17) * 4] != 0 || pixels[92 * 100 * 4] != 0 ||
+                pixels[(23 * 100 + 18) * 4] != 255 || pixels[91 * 100 * 4] != 255)
+                throw new InvalidOperationException("Player radar/HUD mask changed the active scene.");
+            string root=Path.Combine(Path.GetTempPath(),"ReflexVision-Stop-"+Guid.NewGuid().ToString("N"));
+            string bridge=Path.Combine(root,"data","bridge");
+            string relay=Path.Combine(bridge,"reflexvision.json");
+            string signal=Path.Combine(bridge,"global-stop.signal");
+            Directory.CreateDirectory(bridge);
+            try {
+                using(var stop=new EventWaitHandle(false,EventResetMode.ManualReset)){
+                    using(var form=new PreviewWindow(0,IntPtr.Zero,320,false,0,stop,relay,null,root)){
+                        IntPtr handle=form.Handle;
+                        File.WriteAllText(signal,"test");
+                        form.CheckFrameForTest();
+                        var report=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(relay));
+                        if(!Object.Equals(report["status"],"stopped"))
+                            throw new InvalidOperationException("Emergency signal did not publish a stopped relay.");
+                    }
+                }
+            } finally {
+                File.Delete(signal);File.Delete(relay);File.Delete(relay+".next");
+                Directory.Delete(bridge);Directory.Delete(Path.Combine(root,"data"));Directory.Delete(root);
+            }
+            return "ReflexVision self-test passed: tracker, radar/HUD mask, independent stop and emergency relay.";
         }
     }
 
@@ -133,6 +175,7 @@ namespace ReflexCore.Vision
 
     internal sealed class Overlay : Control
     {
+        internal static readonly Color TrackColor = Color.FromArgb(203, 131, 255);
         internal Surface Frame;
         internal readonly List<Track> Visible = new List<Track>();
         internal Overlay() { DoubleBuffered = true; BackColor = Color.FromArgb(14, 20, 27); }
@@ -145,17 +188,109 @@ namespace ReflexCore.Vision
             var target = new RectangleF((ClientSize.Width - Frame.Width * scale) / 2,
                 (ClientSize.Height - Frame.Height * scale) / 2, Frame.Width * scale, Frame.Height * scale);
             e.Graphics.DrawImage(Frame.Image, target);
-            foreach (var detection in Visible)
+            using (var border = new Pen(TrackColor))
+            using (var label = new SolidBrush(TrackColor))
+            foreach (var track in Visible)
             {
-                Rectangle bounds = detection.Object.Box;
+                Rectangle bounds = track.Object.Box;
                 float x = target.X + bounds.X * scale, y = target.Y + bounds.Y * scale;
-                e.Graphics.DrawRectangle(Pens.Lime, x, y, bounds.Width * scale, bounds.Height * scale);
-                string text = detection.Object.Kind + " #" + detection.Id + " " + detection.Object.Score.ToString("0.00");
+                e.Graphics.DrawRectangle(border, x, y, bounds.Width * scale, bounds.Height * scale);
+                string kind = track.Object.Kind == "red_cue" ? "Scene cue" : track.Object.Kind.Replace("hud_", "HUD ");
+                string text = kind + " #" + track.Id;
+                if (!track.Object.Kind.StartsWith("hud_", StringComparison.Ordinal)) text += "  " + track.Object.Score.ToString("0.00");
                 SizeF size = e.Graphics.MeasureString(text, Font);
+                float labelX = Math.Max(target.Left, Math.Min(x, target.Right - size.Width));
                 float labelY = Math.Max(target.Top, y - size.Height);
-                e.Graphics.FillRectangle(Brushes.Black, x, labelY, Math.Min(size.Width, target.Right - x), size.Height);
-                e.Graphics.DrawString(text, Font, Brushes.LightGreen, x, labelY);
+                e.Graphics.FillRectangle(Brushes.Black, labelX, labelY, Math.Min(size.Width, target.Right - labelX), size.Height);
+                e.Graphics.DrawString(text, Font, label, labelX, labelY);
             }
+        }
+    }
+
+    // One inference at a time. Copy the DIB before returning to the capture loop.
+    internal sealed class PlayerDetector : IDisposable
+    {
+        private readonly Process child;
+        private Task<double[][]> pending;
+        private long submitted;
+        private Size dimensions;
+        internal long LastResult { get; private set; }
+
+        private PlayerDetector(Process process) { child = process; }
+
+        internal static PlayerDetector TryStart(string project)
+        {
+            string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ReflexCore", "vision");
+            string script = Path.Combine(project, "tools", "reflexvision_players.py");
+            if (!File.Exists(Path.Combine(root, "yolox_tiny.onnx")) || !File.Exists(script)) return null;
+            try
+            {
+                return new PlayerDetector(Process.Start(new ProcessStartInfo {
+                    FileName = "py.exe", Arguments = "-3 \"" + script + "\" \"" + root + "\"",
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
+                    RedirectStandardOutput = true
+                }));
+            }
+            catch (System.ComponentModel.Win32Exception) { return null; }
+        }
+
+        internal bool Update(Surface frame, long now, List<Detection> output)
+        {
+            if (child.HasExited) return false;
+            if (pending != null)
+            {
+                if (!pending.IsCompleted) return now - submitted < 5000;
+                if (pending.Status != TaskStatus.RanToCompletion) return false;
+                if (now - submitted < 350 && dimensions == new Size(frame.Width, frame.Height))
+                {
+                    LastResult = now;
+                    foreach (var box in pending.Result)
+                    {
+                        if (box.Length != 5 || box.Any(value => Double.IsNaN(value) || Double.IsInfinity(value))) continue;
+                        if (box[0] < 0 || box[1] < 0 || box[2] < 1 || box[3] < 1 ||
+                            box[0]+box[2] > frame.Width || box[1]+box[3] > frame.Height || box[4] < 0 || box[4] > 1) continue;
+                        output.Add(new Detection("player", new Rectangle((int)box[0],(int)box[1],(int)box[2],(int)box[3]),(float)box[4]));
+                    }
+                }
+                pending = null;
+            }
+            if (now - submitted < 82) return true;
+            submitted = now;
+            dimensions = new Size(frame.Width, frame.Height);
+            int width = frame.Width, height = frame.Height;
+            var pixels = new byte[width * height * 4];
+            Marshal.Copy(frame.Pixels, pixels, 0, pixels.Length);
+            MaskOverlay(pixels, width, height);
+            pending = Task.Run(() =>
+            {
+                var input = new BinaryWriter(child.StandardInput.BaseStream);
+                input.Write(width); input.Write(height); input.Write(pixels); input.Flush();
+                string response = child.StandardOutput.ReadLine();
+                if (response == "READY") response = child.StandardOutput.ReadLine();
+                if (response == null || response.Length > 4096) throw new IOException("Invalid player detector response");
+                return new JavaScriptSerializer().Deserialize<double[][]>(response) ?? new double[0][];
+            });
+            return true;
+        }
+
+        internal static void MaskOverlay(byte[] pixels, int width, int height)
+        {
+            // Keep the original image and coordinate space for the independent HUD detector.
+            int radarBytes = width * 18 / 100 * 4;
+            for (int y = 0; y < height * 24 / 100; y++)
+                Array.Clear(pixels, y * width * 4, radarBytes);
+            int hudStart = height * 92 / 100 * width * 4;
+            Array.Clear(pixels, hudStart, pixels.Length - hudStart);
+        }
+
+        internal void Invalidate() { dimensions = Size.Empty; LastResult = 0; }
+
+        public void Dispose()
+        {
+            try { if (!child.HasExited) child.Kill(); }
+            catch (InvalidOperationException) {}
+            catch (System.ComponentModel.Win32Exception) {}
+            child.Dispose();
         }
     }
 
@@ -170,10 +305,15 @@ namespace ReflexCore.Vision
         private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 65 };
         private readonly GameCapture capture;
         private readonly IDetector detector = new ColorRegions();
+        private PlayerDetector players;
+        private readonly List<Detection> playerBoxes = new List<Detection>(16);
+        private readonly Tracker playerTracker = new Tracker();
+        private readonly List<Track> playerTracks = new List<Track>(16);
         private readonly Tracker tracker = new Tracker();
         private readonly List<Detection> detections = new List<Detection>(24);
         private readonly EventWaitHandle stop;
-        private readonly string relay;
+        private readonly string relay, globalStop;
+        private readonly DateTime startedUtc = DateTime.UtcNow;
         private readonly bool cpu;
         private readonly int samples;
         private readonly BenchmarkScene fixture;
@@ -184,7 +324,10 @@ namespace ReflexCore.Vision
         private double startedAt, finishedAt, startedCpu, finishedCpu;
         private long peakWorkingSet, workingSet;
         private int frames, framesWithTracks;
-        private long sequence, lastPublish;
+        private long sequence, lastPublish, lastPlayerResult, lastStatusUpdate;
+        private string publishedMode;
+        private Size lastFrameSize;
+        private double frameCost;
         private bool finalized, hotkey;
         private Rectangle placed;
 
@@ -200,9 +343,12 @@ namespace ReflexCore.Vision
             }
         }
 
-        internal PreviewWindow(int pid, IntPtr hwnd, int width, bool cpuScale, int count, EventWaitHandle signal, string relayPath, BenchmarkScene synthetic)
+        internal PreviewWindow(int pid, IntPtr hwnd, int width, bool cpuScale, int count, EventWaitHandle signal, string relayPath, BenchmarkScene synthetic, string project)
         {
             capture = new GameCapture(hwnd, (uint)pid, width, cpuScale, synthetic != null);
+            // A loopback server and a foreground window do not prove the local client is in a match.
+            // Keep live player inference disabled until a client scene source can confirm it.
+            globalStop = synthetic == null ? Path.Combine(project, "data", "bridge", "global-stop.signal") : null;
             cpu = cpuScale; stop = signal; relay = relayPath; samples = count; fixture = synthetic;
             Text = "ReflexVision - live preview";
             TopMost = true; StartPosition = FormStartPosition.Manual;
@@ -217,7 +363,7 @@ namespace ReflexCore.Vision
             overlay.Dock = DockStyle.Fill;
             Controls.Add(overlay);
             Controls.Add(footer);
-            PlaceNextToGame();
+            CaptureBounds();
             if (relay != null)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(relay));
@@ -233,15 +379,28 @@ namespace ReflexCore.Vision
 
         protected override void WndProc(ref Message message)
         {
-            if (message.Msg == 0x0312 && message.WParam.ToInt32() == StopHotkey) Close();
+            if (message.Msg == 0x0312 && message.WParam.ToInt32() == StopHotkey)
+            {
+                try
+                {
+                    if (globalStop != null)
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(globalStop));
+                        File.WriteAllText(globalStop, DateTime.UtcNow.ToString("o"));
+                    }
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                Close();
+            }
             base.WndProc(ref message);
         }
 
         // Keep the preview outside the capture rectangle. Only the foreground game is sampled.
-        private bool PlaceNextToGame()
+        private Rectangle CaptureBounds()
         {
             Rectangle game = capture.Bounds();
-            if (game.IsEmpty) return false;
+            if (game.IsEmpty) return Rectangle.Empty;
             if (placed != game || Bounds.IntersectsWith(game))
             {
                 Rectangle screen = Screen.FromRectangle(game).WorkingArea;
@@ -268,32 +427,63 @@ namespace ReflexCore.Vision
                 }
                 placed = game;
             }
-            return !Bounds.IntersectsWith(game);
+            return Bounds.IntersectsWith(game) ? Rectangle.Empty : game;
         }
+
+        internal void CheckFrameForTest() { OnFrame(); }
 
         private void OnFrame()
         {
             if (stop.WaitOne(0) || (samples > 0 && clock.Elapsed.TotalSeconds > 55)) { Close(); return; }
             try
             {
+                if (globalStop != null && File.GetLastWriteTimeUtc(globalStop) >= startedUtc) { Close(); return; }
                 if (fixture != null) fixture.Advance();
                 var frameStart = Stopwatch.GetTimestamp();
                 long frameUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                Surface surface = PlaceNextToGame() ? capture.Grab() : null;
+                Surface surface = capture.Grab(CaptureBounds());
                 if (surface == null)
                 {
-                    overlay.Frame = null;
-                    overlay.Visible.Clear();
-                    tracker.Clear();
-                    overlay.Invalidate();
-                    status.Text = "Focus the windowed game";
+                    if (overlay.Frame != null)
+                    {
+                        overlay.Frame = null;
+                        overlay.Visible.Clear();
+                        ResetTracking();
+                        frameCost = 0;
+                        overlay.Invalidate();
+                    }
+                    if (status.Text != "Focus the windowed game") status.Text = "Focus the windowed game";
                     timer.Interval = 180;
-                    if (relay != null && clock.ElapsedMilliseconds - lastPublish >= 200) Publish("paused", null);
+                    if (relay != null && ShouldPublish("paused", publishedMode, clock.ElapsedMilliseconds - lastPublish))
+                        Publish("paused", null);
                     return;
                 }
 
+                var size = new Size(surface.Width, surface.Height);
+                if (size != lastFrameSize)
+                {
+                    ResetTracking();
+                    lastFrameSize = size;
+                    lastStatusUpdate = clock.ElapsedMilliseconds - 250;
+                }
                 detector.Detect(surface, detections);
                 tracker.Update(detections, clock.ElapsedMilliseconds, overlay.Visible);
+                if (players != null)
+                {
+                    playerBoxes.Clear();
+                    if (!players.Update(surface, clock.ElapsedMilliseconds, playerBoxes))
+                    {
+                        players.Dispose(); players = null;
+                        playerTracks.Clear();
+                    }
+                    else if (players.LastResult != lastPlayerResult)
+                    {
+                        lastPlayerResult = players.LastResult;
+                        playerTracker.Update(playerBoxes, lastPlayerResult, playerTracks);
+                    }
+                    else if (clock.ElapsedMilliseconds - lastPlayerResult > 250) playerTracks.Clear();
+                    overlay.Visible.AddRange(playerTracks);
+                }
                 overlay.Frame = surface;
                 overlay.Refresh();
                 double elapsed = (Stopwatch.GetTimestamp() - frameStart) * 1000.0 / Stopwatch.Frequency;
@@ -309,13 +499,19 @@ namespace ReflexCore.Vision
                         if (latency.Count >= samples) { finalized = true; Close(); return; }
                     }
                 }
-                else timer.Interval = (detections.Count > 0 || elapsed > 21) ? (elapsed > 21 ? 125 : 65) : 100;
-
-                if (relay != null && clock.ElapsedMilliseconds - lastPublish >= 125)
-                    Publish("live", surface, frameUnixMs);
-                if (!finalized)
+                else
                 {
-                    status.Text = overlay.Visible.Count + " tracked | " + elapsed.ToString("0.0") + " ms" +
+                    frameCost = frameCost == 0 ? elapsed : frameCost * .8 + elapsed * .2;
+                    bool throttled = timer.Interval == 125 ? frameCost >= 16 : frameCost > 24;
+                    timer.Interval = throttled ? 125 : detections.Count > 0 ? 65 : 100;
+                }
+
+                if (relay != null && ShouldPublish("live", publishedMode, clock.ElapsedMilliseconds - lastPublish))
+                    Publish("live", surface, frameUnixMs);
+                if (!finalized && clock.ElapsedMilliseconds - lastStatusUpdate >= 250)
+                {
+                    lastStatusUpdate = clock.ElapsedMilliseconds;
+                    status.Text = (players == null ? "Color / HUD · player scene unverified" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
                         (hotkey ? " | Ctrl+Alt+F10" : "");
                 }
             }
@@ -323,12 +519,27 @@ namespace ReflexCore.Vision
             catch (System.ComponentModel.Win32Exception) { Close(); }
         }
 
+        private void ResetTracking()
+        {
+            tracker.Clear();
+            playerTracker.Clear();
+            playerTracks.Clear();
+            lastFrameSize = Size.Empty;
+            lastPlayerResult = 0;
+            if (players != null) players.Invalidate();
+        }
+
+        internal static bool ShouldPublish(string next, string published, long elapsed)
+        {
+            return next != published || (next == "live" && elapsed >= 125);
+        }
+
         private void Publish(string mode, Surface image, long captured = 0)
         {
             string temporary = relay + ".next";
             try
             {
-                var objects = image == null ? new object[0] : overlay.Visible.Select(track => (object)new
+                var objects = image == null ? new object[0] : overlay.Visible.Where(track => track.Object.Kind != "player").Select(track => (object)new
                 {
                     id = track.Id, kind = track.Object.Kind, confidence = track.Object.Score,
                     x = track.Object.Box.X, y = track.Object.Box.Y,
@@ -342,8 +553,10 @@ namespace ReflexCore.Vision
                 }));
                 if (File.Exists(relay)) File.Replace(temporary, relay, null);
                 else File.Move(temporary, relay);
+                publishedMode = mode;
             }
             catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             finally { lastPublish = clock.ElapsedMilliseconds; }
         }
 
@@ -388,7 +601,7 @@ namespace ReflexCore.Vision
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { timer.Dispose(); capture.Dispose(); process.Dispose(); }
+            if (disposing) { timer.Dispose(); capture.Dispose(); process.Dispose(); if (players != null) players.Dispose(); }
             base.Dispose(disposing);
         }
     }

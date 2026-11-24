@@ -31,12 +31,16 @@ namespace ReflexCore.Vision
             int size = sampleWidth * sampleHeight;
             if (mask.Length != size) { mask = new byte[size]; work = new int[size]; }
             for (int y = 0; y < sampleHeight; y++)
+            {
+                var row = pixels + y * width * 2;
+                int start = y * sampleWidth;
                 for (int x = 0; x < sampleWidth; x++)
                 {
-                    uint rgb = pixels[(y * width + x) * 2];
+                    uint rgb = row[x * 2];
                     int red = (int)((rgb >> 16) & 255), green = (int)((rgb >> 8) & 255), blue = (int)(rgb & 255);
-                    mask[y * sampleWidth + x] = (byte)(red >= 115 && red - green >= 57 && red - blue >= 49 ? 1 : 0);
+                    mask[start + x] = (byte)(red >= 115 && red - green >= 57 && red - blue >= 49 ? 1 : 0);
                 }
+            }
 
             for (int i = 0; i < size && output.Count < 16; i++)
             {

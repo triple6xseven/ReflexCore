@@ -19,9 +19,9 @@ public sealed partial class StudioWindow
         category.ItemsSource=new[]{"All themes","Studio","Retro","Dark","Light","With artwork"};
         category.SelectedIndex=0;category.MinWidth=140;System.Windows.Automation.AutomationProperties.SetName(category,"Theme category");
         filters.Children.Add(category);page.Children.Add(filters);
+        var detail=new Flow{MinW=310,MaxCols=2,Gap=14,Anim=animate};
+        page.Children.Insert(0,new Expander{Header="Background, motion and font",Content=detail,Margin=new Thickness(0,0,0,12)});
         page.Children.Add(gallery);category.SelectionChanged+=(_,_)=>FillGallery();
-        var detail=new Flow{MinW=310,MaxCols=2,Gap=14,Anim=false,Margin=new Thickness(0,16,0,0)};
-        page.Children.Add(detail);
         var material=Section(detail,"Material and background");
         AddSwitch(material,"Show theme artwork",wallpaperSwitch,v=>{showWallpaper=v;RefreshBackground();});
         var wall=Choice(material,"Background",new[]{"Use theme default","Alienwave","Dark Fantasy","zxc 2003","Overdrive"});
@@ -33,8 +33,27 @@ public sealed partial class StudioWindow
         slider.Changed+=v=>{tint=v;PaintTint();RefreshBackground();};PaintTint();
         var behaviour=Section(detail,"Motion and type");
         AddSwitch(behaviour,"Smooth scrolling",new Sw(true),v=>smooth=v);
-        AddSwitch(behaviour,"Theme animations",motionSwitch,v=>{animate=Fx.Fun=v;detail.Anim=v;RefreshBackground();});
-        AddSwitch(behaviour,"Themed title bar",new Sw(false),ApplyCaption);
+        var appearanceFeedback = WidgetHint("");
+        void SaveAppearance(string key, bool value)
+        {
+            try
+            {
+                WidgetSettings.Save(new System.Collections.Generic.Dictionary<string,object> { [key]=value },
+                    new[] { key }, "studio-appearance.json");
+                appearanceFeedback.Text = "";
+            }
+            catch (System.IO.IOException) { appearanceFeedback.Text = "Couldn't save appearance settings."; }
+            catch (UnauthorizedAccessException) { appearanceFeedback.Text = "Appearance settings folder is unavailable."; }
+        }
+        AddSwitch(behaviour,"Theme animations",motionSwitch,v=>{
+            animate=Fx.Fun=v;detail.Anim=v;RefreshBackground();
+            SaveAppearance("theme_animations",v);
+        });
+        AddSwitch(behaviour,"Themed title bar",captionSwitch,v=>{
+            ApplyCaption(v);
+            SaveAppearance("themed_title_bar",v);
+        });
+        behaviour.Children.Add(appearanceFeedback);
         var fonts=Choice(behaviour,"Studio font",new[]{"Use theme default","Segoe UI","Consolas","Cambria","Tahoma"});
         fonts.SelectionChanged+=(_,_)=>{typeface=fonts.SelectedIndex==0?null:(string)fonts.SelectedItem;FontFamily=new FontFamily(typeface??current.Font);};
         FillGallery();
@@ -88,6 +107,9 @@ public sealed partial class StudioWindow
         category.SelectedIndex=3;
         if(gallery.Children.Count!=Theme.All.Count(theme=>theme.Dark))throw new InvalidOperationException("Theme category filter failed");
         category.SelectedIndex=0;
+        SelectPage(7);UpdateLayout();
+        if(!widgets.IsVisible || native.IsVisible || widgets.Content==null)throw new InvalidOperationException("Widget settings page unavailable");
+        SelectPage(6);
         foreach(var theme in Theme.All){ApplyTheme(theme,false);UpdateLayout();}
         Width=900;UpdateLayout();if(railWidth.Width.Value!=72)throw new InvalidOperationException("Compact navigation failed");
         Width=1180;UpdateLayout();ApplyCaption(true);ApplyCaption(false);

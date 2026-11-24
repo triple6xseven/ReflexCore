@@ -43,20 +43,21 @@ namespace ReflexCore.Diagnostics
     }
     internal sealed class TimeBars : System.Windows.Forms.Control
     {
+        public Color AccentColor = Color.FromArgb(55,201,121);
         public List<double> Values = new List<double>();
         public TimeBars(){DoubleBuffered=true;BackColor=Color.FromArgb(14,24,20);ForeColor=Color.FromArgb(108,236,154);}
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); Graphics g=e.Graphics; g.Clear(BackColor);
-            using(Brush muted=new SolidBrush(Color.FromArgb(134,162,149)))
+            using(Brush muted=new SolidBrush(ForeColor))
                 g.DrawString("Verified goal time · recent successful runs (ms; lower is better)",Font,muted,12,8);
             if(Values.Count==0){g.DrawString("No verified benchmark samples yet",Font,Brushes.Gray,12,40);return;}
             int count=Math.Min(Values.Count,24), left=20, right=Width-16, top=43, bottom=Height-26;
             if(right<=left || bottom<=top)return;
             double max=Values.Skip(Math.Max(0,Values.Count-count)).DefaultIfEmpty(1).Max(); if(max<=0)max=1;
             int cell=Math.Max(3,(right-left)/count), barW=Math.Max(2,cell-4);
-            using(Brush b=new SolidBrush(Color.FromArgb(55,201,121)))
-            using(Pen p=new Pen(Color.FromArgb(54,90,74)))
+            using(Brush b=new SolidBrush(AccentColor))
+            using(Pen p=new Pen(ForeColor))
             {
                 g.DrawLine(p,left,bottom,right,bottom);
                 for(int i=0;i<count;i++){
@@ -84,6 +85,24 @@ namespace ReflexCore.Diagnostics
         string selectedRun="",lastHistorySignature="";
         int pulse=0;
         static readonly Color bg=Color.FromArgb(11,19,16),fg=Color.FromArgb(194,233,205),accent=Color.FromArgb(89,231,143),panel=Color.FromArgb(20,32,26);
+        private void ApplyChartTheme(Color surface,Color text,Color highlight)
+        {
+            chart.BackColor=surface;
+            chart.ForeColor=text;
+            chart.AccentColor=highlight;
+            chart.Invalidate();
+        }
+
+        private static void SelectSection(Panel[] screens,List<Button> buttons,int selected)
+        {
+            screens[selected].BringToFront();
+            screens[selected].Show();
+            for(int i=0;i<screens.Length;i++){
+                if(i!=selected) screens[i].Hide();
+                buttons[i].FlatAppearance.BorderColor=i==selected?buttons[i].ForeColor:buttons[i].BackColor;
+            }
+        }
+
         public Dashboard(string project)
         {
             root=Path.GetFullPath(project);
@@ -94,8 +113,8 @@ namespace ReflexCore.Diagnostics
             var outer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,BackColor=bg};
             outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
             outer.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
+            outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             outer.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-            outer.RowStyles.Add(new RowStyle(SizeType.Absolute,27));
             Controls.Add(outer);
             var header=new Panel{Dock=DockStyle.Fill,BackColor=panel};outer.Controls.Add(header,0,0);
             // Responsive 2-column header, safe under high-DPI and embedded tab widths.
@@ -112,15 +131,24 @@ namespace ReflexCore.Diagnostics
             headerGrid.Controls.Add(tools,1,0);headerGrid.SetRowSpan(tools,2);
             var launch=new Button{Text="RUN VERIFIED BENCHMARK",FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(31,76,47),ForeColor=fg,Width=220,Height=33};
             launch.Click+=OnBenchmark;tools.Controls.Add(launch);
-            n=new NumericUpDown{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=53,Height=28};tools.Controls.Add(n);
+            n=new ThemedBenchmarkCount{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=62,Margin=new Padding(3,8,3,3),
+                AccessibleName="Benchmark runs"};tools.Controls.Add(n);
             var open=new Button{Text="OPEN REPORTS",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg,Width=135,Height=33};
             open.Click+=delegate{Directory.CreateDirectory(dir);Process.Start("explorer.exe","\""+dir+"\"");};tools.Controls.Add(open);
-            var tabs=new TabControl{Dock=DockStyle.Fill,Font=new Font("Segoe UI",10)};outer.Controls.Add(tabs,0,1);
-            TabPage overview=new TabPage("Benchmark / history"){BackColor=bg,ForeColor=fg};tabs.TabPages.Add(overview);
+            var sectionLayout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=new Padding(0)};
+            sectionLayout.RowStyles.Add(new RowStyle(SizeType.Absolute,44));
+            sectionLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+            outer.Controls.Add(sectionLayout,0,2);
+            var sectionBar=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,AutoScroll=true};
+            sectionLayout.Controls.Add(sectionBar,0,0);
+            var content=new BufferedSectionHost{Dock=DockStyle.Fill,Margin=new Padding(0)};
+            sectionLayout.Controls.Add(content,0,1);
+            var overview=new Panel{Dock=DockStyle.Fill};
             summary=MakeLabel("No benchmark results recorded.",new Font("Consolas",11),accent);
             var overviewLayout=Rows(62,155);overview.Controls.Add(overviewLayout);
             summary.Dock=DockStyle.Fill;overviewLayout.Controls.Add(summary,0,0);
             chart=new TimeBars{Dock=DockStyle.Fill};overviewLayout.Controls.Add(chart,0,1);
+            Tag=new Action<Color,Color,Color>(ApplyChartTheme);
             runs=Grid();runs.Dock=DockStyle.Fill;overviewLayout.Controls.Add(runs,0,2);
             runs.Columns.Add("at","Local time");runs.Columns.Add("number","Iteration");runs.Columns.Add("outcome","Verified");
             runs.Columns.Add("ms","Task ms");runs.Columns.Add("flow","UIA flow ms");runs.Columns.Add("cpu","Rust CPU ms");runs.Columns.Add("ram","Rust peak MB");runs.Columns.Add("id","Run ID");
@@ -132,7 +160,7 @@ namespace ReflexCore.Diagnostics
             foreach(int k in new[]{3,4,5,6}){runs.Columns[k].ValueType=typeof(double);runs.Columns[k].DefaultCellStyle.Format="F1";}
             runs.Columns[0].ToolTipText="Shown in local time. Stored in UTC.";
             runs.SelectionChanged+=delegate{ShowSelected();};
-            TabPage details=new TabPage("Evidence / decisions"){BackColor=bg};tabs.TabPages.Add(details);
+            var details=new Panel{Dock=DockStyle.Fill};
             evidence=new TextBox{Dock=DockStyle.Top,Height=135,ReadOnly=true,Multiline=true,BackColor=panel,ForeColor=fg,BorderStyle=BorderStyle.None,
                 Font=new Font("Consolas",10),Text="Select a benchmark run to inspect its structural decision evidence."};
             var detailsLayout=Rows(135);details.Controls.Add(detailsLayout);
@@ -140,23 +168,86 @@ namespace ReflexCore.Diagnostics
             trace=Grid();trace.Dock=DockStyle.Fill;detailsLayout.Controls.Add(trace,0,1);
             trace.Columns.Add("step","Step");trace.Columns.Add("action","UIA action");trace.Columns.Add("tries","Attempts");
             trace.Columns.Add("status","Status");trace.Columns.Add("verify","Verification");trace.Columns.Add("duration","Elapsed ms");trace.Columns.Add("why","Evidence code");
-            TabPage resourcePage=new TabPage("Live resources"){BackColor=bg};tabs.TabPages.Add(resourcePage);
+            var resourcePage=new Panel{Dock=DockStyle.Fill};
             var resourceLayout=Rows(112);resourcePage.Controls.Add(resourceLayout);
             resources=MakeLabel("CPU/RAM polling…",new Font("Consolas",12),accent);resources.Dock=DockStyle.Fill;resourceLayout.Controls.Add(resources,0,0);
             procGrid=Grid();procGrid.Dock=DockStyle.Fill;resourceLayout.Controls.Add(procGrid,0,1);
             procGrid.Columns.Add("group","Process group");procGrid.Columns.Add("count","Instances");procGrid.Columns.Add("cpu","CPU % (system normalized)");
             procGrid.Columns.Add("ram","Working RAM MB");procGrid.Columns.Add("priv","Private RAM MB");
-            TabPage modelPage=new TabPage("Qwen / bottlenecks"){BackColor=bg};tabs.TabPages.Add(modelPage);
+            var modelPage=new Panel{Dock=DockStyle.Fill};
             qwen=MakeLabel("No local Qwen measurements loaded yet.",new Font("Consolas",11),fg);
             var modelLayout=Rows(50);modelPage.Controls.Add(modelLayout);
             qwen.Dock=DockStyle.Fill;qwen.TextAlign=ContentAlignment.TopLeft;modelLayout.Controls.Add(qwen,0,1);
             var toolbar=new Panel{Dock=DockStyle.Fill};modelLayout.Controls.Add(toolbar,0,0);
             var inspect=new Button{Text="REFRESH QWEN REVIEW",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg};inspect.SetBounds(20,8,240,32);toolbar.Controls.Add(inspect);
             inspect.Click+=delegate{LaunchKnownScript("Review-ReflexPerformance.ps1","");};
-            help=MakeLabel("Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",new Font("Segoe UI",9),Color.Gray);
-            help.Dock=DockStyle.Fill;outer.Controls.Add(help,0,2);
+            help=new Label{Text="Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",
+                AutoSize=true,Margin=new Padding(12,3,12,8),ForeColor=fg};
+            outer.SizeChanged+=delegate{help.MaximumSize=new Size(Math.Max(1,outer.ClientSize.Width-6),0);};
+            outer.Controls.Add(help,0,1);
+            var screens=new[]{overview,details,resourcePage,modelPage};
+            var sectionNames=new[]{"Benchmark / history","Evidence / decisions","Live resources","Qwen / bottlenecks"};
+            var sectionButtons=new List<Button>();
+            for(int index=0;index<screens.Length;index++){
+                int selected=index;
+                var button=new Button{Text=sectionNames[index],AutoSize=true,Height=32,
+                    Padding=new Padding(9,0,9,0),FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg};
+                button.Click+=delegate{SelectSection(screens,sectionButtons,selected);};
+                sectionButtons.Add(button);
+                sectionBar.Controls.Add(button);
+                screens[index].Visible=false;
+                content.Controls.Add(screens[index]);
+            }
+            SelectSection(screens,sectionButtons,0);
             timer=new System.Windows.Forms.Timer{Interval=800};timer.Tick+=delegate{RefreshAll();};
             VisibleChanged+=delegate{timer.Enabled=Visible;if(Visible)RefreshAll();};
+        }
+        sealed class BufferedSectionHost : Panel
+        {
+            public BufferedSectionHost(){DoubleBuffered=true;}
+            protected override CreateParams CreateParams
+            {
+                get {
+                    var parameters=base.CreateParams;
+                    parameters.ExStyle|=0x02000000; // WS_EX_COMPOSITED buffers child controls as well.
+                    return parameters;
+                }
+            }
+        }
+        sealed class ThemedBenchmarkCount : NumericUpDown
+        {
+            public ThemedBenchmarkCount()
+            {
+                foreach(System.Windows.Forms.Control child in Controls)
+                    if(!(child is TextBox))new ArrowPainter(this,child);
+            }
+            sealed class ArrowPainter : NativeWindow
+            {
+                private readonly ThemedBenchmarkCount owner;
+                private readonly System.Windows.Forms.Control buttons;
+                public ArrowPainter(ThemedBenchmarkCount owner,System.Windows.Forms.Control buttons)
+                {
+                    this.owner=owner;this.buttons=buttons;
+                    buttons.HandleCreated+=OnCreated;
+                    buttons.HandleDestroyed+=OnDestroyed;
+                    if(buttons.IsHandleCreated)AssignHandle(buttons.Handle);
+                }
+                private void OnCreated(object sender,EventArgs e){AssignHandle(buttons.Handle);}
+                private void OnDestroyed(object sender,EventArgs e){ReleaseHandle();}
+                protected override void WndProc(ref Message message)
+                {
+                    base.WndProc(ref message);
+                    if(message.Msg!=0x000f || Handle==IntPtr.Zero)return;
+                    using(var graphics=Graphics.FromHwnd(Handle))
+                    using(var brush=new SolidBrush(owner.ForeColor))
+                    {
+                        graphics.Clear(owner.BackColor);
+                        int x=buttons.Width/2,y=buttons.Height/2;
+                        graphics.FillPolygon(brush,new[]{new Point(x-3,y/2+1),new Point(x+3,y/2+1),new Point(x,y/2-2)});
+                        graphics.FillPolygon(brush,new[]{new Point(x-3,y+y/2-1),new Point(x+3,y+y/2-1),new Point(x,y+y/2+2)});
+                    }
+                }
+            }
         }
         static TableLayoutPanel Rows(params int[] fixedHeights)
         {

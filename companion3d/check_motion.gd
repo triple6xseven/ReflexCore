@@ -1,0 +1,261 @@
+extends SceneTree
+
+const Motion = preload("res://desktop_motion.gd")
+const DESK := Rect2i(-1440,0,1440,900)
+const SIZE := Vector2i(320,480)
+const DT := 1.0/60
+var options := {"mode":"windows","physics":true,"gravity":900,"walk_speed":58,"magic":false}
+var edges: Array[Rect2i] = []
+var body = Motion.new()
+var clock := 0.0
+var poses := {}
+var impacts := {}
+var failed := false
+var pose := ""
+
+func _step(seconds: float, selected := Rect2i(), identity := {}) -> void:
+	for frame in roundi(seconds/DT):
+		clock+=DT
+		pose=body.update(DT,clock,DESK,SIZE,Vector2i.ZERO,options,edges,selected,identity)
+		poses[pose]=true
+		impacts[body.impact]=true
+
+func _expect(ok: bool, message: String) -> void:
+	if not ok:
+		failed=true
+		push_error(message)
+
+func _initialize() -> void:
+	var close := Rect2i(-1180,640,520,210)
+	var above := Rect2i(-1120,340,550,350)
+	body.place(Vector2(-990,440))
+	edges.assign([above,close])
+	_step(1.6,above,{close:[9,-1180,640],above:[7,-1120,340]})
+	for state in ["approach","reach","grip","pull_up","settle","sit"]:
+		_expect(poses.has(state),"Missing climb phase: "+state)
+	_expect(body.seated and body.support==close,"A high foreground edge must not beat a reachable background edge.")
+	var first_x: float=body.position.x
+	var next := Rect2i(-1160,653,520,204)
+	edges.assign([next])
+	_step(0.04,next,{next:[9,-1160,653]})
+	_expect(body.seated and absf(body.position.x-first_x-20)<1 and body.support==next,"A small window move should carry the seated avatar intact.")
+	var fast := Rect2i(-1000,655,520,180)
+	edges.assign([fast])
+	_step(0.18,fast,{fast:[9,-1000,655]})
+	_expect(body.falling and not body.seated,"A large move should break the seat.")
+	edges.clear()
+	_step(2)
+	_expect(not body.falling and body.impact=="floor","A fall should settle on the work-area floor.")
+
+	body.place(Vector2(-990,428))
+	edges.assign([close])
+	_step(2,close,{close:[9,-1180,640]})
+	edges.clear()
+	_step(0.15)
+	_expect(body.falling,"An obscured or closed window should release the avatar.")
+	_step(2)
+	options.magic=true
+	poses.clear()
+	_step(2)
+	_expect(poses.has("look_around") and poses.has("cloud_summon") and pose=="cloud_sit" and body.cloud_alpha>0.9,"The cloud needs a summon and a seated support.")
+	body.grab(clock,body.position.y+SIZE.y*Motion.SEAT_RATIO)
+	body.drag_to(body.position-Vector2(0,70),Vector2(0,-100),0.05)
+	body.release(Vector2(0,-30),true,clock)
+	_step(0.6)
+	_expect(body.impact=="cloud","A nearby throw should land on the surviving cloud.")
+	var cloud_exit := Rect2i(-1170,663,540,190)
+	edges.assign([cloud_exit])
+	_step(3,cloud_exit,{cloud_exit:[12,-1170,663]})
+	_expect(body.seated and body.cloud_alpha<0.1,"A reachable window should replace the cloud.")
+	options.magic=false
+	options.mode="taskbar"
+	edges.clear()
+	_step(2)
+	_expect(pose=="idle" and body.cloud_alpha==0,"Taskbar mode should remain standing.")
+
+	body.grab()
+	body.release(Vector2(42,-290),true,clock)
+	_step(1.4)
+	_expect(not body.falling and body.impact=="floor","Taskbar throws must complete without window edges.")
+	options.mode="windows"
+	for sample in [[Vector2(-1430,90),Vector2(-1000,0),"left"],[Vector2(-330,90),Vector2(1000,0),"right"],
+		[Vector2(-900,13),Vector2(0,-900),"top"],[Vector2(-1430,10),Vector2(-705,-705),"top_left"],
+		[Vector2(-330,10),Vector2(705,-705),"top_right"],
+		[Vector2(-1400,70),Vector2(-750,-750),"top_left"],
+		[Vector2(-390,32),Vector2(750,-750),"top_right"],
+		[Vector2(-1496,405),Vector2(-650,750),"bottom_left"],
+		[Vector2(-264,405),Vector2(650,750),"bottom_right"]]:
+		body.place(sample[0])
+		body.grab()
+		body.release(sample[1],true,clock)
+		impacts.clear()
+		_step(1.9)
+		_expect(impacts.has(sample[2]),"Missing boundary impact: "+sample[2])
+		_expect(body.position.x+SIZE.x*Motion.SIDE_INSET>=DESK.position.x-.001 and body.position.x+SIZE.x*(1-Motion.SIDE_INSET)<=DESK.end.x+.001 and not body.falling,"Throw did not settle within the monitor.")
+	body.place(Vector2(-990,40))
+	body.grab()
+	body.release(Vector2(55,0),true,clock)
+	edges.assign([close])
+	_step(0.85,close)
+	_expect(body.impact=="window" and body.support==close,"Swept landing should catch an exposed edge.")
+	body.grab()
+	var initial: Vector2=body.position
+	var destination := initial+Vector2(80,0)
+	body.drag_to(destination,Vector2(200,0),DT)
+	_expect(body.position.x>initial.x and body.position.x<destination.x,"Drag should follow a damped spring.")
+	# Interrupt a climb, then a cloud pose, without waiting for the prior state.
+	var interrupt = Motion.new()
+	interrupt.place(Vector2(-990,440))
+	var climb_edges: Array[Rect2i]=[close]
+	for frame in 25:
+		interrupt.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,options,climb_edges)
+	_expect(interrupt.climb_progress>0,"The fixture did not enter a climb.")
+	interrupt.grab()
+	_expect(interrupt.held and interrupt.climb_progress==0,"Grabbing must cancel a climb immediately.")
+	interrupt.place(Vector2(-990,440))
+	_expect(not interrupt.held,"Restoring a position must cancel the previous drag.")
+	var magic_options:=options.duplicate()
+	magic_options.magic=true
+	climb_edges.clear()
+	for frame in 130:
+		interrupt.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,magic_options,climb_edges)
+	_expect(interrupt.cloud_seated,"The fixture did not sit on a cloud.")
+	magic_options.magic=false
+	interrupt.update(DT,2.2,DESK,SIZE,Vector2i.ZERO,magic_options,climb_edges)
+	_expect(not interrupt.cloud_seated and interrupt.cloud_collision_until==0,"Magic off must clear cloud support immediately.")
+	options.mode="roam"
+	options.magic=true
+	edges.clear()
+	body=Motion.new()
+	body.place(Vector2(-900,410))
+	clock=0.0
+	poses.clear()
+	_step(1.8)
+	_expect(body.cloud_seated,"Free Roam should be able to rest on a cloud.")
+	body.interrupt(clock, true)
+	_step(1.0)
+	_expect(body.cloud_seated,"A tap must preserve the current safe perch.")
+	var departure: Vector2 = body.position
+	_step(10.0)
+	_expect(poses.has("cloud_fly") and body.cloud_seated and body.position.x>departure.x+65,
+		"Free Roam must travel toward the distant cursor while staying seated.")
+	_expect(absf(body.cloud_x-body.position.x-SIZE.x*.5)<1,"Cloud lost its rider during flight.")
+	_step(13.0)
+	_expect(poses.has("stand_up"),"Free Roam skipped getting up from the cloud.")
+	_expect(poses.has("walk") and not body.cloud_seated,"Free Roam must leave the cloud for a short walk.")
+	var leaving := Motion.new()
+	leaving.place(Vector2(-900,410))
+	var near_cursor := Vector2i(-730,345)
+	for frame in 110:
+		leaving.update(DT,frame*DT,DESK,SIZE,near_cursor,options,edges)
+	_expect(leaving.update(DT,13.0,DESK,SIZE,near_cursor,options,edges)=="stand_up","Roam did not start standing")
+	for frame in 21:
+		var state := leaving.update(DT,13.0+(frame+1)*DT,DESK,SIZE,near_cursor,options,edges,Rect2i(),{},frame%2==0)
+		_expect(state=="stand_up","Animated hover changed a stand-up back into a cloud sit")
+	var last_seat_y: float=leaving.position.y+SIZE.y*Motion.SEAT_RATIO
+	_expect(leaving.update(DT,13.0+Motion.STAND_SECONDS+DT,DESK,SIZE,near_cursor,options,edges,Rect2i(),{},true)=="falling",
+		"Cloud stand-up did not finish")
+	_expect(absf(leaving.cloud_edge-last_seat_y)<0.001,"Cloud jumped when the sitter let go.")
+	var following := Motion.new()
+	following.place(Vector2(-890,410))
+	var follow_options := {"mode":"follow","walk_speed":58.0,"physics":true}
+	var left_x := DESK.position.x+20
+	var right_x := DESK.end.x-20
+	following.update(DT,0.0,DESK,SIZE,Vector2i(left_x,450),follow_options,edges)
+	_expect(following.velocity.x<0 and following.velocity.x>-10.0,"First step jumped to full walking speed.")
+	for frame in 20:
+		following.update(DT,(frame+1)*DT,DESK,SIZE,Vector2i(left_x,450),follow_options,edges)
+	_expect(following.velocity.x<-40.0,"Walk ramp did not reach speed.")
+	var old_velocity := following.velocity.x
+	following.update(DT,.37,DESK,SIZE,Vector2i(right_x,450),follow_options,edges)
+	_expect(old_velocity<following.velocity.x and following.velocity.x<0.0,"Reversal skipped the deceleration phase.")
+	for frame in 35:
+		following.update(DT,.38+frame*DT,DESK,SIZE,Vector2i(right_x,450),follow_options,edges)
+	_expect(following.velocity.x>40.0,"Reversal did not finish toward the new destination.")
+	var perched := Motion.new()
+	perched.place(Vector2(-990,440))
+	options.mode="windows"
+	options.magic=false
+	edges.assign([close])
+	for frame in 100:
+		perched.update(DT,float(frame)*DT,DESK,SIZE,Vector2i.ZERO,options,edges,close)
+	_expect(perched.seated,"Fixture did not reach its window seat.")
+	options.mode="taskbar"
+	_expect(perched.update(DT,2.0,DESK,SIZE,Vector2i.ZERO,options,edges)=="stand_up","Mode switch skipped getting up from the window.")
+	_expect(perched.seated and not perched.falling,"Seat detached before getting up.")
+	perched.grab(2.1)
+	_expect(perched.update(DT,2.1,DESK,SIZE,Vector2i.ZERO,options,edges)=="dragged","Drag could not interrupt getting up.")
+	var hover := Motion.new()
+	options.mode="hover"
+	hover.place(Vector2(-980,420))
+	for frame in 130:
+		var state := hover.update(DT,float(frame)*DT,DESK,SIZE,Vector2i(-280,300),options,edges)
+		_expect(state=="hover","Hover mode exited without input.")
+	_expect(hover.position.x>-880 and hover.position.y<400 and not hover.falling,"Hover did not glide within the work area.")
+	hover.grab(clock)
+	_expect(hover.update(DT,clock,DESK,SIZE,Vector2i.ZERO,options,edges)=="dragged","Hover must yield to drag.")
+	var pending=Motion.new()
+	pending.climb_progress=0.7
+	pending.interrupt(clock,true)
+	_expect(pending.climb_progress==0 and pending.falling,"Takeover must cancel an active climb safely.")
+	var ferry := Motion.new()
+	options.mode="windows"
+	options.magic=true
+	edges.assign([above])
+	for teleport in [false,true]:
+		ferry.place(Vector2(-1250,440))
+		ferry.ferry_next_portal=teleport
+		var visited := false
+		for frame in 600:
+			var travel := ferry.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,options,edges)
+			visited=visited or travel==("portal" if teleport else "cloud_fly")
+		_expect(visited and ferry.seated and ferry.support==above,"Remote seat transfer failed")
+		_expect(DESK.encloses(Rect2i(Vector2i(ferry.position),SIZE)),"Seat destination outside monitor")
+	ferry.place(Vector2(-1250,440))
+	ferry.ferry_next_portal=true
+	for frame in 280:
+		var travel := ferry.update(DT,frame*DT,DESK,SIZE,Vector2i.ZERO,options,edges)
+		if travel=="portal":
+			edges.clear()
+	_expect(not ferry.seated and ferry.portal_scale==1.0,"Invalid portal persisted")
+	var high_edge := Rect2i(-1190,DESK.position.y+185,560,360)
+	var high_edges: Array[Rect2i]=[high_edge]
+	var high_seat := Motion.new()
+	high_seat.place(Vector2(-980,high_edge.position.y-SIZE.y*Motion.SEAT_RATIO-52))
+	high_seat.grab()
+	high_seat.update(DT,1.0,DESK,SIZE,Vector2i.ZERO,options,high_edges)
+	_expect(high_seat.position.y<-100,"Dragging still clamps the model at the upper edge.")
+	high_seat.release(Vector2.ZERO,true,1.0,.22,true)
+	for tick in 65:
+		high_seat.update(DT,1.0+(tick+1)*DT,DESK,SIZE,Vector2i.ZERO,options,high_edges)
+	_expect(high_seat.seated and high_seat.support==high_edge,"High window rejected the seated footprint.")
+	# Recreate a high but usable window edge and test a gentle release near it.
+	var ledge := Rect2i(-1190,260,560,360)
+	var ledges: Array[Rect2i]=[ledge]
+	for strength in [0.0,1.0,2.0]:
+		var dropped := Motion.new()
+		var settings := {"mode":"windows","physics":true,"magic":false,
+			"window_magnet_enabled":strength>0,"window_magnet":strength}
+		dropped.place(Vector2(-980,ledge.position.y-SIZE.y*Motion.SEAT_RATIO+92))
+		dropped.grab()
+		dropped.release(Vector2.ZERO,true,1.0,.22,true)
+		dropped.update(DT,1.0+DT,DESK,SIZE,Vector2i.ZERO,settings,ledges)
+		_expect((dropped.climb_progress>0)==(strength==2.0),"Window magnet did not honor strength or Off.")
+		if strength==2.0:
+			for tick in 65:
+				dropped.update(DT,1.0+(tick+2)*DT,DESK,SIZE,Vector2i.ZERO,settings,ledges)
+			_expect(dropped.seated and dropped.support==ledge,"High window did not hold the seated rig.")
+	for side in [-1,1]:
+		var corner := Motion.new()
+		var hold_settings := {"mode":"stationary","physics":false}
+		var no_edges: Array[Rect2i]=[]
+		corner.place(Vector2(DESK.position.x-250 if side<0 else DESK.end.x+250, DESK.end.y))
+		corner.grab()
+		corner.update(DT,1.0,DESK,SIZE,Vector2i.ZERO,hold_settings,no_edges)
+		var held_at := corner.position
+		corner.release(Vector2.ZERO,false,1.0,.22,true)
+		corner.update(DT,1.0+DT,DESK,SIZE,Vector2i.ZERO,hold_settings,no_edges)
+		_expect(held_at.is_equal_approx(corner.position),"Gentle release snapped away from the corner.")
+	if not failed:
+		print("Companion motion: reachable ledges, all climb phases, moving/removed supports, fast release, clouds, bounded throws and spring drag passed.")
+	quit(1 if failed else 0)

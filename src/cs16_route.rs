@@ -44,7 +44,7 @@ fn valid_point(x: f64, y: f64, z: f64) -> bool {
 }
 
 impl Waypoint {
-    fn measured_from(&self, pose: Pose) -> Measurement {
+    fn measured_from(&self, pose: Pose, height_tolerance: f64) -> Measurement {
         let x = self.x - pose.x;
         let y = self.y - pose.y;
         let horizontal = x.hypot(y);
@@ -56,7 +56,7 @@ impl Waypoint {
         };
         Measurement {
             distance: horizontal.hypot(height),
-            reached: horizontal <= self.radius && height <= HEIGHT_TOLERANCE,
+            reached: horizontal <= self.radius && height <= height_tolerance,
             turn: (bearing - pose.yaw_degrees + 180.0).rem_euclid(360.0) - 180.0,
         }
     }
@@ -154,6 +154,19 @@ pub(crate) enum StopReason {
     ObservationLimit,
 }
 
+impl StopReason {
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Self::InvalidPose => "invalid_pose",
+            Self::StalePose => "stale_pose",
+            Self::SpawnOutsideRoute => "spawn_outside_route",
+            Self::PoseDiscontinuity => "pose_discontinuity",
+            Self::Stalled => "stalled",
+            Self::ObservationLimit => "observation_limit",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub(crate) enum Decision {
@@ -194,6 +207,7 @@ pub(crate) struct Navigator {
     expected_effect: Option<ExpectedEffect>,
     stalled: u8,
     terminal: Option<Decision>,
+    precise: bool,
 }
 
 impl Navigator {
@@ -209,7 +223,24 @@ impl Navigator {
             expected_effect: None,
             stalled: 0,
             terminal: None,
+            precise: false,
         })
+    }
+
+    pub(crate) fn with_precise_steering(mut self) -> Self {
+        self.precise = true;
+        self
+    }
+
+    pub(crate) fn site(&self) -> Site {
+        self.route.site
+    }
+
+    pub(crate) fn blocked_heading(&self) -> Option<f64> {
+        self.expected_effect?;
+        let pose = self.last_pose?;
+        let target = self.route.waypoints.get(self.next)?;
+        Some((target.y - pose.y).atan2(target.x - pose.x).to_degrees())
     }
 
     fn terminate(&mut self, decision: Decision) -> Decision {
@@ -228,6 +259,8 @@ impl Navigator {
         if !pose.valid() {
             return self.stop(StopReason::InvalidPose);
         }
+        let height_tolerance = if self.precise { 16.0 } else { HEIGHT_TOLERANCE };
+        let turn_tolerance = if self.precise { 6.0 } else { TURN_TOLERANCE };
         if let Some(last) = self.last_pose {
             if pose.sample_id <= last.sample_id {
                 return self.stop(StopReason::StalePose);
@@ -235,7 +268,10 @@ impl Navigator {
             if pose.distance_from(last) > MAX_SAMPLE_DISTANCE {
                 return self.stop(StopReason::PoseDiscontinuity);
             }
-        } else if !self.route.waypoints[0].measured_from(pose).reached {
+        } else if !self.route.waypoints[0]
+            .measured_from(pose, height_tolerance)
+            .reached
+        {
             return self.stop(StopReason::SpawnOutsideRoute);
         }
         if self.observations == MAX_OBSERVATIONS {
@@ -244,7 +280,7 @@ impl Navigator {
         self.observations += 1;
         self.last_pose = Some(pose);
 
-        let mut measured = self.route.waypoints[self.next].measured_from(pose);
+        let mut measured = self.route.waypoints[self.next].measured_from(pose, height_tolerance);
         if measured.reached {
             self.next += 1;
             // Consume the spawn anchor, but require a fresh observation for each later waypoint.
@@ -253,16 +289,18 @@ impl Navigator {
                     site: self.route.site,
                 });
             }
-            measured = self.route.waypoints[self.next].measured_from(pose);
+            measured = self.route.waypoints[self.next].measured_from(pose, height_tolerance);
             self.expected_effect = None;
             self.stalled = 0;
         }
 
         let no_progress = match self.expected_effect {
             Some(ExpectedEffect::Turn { error }) => {
-                measured.turn.abs() > TURN_TOLERANCE && error - measured.turn.abs() < 1.0
+                measured.turn.abs() > turn_tolerance && error - measured.turn.abs() < 1.0
             }
-            Some(ExpectedEffect::Advance { distance }) => distance - measured.distance < 2.0,
+            Some(ExpectedEffect::Advance { distance }) => {
+                distance - measured.distance < if self.precise { 0.75 } else { 2.0 }
+            }
             None => false,
         };
         self.stalled = if no_progress { self.stalled + 1 } else { 0 };
@@ -270,7 +308,7 @@ impl Navigator {
             return self.stop(StopReason::Stalled);
         }
 
-        if measured.turn.abs() > TURN_TOLERANCE {
+        if measured.turn.abs() > turn_tolerance {
             self.expected_effect = Some(ExpectedEffect::Turn {
                 error: measured.turn.abs(),
             });
@@ -281,7 +319,8 @@ impl Navigator {
             self.expected_effect = Some(ExpectedEffect::Advance {
                 distance: measured.distance,
             });
-            let millis = (measured.distance * 4.0).round().clamp(45.0, 160.0) as u16;
+            let minimum = if self.precise { 24.0 } else { 45.0 };
+            let millis = (measured.distance * 4.0).round().clamp(minimum, 160.0) as u16;
             Decision::Advance { millis }
         }
     }
@@ -344,6 +383,18 @@ mod tests {
             navigator.step(pose(6, 80.0, 73.0, 0.0, 90.0)),
             Decision::Arrived { site: Site::A }
         );
+    }
+
+    #[test]
+    fn automatic_steering_realigns_before_taking_a_small_turn() {
+        let points = r#"[{"x":0,"y":0,"z":36},{"x":100,"y":0,"z":36}]"#;
+        let start = pose(1, 0.0, 0.0, 36.0, 7.0);
+        let mut fixed = Navigator::new(route(points), "de_fixture").unwrap();
+        let mut automatic = Navigator::new(route(points), "de_fixture")
+            .unwrap()
+            .with_precise_steering();
+        assert!(matches!(fixed.step(start), Decision::Advance { .. }));
+        assert!(matches!(automatic.step(start), Decision::Turn { .. }));
     }
 
     #[test]

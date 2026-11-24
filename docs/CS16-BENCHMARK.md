@@ -16,6 +16,8 @@ cargo build --locked --release
 
 Plant success requires C4 evidence and a matching player plant event in the same round. The report distinguishes the time from confirmed spawn with C4 from the time after `Round_Start`, which marks the end of freeze time. The engine log has one-second resolution. A round or capture ending without the required evidence is reported separately. A positive easy-bot result also requires a CT bot kill by the actor, an explicit difficulty 0 setting in the log, a Terrorist win and a completed round.
 
+The Studio offline match requires `--require-plant-kill-win`. That flag requires a plant, the selected actor’s kill of a CT bot and a Terrorist win in the same completed round. It accepts the local AMX fixture and does not assign it a stock difficulty.
+
 The reader was tested with a real local `de_dust2` capture. It identified the only measured round, its C4 spawn and freeze end, and reported zero verified plants after the capture closed 83 seconds later. This is a baseline with incomplete objective evidence. It supplies no successful completion time.
 
 ## Read-only telemetry
@@ -40,3 +42,17 @@ py examples/plan_cs16_bsp_route.py <de_dust2.bsp> --start -736 -704 164.03125 --
 The official Dust II BSP yielded a 28-waypoint route to its eastern plant volume and a 24-waypoint route to its western volume from the measured spawn. A second Terrorist spawn also produced a collision-checked east route. These are planning measurements. Verify movement, plant and match outcome separately in the engine.
 
 The isolated Plant Drill was verified on the original de_reflex_lab fixture. On Dust II, a live C4 spawn led to a valid static route. The trial restarted the round and got a different spawn, 96 map units away. The controller rejected the spawn anchor before dispatching movement. The next milestone is choosing the route from the post-restart spawn. See [measured fixture results](BENCHMARKS.md).
+
+## Automatic offline plant routes
+
+In Studio, open **Shared Control / Open Offline Plant Drill** and select a demolition map. The list comes from the isolated dedicated server's `cstrike/maps` directory. **Saved route** remains available for regression runs. Python 3 must be accessible through the Windows `py.exe` launcher.
+
+The local Rust adapter waits for a live Terrorist carrying C4, reads the current spawn from GoldSrc, then calls the existing BSP walker. Automatic search uses all supported brush bombsite volumes and a standing hull. It checks every output segment. One bounded replan can run from the latest actor position after confirmed lack of movement. It searches a finer grid and switches brush group when another group exists. It aborts if the map, actor or sequence changes during planning. C4 placement requires fresh server-side zone and plant evidence. Coordinates and display labels for map sites are not imported from the saved laboratory route.
+
+The CLI equivalent, from the project root with the same isolated practice plugin enabled:
+
+```powershell
+.	argeteleaseeflexcore.exe cs16 practice <mailbox> auto --allow-offline --stationary-opponent
+```
+
+Automatic mode currently covers the plant objective on supported GoldSrc BSP v30 demolition maps. Ladders, jumps, crouching passages, moving geometry, point-only bombsites, hostage/assassination objectives and full adversarial matches across arbitrary maps require additional adapters or movement skills. The existing `de_reflex_lab` match remains the verified win baseline. Separate a successful route plan, a verified plant and a verified match win in all measurements.

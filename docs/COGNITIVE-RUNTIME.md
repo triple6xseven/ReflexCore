@@ -2,7 +2,7 @@
 
 ## Routing and verification
 
-The Rust Goal Agent validates a v1 manifest, builds a map of outgoing edges and runs deterministic shortest-path search. Edges with equal cost retain their stable skill-name order. The existing Flow executor checks UIA assertions and bounds retries. An ambiguous or unverified mutation stops execution. The built-in WinForms fixture exercises set-value, readback, invoke and a final independent output assertion.
+The Rust Goal Agent validates a v1 manifest, builds a map of outgoing edges and runs deterministic shortest-path search. Edges with equal cost retain their stable skill-name order. The existing Flow executor checks UIA assertions and bounds retries. An ambiguous or unverified mutation cannot produce a verified outcome. Flow receives a private UIA response matched by schema, run ID and action ID. Direct UIA commands still publish their diagnostic snapshot. Set-value verifies through same-element readback. The owned WinForms fixture binds Apply to its independent Output check and pins UIA to the child HWND and PID. The built-in WinForms fixture exercises set-value, readback, invoke and a final independent output assertion.
 
 The Rust Goal Agent and the PowerShell Notepad supervisor share the Studio task queue. The tray launches one worker at a time. Each Notepad Auto run resolves the foreground notepad.exe window using a freshly created filename, checks editor ownership and selects a supported editor method. The Visual route additionally sends an image to local Ollama and applies its evidence gate. A known cold model loads before opening the new editor. Headless mode supports synthetic vision tests. Input requires an interactive desktop. See [queue and recovery](QUEUE.md).
 
@@ -10,13 +10,17 @@ A new demo file is created exclusively. The executor requires an empty editor, u
 
 ## Incremental learning
 
-**Goal routes.** A SQLite database under data/private is opened read-only for planning and created on first execution. The primary key identifies a SHA-256 digest of the canonical goal and a skill slot. Each learning sample also carries the SHA-256 of the bounded flow contents. A terminal assertion is required. A changed goal or flow ignores old evidence. A transaction records the outcome and evicts the least recently updated rows beyond 256. At 64 observations the counters decay together. Planning applies a bounded penalty proportional to misses divided by one plus passes. The manifest supplies the initial costs and allowed edges. A busy or unavailable database falls back to those costs. The execution report and permission checks remain authoritative for each run.
+The [local skill and learning experiment](LOCAL-SKILL-LEARNING.md) shares the Goal Agent planner and SQLite file. Its CPU-trained controller is evaluated in a separate lab command.
+
+**Goal routes.** A SQLite database under data/private is opened read-only for planning and created on first execution. The primary key identifies a SHA-256 digest of the canonical goal and a skill slot. Each learning sample also carries the SHA-256 of the bounded flow contents and the effect verifier version. A terminal assertion is required. A changed goal or flow ignores old evidence. A transaction records the outcome and evicts the least recently updated rows beyond 256. At 64 observations the counters decay together. Planning applies a bounded penalty proportional to misses divided by one plus passes. The manifest supplies the initial costs and allowed edges. A busy or unavailable database falls back to those costs. The execution report and permission checks remain authoritative for each run.
 
 **Notepad.** At most two small descriptors, one per known editor family, store the method, required permission, effect, verifier and verified count. A hit bypasses editor discovery after validating the current foreground editor. Each execution checks the actual saved file. Failed tasks do not promote a new method. The supervisor's process mutex serializes writers, and replacement is atomic. The single-record format keeps this route usable without starting a Rust child or opening SQLite.
 
 Both mechanisms learn on task completion. Model weights stay fixed. The calibration benchmark uses synthetic inputs and reports local generation throughput, cold latency, warm latency and sampled residency separately.
 
 ## Interface and resource use
+
+Companion & Widgets can launch an isolated Godot renderer and manage Classic independently. The renderer receives the tray's existing status and privacy-bounded window geometry. See [ReflexCompanion](REFLEXCOMPANION.md).
 
 ReflexVision publishes bounded visual observations to the existing CS16 CLI and displays the same tracks in a live preview. The isolated Plant Drill derives navigation and completion from game-engine state. Studio exposes both tools independently. The tray HUD samples system CPU and RAM, NVIDIA GPU and VRAM when NVML is available, and recent generation throughput. See [ReflexVision](REFLEXVISION.md).
 

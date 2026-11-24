@@ -23,6 +23,7 @@
 !/tasks/Measure-Diagnostics.ps1
 !/tasks/Measure-StudioShell.ps1
 !/tasks/Test-Citadel.ps1
+!/tasks/Test-CS16AutoRoute.ps1
 !/tasks/Test-NotepadSkill.ps1
 !/tasks/Test-SkillMemory.ps1
 !/tasks/agent-demo.ps1
@@ -34,8 +35,12 @@
 !/ui/Art/*.png
 /ui/bin/
 /ui/obj/
+/companion3d/.godot/
+*.vrm
+*.glb
 
 !/tasks/notepad-save.ps1
 !/tasks/notepad-visual.ps1
 !/tasks/Test-Queue.ps1
 !/tasks/Measure-Queue.ps1
+!/tasks/Measure-TaskStop.ps1

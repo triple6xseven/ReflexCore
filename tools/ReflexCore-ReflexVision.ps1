@@ -50,7 +50,7 @@ if (!('ReflexCore.Vision.Preview' -as [type])) {
     $paths = @('ReflexVision-Capture.cs','ReflexVision-Detector.cs','ReflexVision-Preview.cs') |
         ForEach-Object { Join-Path $PSScriptRoot $_ }
     $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
-    $parameters.CompilerOptions = '/unsafe'
+    $parameters.CompilerOptions = '/unsafe /optimize+'
     $parameters.ReferencedAssemblies.AddRange([string[]]@(
         'System.dll','System.Core.dll','System.Windows.Forms.dll','System.Drawing.dll','System.Web.Extensions.dll'))
     Add-Type -Path $paths -CompilerParameters $parameters
