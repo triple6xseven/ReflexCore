@@ -32,8 +32,17 @@ try {
     $files=git ls-files
     Assert-Exit 'Source inventory'
     foreach($name in $files){
-        if($name -match '^(tools|companion3d|examples|tasks|docs|games|assets)/' -or $name -in @('LICENSE','README.md','CHANGELOG.md')){
+        if($name -match '^(tools|companion3d|examples|tasks|docs|games|assets|src|ui|packaging|Sandbox for intelegent test)/' -or $name -in @('LICENSE','README.md','CHANGELOG.md','Cargo.toml','Cargo.lock')){
             Put (Join-Path $root $name) "ReflexCore/$name"
+        }
+    }
+    $dependencies=cargo metadata --format-version 1 --locked --offline | ConvertFrom-Json
+    Assert-Exit 'Rust dependency inventory'
+    foreach($crate in $dependencies.packages){
+        if(!$crate.source){continue}
+        $sourceFolder=Split-Path $crate.manifest_path -Parent
+        foreach($license in (Get-ChildItem -LiteralPath $sourceFolder -File | Where-Object Name -match '^(LICENSE|LICENCE|COPYING|COPYRIGHT|NOTICE|UNLICENSE)')){
+            Put $license.FullName "ReflexCore/runtime/licenses/$($crate.name)-$($crate.version)/$($license.Name)"
         }
     }
     Put 'target/release/reflexcore.exe' 'ReflexCore/target/release/reflexcore.exe'
