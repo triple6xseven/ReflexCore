@@ -33,6 +33,8 @@ Screenshots from the [3D companion development branch](https://github.com/triple
 
 ## What we are building next
 
+The [ReflexCore 1.0 architecture proposal (Russian)](docs/architecture/REFLEXCORE-1.0.md) describes task recovery, verified skill transitions and the rollout from the current runtime.
+
 Expand the verified skill catalog and measure reliability on real tasks. The offline CS 1.6 controller navigates and plants C4 on the original practice map in an isolated GoldSrc server. Game logs score the result. The project can also calculate routes through Dust II. Live completion on Dust II and a win against an active opponent remain future milestones. See the [game benchmark](docs/CS16-BENCHMARK.md).
 
 ## Build from source
