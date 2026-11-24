@@ -143,16 +143,40 @@ public sealed partial class StudioWindow : Window
         var mcpSettings=Command("MCP settings",()=>{
             try{
                 var scopeFile=System.IO.Path.Combine(mcpSettingsPath,"mcp-scope.txt");
-                var scope=System.IO.File.Exists(scopeFile)?System.IO.File.ReadAllText(scopeFile):"";
+                var registryFile=System.IO.Path.Combine(mcpSettingsPath,"mcp-projects.json");
+                var serializer=new System.Web.Script.Serialization.JavaScriptSerializer {MaxJsonLength=16384};
+                var projects=new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+                if(System.IO.File.Exists(registryFile)){
+                    foreach(var entry in serializer.Deserialize<System.Collections.Generic.Dictionary<string,string>>(
+                        System.IO.File.ReadAllText(registryFile)))projects.Add(entry.Key,entry.Value);
+                }else if(System.IO.File.Exists(scopeFile)){
+                    projects.Add("default",System.IO.File.ReadAllText(scopeFile));
+                }
+                string current=projects.Count==0?"No projects configured.":"Configured projects: "+String.Join(", ",projects.Keys);
+                if(MessageBox.Show(this,current+Environment.NewLine+Environment.NewLine+
+                    "Add or update a project folder? Each handoff check still requires approval.",
+                    "MCP settings",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
                 using var picker=new Forms.FolderBrowserDialog {
-                    Description="Choose the folder Codex may use for handoff checks. Studio approval is required for each task.",
-                    SelectedPath=scope,ShowNewFolderButton=false
+                    Description="Choose an existing local project folder. MCP uses it in place.",
+                    ShowNewFolderButton=false
                 };
                 if(picker.ShowDialog()!=Forms.DialogResult.OK)return;
+                string name=new System.IO.DirectoryInfo(picker.SelectedPath).Name;
+                name=System.Text.RegularExpressions.Regex.Replace(name,"[^A-Za-z0-9_-]","-").Trim('-');
+                if(name.Length==0 || name.Length>48){
+                    MessageBox.Show(this,"Choose a project folder with a short name.","MCP settings");
+                    return;
+                }
+                if(projects.TryGetValue(name,out string previous) &&
+                    !String.Equals(previous,picker.SelectedPath,StringComparison.OrdinalIgnoreCase) &&
+                    MessageBox.Show(this,"Update the folder for "+name+"?","MCP settings",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+                projects[name]=picker.SelectedPath;
                 System.IO.Directory.CreateDirectory(mcpSettingsPath);
-                System.IO.File.WriteAllText(scopeFile,picker.SelectedPath);
+                System.IO.File.WriteAllText(registryFile,serializer.Serialize(projects));
             }catch(System.IO.IOException){MessageBox.Show(this,"Could not save the allowed folder.","MCP settings");}
              catch(UnauthorizedAccessException){MessageBox.Show(this,"Could not save the allowed folder.","MCP settings");}
+             catch(ArgumentException){MessageBox.Show(this,"The project registry is invalid.","MCP settings");}
+             catch(InvalidOperationException){MessageBox.Show(this,"The project registry is invalid.","MCP settings");}
         });
         mcpSettings.Margin=new Thickness(8,3,8,3);
         DockPanel.SetDock(mcpToggle,Dock.Bottom);

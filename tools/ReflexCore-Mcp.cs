@@ -126,19 +126,22 @@ namespace ReflexCore.Bridge
             catch(InvalidOperationException){if(request)Error(id,-32600,"Invalid request.");}
         }
 
-        static object Tool(string name,string description,params string[] fields)
+        static object Tool(string name,string description,string[] fields=null,bool project=false)
         {
-            return new {name,description,inputSchema=new {type="object",required=fields,additionalProperties=false,
-                properties=fields.ToDictionary(field=>field,field=>new {type="string"})}};
+            fields=fields??new string[0];
+            var properties=fields.ToDictionary(field=>field,field=>new {type="string"});
+            if(project)properties.Add("project",new {type="string"});
+            return new {name,description,inputSchema=new {type="object",required=fields,additionalProperties=false,properties}};
         }
 
         static object[] Tools()
         {
             return new[]{
                 Tool("list_skills","Read built-in skills and local movement evidence. Only handoff verification can be submitted by this server."),
-                Tool("submit_handoff_check","Submit a handoff check for Studio approval. All paths are relative to the configured scope; use . for its root.","folder","checklist","report"),
-                Tool("get_task_result","Read status and the typed handoff receipt for a queue task.","task_id"),
-                Tool("cancel_task","Request cancellation of an active handoff task. Poll get_task_result for confirmation.","task_id")};
+                Tool("list_projects","List configured project names and their available MCP capability."),
+                Tool("submit_handoff_check","Submit a handoff check for Studio approval. Select a project when multiple roots are configured. Paths are relative to that root; use . for the root itself.",new[]{"folder","checklist","report"},true),
+                Tool("get_task_result","Read status and the typed handoff receipt for a queue task.",new[]{"task_id"}),
+                Tool("cancel_task","Request cancellation of an active handoff task. Poll get_task_result for confirmation.",new[]{"task_id"})};
         }
 
         object Call(string name,Dictionary<string,object> args)
@@ -146,10 +149,17 @@ namespace ReflexCore.Bridge
             switch(name)
             {
                 case "list_skills": return ReadRegistry();
+                case "list_projects":
+                    return new {projects=Projects().Keys.OrderBy(key=>key,StringComparer.OrdinalIgnoreCase)
+                        .Select(key=>new {project=key,capability="verify_handoff"}).ToArray()};
                 case "submit_handoff_check":
-                    var config=new FileInfo(Path.Combine(settings,"mcp-scope.txt"));
-                    if(!config.Exists || config.Length>4096)throw new ArgumentException("Choose an allowed folder in MCP settings.");
-                    var scope=Path.GetFullPath(File.ReadAllText(config.FullName));
+                    var projects=Projects();
+                    var project=Get(args,"project") as string;
+                    if(project==null && projects.Count==1)project=projects.Keys.Single();
+                    string scope;
+                    if(project==null || !projects.TryGetValue(project,out scope))
+                        throw new ArgumentException("Select a configured project from list_projects.");
+                    scope=Path.GetFullPath(scope);
                     var folder=Scoped(scope,StringArg(args,"folder"),false);
                     var checklist=Scoped(scope,StringArg(args,"checklist"),false);
                     var report=Scoped(scope,StringArg(args,"report"),true);
@@ -167,6 +177,27 @@ namespace ReflexCore.Bridge
                     return new {task_id=id,state=row.State,receipt=row.Receipt};
                 default: throw new ArgumentException("Unknown tool.");
             }
+        }
+
+        Dictionary<string,string> Projects()
+        {
+            var projects=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+            var config=new FileInfo(Path.Combine(settings,"mcp-projects.json"));
+            if(config.Exists)
+            {
+                if(config.Length>16384)throw new ArgumentException("The project registry is too large.");
+                foreach(var item in json.Deserialize<Dictionary<string,string>>(File.ReadAllText(config.FullName)))
+                {
+                    if(!System.Text.RegularExpressions.Regex.IsMatch(item.Key,@"\A[a-zA-Z0-9_-]{1,48}\z") ||
+                       String.IsNullOrWhiteSpace(item.Value) || !System.Text.RegularExpressions.Regex.IsMatch(item.Value,@"\A[A-Za-z]:\\"))
+                        throw new ArgumentException("Invalid project configuration.");
+                    projects.Add(item.Key,item.Value);
+                }
+                return projects;
+            }
+            var fallback=new FileInfo(Path.Combine(settings,"mcp-scope.txt"));
+            if(fallback.Exists && fallback.Length<=4096)projects.Add("default",File.ReadAllText(fallback.FullName));
+            return projects;
         }
 
         static string Scoped(string scope,string relative,bool newFile)

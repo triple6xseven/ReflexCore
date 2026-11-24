@@ -120,13 +120,18 @@ try{
             $hello=Invoke-Mcp 'initialize' @{protocolVersion='2025-06-18';capabilities=@{};clientInfo=@{name='test';version='1'}}
             Require ($hello.serverInfo.name -eq 'reflexcore') 'MCP server identity not found'
             Invoke-Mcp 'notifications/initialized' @{} -Notification
-            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 4) 'Wrong MCP tools'
+            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 5) 'Wrong MCP tools'
             Require ((Invoke-Tool 'list_skills' @{}).isError) 'MCP did not honor the off switch'
             [IO.File]::WriteAllText((Join-Path $settings 'mcp.enabled'),'on')
             Require (((Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json).skills.Count -gt 0) 'MCP skill catalog is empty'
+            $mapping=@{reflexcore=$fixture;zxclaglab=$folder}
+            [IO.File]::WriteAllText((Join-Path $settings 'mcp-projects.json'),($mapping|ConvertTo-Json -Compress))
+            $projects=(Invoke-Tool 'list_projects' @{}).content[0].text|ConvertFrom-Json
+            Require ($projects.projects.Count -eq 2) 'MCP project discovery failed'
+            Require ((Invoke-Tool 'submit_handoff_check' @{folder='.';checklist='checklist.json';report='unknown.json'}).isError) 'MCP chose an ambiguous project'
             Checklist @(@{path='absent'})
-            $argsForCheck=@{folder='folder';checklist='checklist.json';report='mcp-report.json'}
-            $outside=@{folder='..';checklist='checklist.json';report='mcp-report.json'}
+            $argsForCheck=@{project='reflexcore';folder='folder';checklist='checklist.json';report='mcp-report.json'}
+            $outside=@{project='zxclaglab';folder='..';checklist='checklist.json';report='mcp-report.json'}
             Require ((Invoke-Tool 'submit_handoff_check' $outside).isError) 'MCP accepted a path outside the scope'
             $job=(Invoke-Tool 'submit_handoff_check' $argsForCheck).content[0].text|ConvertFrom-Json
             $id=$job.task_id

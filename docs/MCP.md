@@ -4,7 +4,7 @@ The ReflexCore MCP server uses stdio. It reuses the local skill catalog, SQLite 
 
 ## Start
 
-1. In the Studio sidebar, open **MCP settings** and select the allowed local folder for handoff checks.
+1. In the Studio sidebar, open **MCP settings** and add the existing project folders for handoff checks.
 2. Switch **MCP On**. A new installation starts off.
 3. Register the server once using an absolute launcher path. Open a new client session after changing its configuration.
 
@@ -16,7 +16,7 @@ The server and Studio must use the same ReflexCore installation. The tray must b
 
 ## Use
 
-Ask the client to list ReflexCore skills, then check a folder with an existing checklist. For example, submit `folder` as `.`, `checklist` as `checklist.json`, and `report` as `verification.json`. Paths are relative to the approved scope. Studio approval is required for every new check, and the report path must be new. Hover a queue row to see its task ID.
+Ask the client to list ReflexCore skills, then check a folder with an existing checklist. For example, submit `folder` as `.`, `checklist` as `checklist.json`, and `report` as `verification.json`. Use `list_projects` to discover the configured projects and pass the selected name as `project`. Paths are relative to that project root. The registry stores references to existing project folders and does not copy the projects. Studio approval is required for every new check, and the report path must be new. Hover a queue row to see its task ID.
 
 Poll `get_task_result` with the submitted task ID. The receipt distinguishes task verification from folder readiness. A verified result can include missing files and zero model calls. The MCP result exposes counts, measurements and reason codes. Detailed filenames and hashes stay in the local report. Cancellation requests and terminal cancellation are separate outcomes.
 
