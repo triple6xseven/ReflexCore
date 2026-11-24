@@ -19,6 +19,8 @@ Local-first Windows automation for PCs with limited RAM and GPU capacity. Reflex
 
 Screenshots from the [3D companion development branch](https://github.com/triple6xseven/ReflexCore/tree/feat/companion3d).
 
+![ReflexCore Studio Diagnostics with the ZXC companion and numbered GPU metrics](docs/screenshots/studio-diagnostics-live-status.png)
+
 ![ReflexCore Studio Diagnostics with the ZXC companion and Live Status widget](docs/screenshots/studio-diagnostics-and-zxc.png)
 
 ![ReflexCore Studio Agent dashboard, desktop companion and live hardware widget](docs/screenshots/studio-agent-and-companion.png)
