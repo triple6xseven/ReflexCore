@@ -63,26 +63,27 @@ def add_texture(doc, data, payload):
 
 
 def drape_position(sign, u, t, tier):
-    angle = .76 + 2.35*u
+    angle = .89 + (2.19-.29*t)*u+.29*t
     fold = 1.0 + .077*sin(6*pi*u+1.15*t)*(t+.35)
     asymmetric = 1.0 if sign < 0 else .92
     if tier == 0:
         length = (.29+.35*max(0,sin(pi*u))**.9+.034*cos(6*pi*u))*asymmetric
-        radius_x = .151+.122*t
+        radius_x = .151+.142*t
         radius_z = .105+.099*t
     else:
         length = (.090+.135*max(0,sin(pi*u))**.67+.025*cos(9*pi*u))*asymmetric
-        radius_x = .155+.074*t
+        radius_x = .155+.093*t
         radius_z = .110+.058*t
     return np.array((sign * sin(angle)*radius_x*fold,
                      1.106-length*t-.013*t*sin(9*pi*u),
-                     -cos(angle)*radius_z*fold+.093*t*t))
+                     -cos(angle)*radius_z*fold+(.113 if tier == 0 else .076)*t))
 
 
 def layered_drapes(groups, joints):
     hips = joints.index("J_Bip_C_Hips")
     for sign, side in ((-1,"L"),(1,"R")):
-        thigh = joints.index(f"J_Bip_{side}_UpperLeg")
+        side_panel = joints.index(f"J_Sec_{side}_SkirtSide1")
+        train = joints.index(f"J_Sec_{side}_SkirtBack1")
         for tier, rings, sides in ((0,18,40),(1,9,38)):
             rows = []
             for row in range(rings+1):
@@ -95,10 +96,11 @@ def layered_drapes(groups, joints):
                     dt = drape_position(sign,u,t+.0005,tier)-drape_position(sign,u,t-.0005,tier)
                     normal = np.cross(dt,du)*sign
                     normal /= np.linalg.norm(normal)
-                    # Follow the upper leg toward the forward edge and hinge from
-                    # the waist toward the train so the long tier hangs behind it.
-                    influence = min(.91,t*1.6)*(.92-.48*u)
-                    vertices.append((p,normal,(u,t),(hips,thigh,0,0),(1-influence,influence,0,0)))
+                    # Let the panels hang from the waist when the legs lift.
+                    follow = min(.96,1.6*t)
+                    back = u*u
+                    vertices.append((p,normal,(u,t),(hips,side_panel,train,0),
+                                     (1-follow,follow*(1-back),follow*back,0)))
                 rows.append(vertices if sign>0 else list(reversed(vertices)))
             rings_to_mesh(groups,rows, lambda row,edge:
                           "piping" if edge in (0,sides-1) or row==rings-1
@@ -250,6 +252,7 @@ def retint_base(doc):
         "Lunar seam": (.38,.175,.44),
         "Lunar panel": (.19,.075,.255),
         "Lunar cuff": (.147,.039,.19),
+        "Lunar stocking welt": (.147,.039,.19),
         "Lunar pearlescent hair": (.68,.55,.80),
         "Lunar lilac hair": (.48,.35,.64),
     }

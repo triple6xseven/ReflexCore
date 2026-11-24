@@ -13,22 +13,25 @@ from build_companion_lunar import rings_to_mesh
 
 
 def overskirt(groups, hips, joints):
-    for side in (-1, 1):
-        thigh = joints.index('J_Bip_'+('L' if side<0 else 'R')+'_UpperLeg')
+    for side, label in ((-1, "L"), (1, "R")):
+        side_panel = joints.index(f"J_Sec_{label}_SkirtSide1")
+        train = joints.index(f"J_Sec_{label}_SkirtBack1")
         rows = []
         for j in range(19):
             t = j / 18
             row = []
             for i in range(33):
                 u = i / 32
-                angle = .76 + 2.29*u
+                angle = .87 + (2.17-.33*t)*u+.33*t
                 pleat = 1 + (.02+.07*t)*cos(8*pi*u + .7*t)
                 drop = (.28 + .36*sin(pi*u)**.8 + .025*cos(8*pi*u))*t
-                x = side*sin(angle)*(.135+.135*t)*pleat
-                z = -cos(angle)*(.108+.105*t)*pleat + .085*t*t
+                x = side*sin(angle)*(.135+.147*t)*pleat
+                z = -cos(angle)*(.108+.104*t)*pleat + .11*t
                 normal = (side*sin(angle),.16,-cos(angle))
-                follow = t*(.87-.25*u)
-                row.append((np.array((x,1.11-drop,z)),normal,(u,t),(hips,thigh,0,0),(1-follow,follow,0,0)))
+                follow = min(.96,1.6*t)
+                back = u*u
+                row.append((np.array((x,1.11-drop,z)),normal,(u,t),(hips,side_panel,train,0),
+                            (1-follow,follow*(1-back),follow*back,0)))
             rows.append(row if side>0 else row[::-1])
         rings_to_mesh(groups,rows,lambda j,i: "embroidery" if j in [15,17] or i in [0,31]
                       else "silk fold" if i%8 in [0,1,2] else "velvet")

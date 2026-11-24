@@ -30,6 +30,10 @@ void fragment() {
 		sheen = 0.14;
 	} else if (profile == 3.0) {
 		sheen = 0.25;
+	} else if (profile == 4.0) {
+		shadow = vec3(0.70, 0.66, 0.73);
+		tint = vec3(1.02, 0.99, 1.02);
+		sheen = 0.046;
 	}
 
 	if (refined) {
@@ -39,5 +43,5 @@ void fragment() {
 	}
 	vec3 edge = vec3(0.25, 0.29, 0.53) * rim * (0.24 + 0.28 * lit);
 	vec3 lit_color = texel.rgb * mix(shadow, tint, lit);
-	ALBEDO = lit_color + edge * (profile == 0.0 ? 0.34 : 1.0) + sheen * highlight;
+	ALBEDO = lit_color + edge * (profile == 0.0 || profile == 4.0 ? 0.34 : 1.0) + sheen * highlight;
 }

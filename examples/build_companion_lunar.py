@@ -21,6 +21,7 @@ PALETTE = {
     "cuff": (.16, .091, .23),
     "liner": (.59, .45, .66),
     "stocking": (.086, .060, .110),
+    "stocking welt": (.176, .086, .221),
     "nickel": (.59, .51, .69),
 }
 
@@ -132,11 +133,12 @@ def add_armwear(groups, joints):
 def add_panels(groups, joints):
     hips = joints.index("J_Bip_C_Hips")
     # Two pleated side panels. The front opening stays clear of the knees.
-    for sign in (-1, 1):
+    for sign, side in ((-1, "L"), (1, "R")):
+        drape = joints.index(f"J_Sec_{side}_SkirtSide1")
         rows = []
-        for y, radius_x, radius_z, angle_start, angle_end in (
-            (1.111,.118,.089,.51,2.75),(1.051,.146,.101,.71,2.73),
-            (.990,.169,.108,.87,2.69),(.968,.176,.112,.96,2.63),
+        for y, radius_x, radius_z, angle_start, angle_end, weight in (
+            (1.111,.118,.089,.51,2.75,0), (1.051,.153,.112,.81,2.73,.26),
+            (.990,.182,.119,1.04,2.69,.56), (.968,.186,.121,1.17,2.63,.71),
         ):
             row = []
             for index in range(13):
@@ -145,7 +147,7 @@ def add_panels(groups, joints):
                 pleat = 1+.045*cos(index*pi/2)
                 point = (sign*sin(angle)*radius_x*pleat,y,-cos(angle)*radius_z*pleat)
                 normal = (sign*sin(angle),0,-cos(angle))
-                row.append((np.asarray(point),normal,(0,0),(hips,0,0,0),(1,0,0,0)))
+                row.append((np.asarray(point),normal,(0,0),(hips,drape,0,0),(1-weight,weight,0,0)))
             rows.append(row if sign>0 else list(reversed(row)))
         rings_to_mesh(groups, rows, lambda row, edge: "seam" if row == 2 or edge == 0
                       else "panel" if edge%4 in {0,1} else "silk")
@@ -243,7 +245,7 @@ def build(source, stockings):
                         skin, lower = split(polygon, lambda p:p[1]-(.805+.007*cos(p[2]*170)))
                         cuff, knit = split(lower, lambda p:p[1]-.781)
                         collect(groups,key,skin)
-                        collect(groups,"cuff",cuff)
+                        collect(groups,"stocking welt",cuff)
                         collect(groups,"stocking",knit)
             else:
                 add_toes(groups, doc, binary, old_primitives, joints)

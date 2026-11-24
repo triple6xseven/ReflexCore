@@ -3,11 +3,13 @@ extends RefCounted
 const AtelierToon = preload("res://atelier_toon.gdshader")
 const ZxcLegwear = preload("res://zxc_legwear.gdshader")
 const LEGWEAR_COLORS := {
-	"dark": Color("#241b30"), "black": Color.BLACK, "white": Color("#f0eef5"), "lilac": Color("#bc9de3"),
+	"dark": Color("#241b30"), "black": Color("#211e26"), "white": Color("#f8f7f4"), "lilac": Color("#bc9de3"),
 	"plum": Color("#673573"), "burgundy": Color("#642943")
 }
 const LEGWEAR_COVERAGE := {5: .24, 10: .36, 15: .48, 20: .59, 30: .76, 40: .93}
-const LEGWEAR_MATERIALS := ["stocking knit", "stocking cuff", "midnight stocking feet", "lunar stocking"]
+const LEGWEAR_MATERIALS := ["stocking knit", "stocking cuff", "midnight stocking feet", "lunar stocking", "lunar stocking welt"]
+const LEGWEAR_CUFFS := ["stocking cuff", "lunar stocking welt"]
+const SHEER_SKIN := Color("#efb7ab")
 
 const MAX_BYTES := 96 * 1024 * 1024
 const REQUIRED := ["hips", "head", "leftUpperArm", "rightUpperArm", "leftUpperLeg", "rightUpperLeg"]
@@ -47,8 +49,10 @@ var legwear_style := ""
 var grip_fingers := {}
 var curled_hands := {}
 var drape_weight := 0.0
+var ledge_drape := 0.0
 var zxc := false
 var nocturne := false
+var long_drape := false
 var sole_y := 0.0
 var attentive := 0.0
 var surprise := 0.0
@@ -202,6 +206,7 @@ func load_bytes(bytes: PackedByteArray) -> bool:
 	var title := str(license_data.get("title",""))
 	zxc=legacy and title=="ZXC"
 	nocturne=legacy and title in ["Lumen - ReflexCompanion Midnight Nocturne","Lumen - ReflexCompanion Lunar Temptation","Lumen - ReflexCompanion Velvet Enchantress","Lumen - ReflexCompanion Velvet Bloom","ZXC"]
+	long_drape=title in ["Lumen - ReflexCompanion Velvet Enchantress","Lumen - ReflexCompanion Velvet Bloom","ZXC"]
 	refined=nocturne or legacy and title=="Lumen - ReflexCompanion Midnight Atelier Refined"
 	sole_y=_measure_sole()
 	atelier=refined or legacy and title=="Lumen - ReflexCompanion Midnight Atelier"
@@ -229,6 +234,8 @@ func load_bytes(bytes: PackedByteArray) -> bool:
 		starting_positions[bone] = skeleton.get_bone_pose_position(bone)
 	for bone in secondary+skirt_roots:
 		rotations[bone] = skeleton.get_bone_pose_rotation(bone)
+	for bone in skirt_roots:
+		starting_positions[bone] = skeleton.get_bone_pose_position(bone)
 	for side in ["left","right"]:
 		_lower_arm(side)
 		var chain := []
@@ -339,7 +346,7 @@ func _setup_secondary(source: Dictionary, vrm0: Dictionary, extensions: Dictiona
 				candidates.append(i)
 	for i in skeleton.get_bone_count():
 		var display := String(skeleton.get_bone_name(i)).to_lower()
-		if display.right(1) in ["0","1","2"] and ("skirtfront" in display or "skirtside" in display):
+		if display.right(1) in ["0","1","2"] and ("skirtfront" in display or "skirtside" in display or long_drape and "skirtback" in display):
 			skirt_roots.append(i)
 	for bone in candidates:
 		if secondary.size() >= 22:
@@ -383,7 +390,7 @@ func _apply_atelier_materials() -> void:
 				profile = 3.0
 			elif name in ["fitted top","tailored shorts","violet piping","graphite belt","corset panel",
 					"woven harness","harness piping","high collar","shorts side panel","stocking cuff",
-					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar panel","lunar seam","lunar cuff","lunar liner","lunar stocking","velvet velvet","velvet silk fold","velvet embroidery", "bloom velvet", "bloom chiffon", "bloom piping", "bloom petal"]:
+					"stocking knit","midnight stocking feet","nocturne satin","nocturne piping","nocturne strap","lunar silk","lunar panel","lunar seam","lunar cuff","lunar liner","lunar stocking","lunar stocking welt","velvet velvet","velvet silk fold","velvet embroidery", "bloom velvet", "bloom chiffon", "bloom piping", "bloom petal"]:
 				profile = 2.0
 			if profile < 0.0:
 				continue
@@ -419,30 +426,27 @@ func set_legwear(stocking_asset: bool, den: int, color: String) -> void:
 				if atlas:
 					variant.shader=ZxcLegwear
 					variant.set_shader_parameter("fabric_texture", source.albedo_texture)
-				elif original is ShaderMaterial:
-					variant=original.duplicate() as ShaderMaterial
-					variant.set_shader_parameter("fabric_texture", null)
 				else:
 					variant.shader=AtelierToon
-					variant.set_shader_parameter("profile", 2.0)
-				if not atlas:
-					variant.set_shader_parameter("alpha_cut", 0.0)
-				legwear_surfaces.append([mesh,surface,original,variant,atlas,name=="stocking cuff"])
+					variant.set_shader_parameter("profile", 4.0)
+					variant.set_shader_parameter("refined", refined)
+				legwear_surfaces.append([mesh,surface,original,variant,atlas,name in LEGWEAR_CUFFS])
 	var customized := stocking_asset and (den!=40 or color!="dark")
 	var fabric: Color = LEGWEAR_COLORS.get(color, LEGWEAR_COLORS.dark)
 	var coverage: float = LEGWEAR_COVERAGE.get(den, LEGWEAR_COVERAGE[40])
-	if color=="black" and den==40:
-		coverage=1.0
+	var knit := SHEER_SKIN.lerp(fabric,coverage)
+	# The folded top is denser and has a distinct edge even on near-black fabric.
+	var welt := knit.lerp(Color("#ffffff") if color=="white" else fabric,.60)
+	if color!="white":
+		welt=welt.lightened(.115 if color=="black" else .082)
 	for record in legwear_surfaces:
 		var variant: ShaderMaterial = record[3]
 		if customized:
 			if record[4]:
-				variant.set_shader_parameter("stocking_tint", fabric)
-				variant.set_shader_parameter("fiber_coverage", coverage)
+				variant.set_shader_parameter("stocking_tint", knit)
+				variant.set_shader_parameter("welt_tint", welt)
 			else:
-				var skin := Color("#f7d8d2")
-				var shade := skin.srgb_to_linear().lerp(fabric.srgb_to_linear(), maxf(.94, coverage) if record[5] else coverage)
-				variant.set_shader_parameter("base_tint", shade.linear_to_srgb())
+				variant.set_shader_parameter("base_tint", welt if record[5] else knit)
 		record[0].set_surface_override_material(record[1], variant if customized else record[2])
 
 func _expression_key(name: String) -> String:
@@ -640,6 +644,7 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var relax := 0.16 if state=="petted" and enabled else 0.0
 		_pose(side + "UpperArm", Vector3(swing * -0.24 - relax, 0, (arm_lift+wave) * side_sign * sign), blend)
 		_pose(side + "LowerArm", Vector3(-swing * 0.12 - 0.13 - absf(wave)*1.7, side_sign * arm_lift * 0.24, 0), blend)
+		_pose(side + "Hand", Vector3.ZERO, blend)
 		var tuck := 0.0
 		if enabled and state in ["dragged","thrown","falling","landing","hard_collision"]:
 			tuck=clampf(0.13+motion.length()/2100,0.13,0.64)
@@ -659,10 +664,12 @@ func animate(dt: float, now: float, next: String, cursor: Vector2, motion: Vecto
 		var bone := secondary[i]
 		var rest: Quaternion = rotations.get(bone, Quaternion.IDENTITY)
 		var drift := 0.015 * sin(now * 4 + i * 0.7) if enabled and hair else 0.0
-		var bone_name := String(skeleton.get_bone_name(bone)).to_lower()
-		var cloth := 0.05 if "skirtfront" in bone_name and bone not in skirt_roots else 0.0
+		if bone in skirt_roots:
+			continue
+		var cloth := 0.05 if "skirtfront" in String(skeleton.get_bone_name(bone)).to_lower() else 0.0
 		var movement := Quaternion.from_euler(Vector3((secondary_motion.y * 0.16 + drift - stance*cloth) * sign, 0, secondary_motion.x * 0.225))
 		skeleton.set_bone_pose_rotation(bone, (rest * movement).normalized())
+	ledge_drape=lerpf(ledge_drape,1.0 if seated and not cloudy else 0.0,blend)
 	for bone in skirt_roots:
 		_drape_skirt(bone,blend)
 	if not window_drape.is_empty():
@@ -717,10 +724,16 @@ func _drape_skirt(bone: int, blend: float) -> void:
 	var direction := skeleton.get_bone_global_rest(joint).origin-rest_pose.origin
 	if direction.length_squared()<0.000001:
 		return
-	var front := "skirtfront" in String(skeleton.get_bone_name(bone)).to_lower()
-	var outward := seat_right*signf(rest_pose.origin.dot(seat_right))
+	var display := String(skeleton.get_bone_name(bone)).to_lower()
+	var front := "skirtfront" in display
+	var lateral := signf(rest_pose.origin.dot(seat_right))
+	if display.begins_with("j_sec_l_"):
+		lateral=-1.0
+	elif display.begins_with("j_sec_r_"):
+		lateral=1.0
+	var outward := seat_right*lateral
 	var flow := seat_forward*(0.86 if front else 0.52)+Vector3.DOWN*(0.55 if front else 0.85)
-	var segment := String(skeleton.get_bone_name(bone)).right(1).to_int()
+	var segment := display.right(1).to_int()
 	if segment==0 and front:
 		flow=seat_forward*0.98+Vector3.DOWN*0.12
 	elif segment>0:
@@ -731,13 +744,23 @@ func _drape_skirt(bone: int, blend: float) -> void:
 
 	if not front:
 		flow+=outward*0.46
-		if zxc:
-			flow=Vector3.DOWN+outward*.34+seat_forward*.48
+		if nocturne:
+			var back := "skirtback" in display
+			flow=Vector3.DOWN+outward*(.20 if back else .38)-seat_forward*(.24 if back else .12)
+			if long_drape and not zxc:
+				var over_edge := outward*.56+Vector3.DOWN*.55+seat_forward*(1.26 if back else .78)
+				flow=flow.lerp(over_edge,ledge_drape)
+				if segment==1:
+					# Slide the loose panel over the lip while the waist remains fixed.
+					var start: Vector3=starting_positions[bone]
+					var offset := (seat_forward*(.075 if back else .046)+outward*.032)*ledge_drape*stance
+					skeleton.set_bone_pose_position(bone,start+_parent_basis(bone).inverse()*offset)
 	var from := (_parent_basis(bone,true).inverse()*direction).normalized()
 	var to := (_parent_basis(bone).inverse()*flow).normalized()
 	var rest: Quaternion=rotations[bone]
 	var target := (Quaternion(from,to)*rest).normalized()
-	_blend_joint(bone,Vector3(secondary_motion.y*0.09,0,secondary_motion.x*0.14),target,blend)
+	var sway := Vector3(secondary_motion.y*.065,0,secondary_motion.x*.09)
+	_blend_joint(bone,sway,target,blend)
 
 func _find_seat_axes() -> void:
 	var left := skeleton.get_bone_global_rest(int(roles["leftUpperLeg"])).origin
@@ -866,7 +889,8 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 			continue
 		var shoulder := world_bone(side+"UpperArm")
 		var side_sign := signf(shoulder.x-torso.x)
-		var outward := frame*seat_right*(-1.0 if side=="left" else 1.0)
+		var lateral := -1.0 if side=="left" else 1.0
+		var outward := frame*seat_right*lateral
 		var gesture := Vector3(side_sign*0.135,-0.10,0.15)
 		var knee_grip := 0.0
 		var grip_direction := Vector3.ZERO
@@ -877,29 +901,27 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				var knee := world_bone(side+"LowerLeg") if has_knee else Vector3.ZERO
 				gesture=hips-torso+Vector3(side_sign*0.117,0.081,0.16)
 				if atelier:
-					# Aim the wrist beside the hip in the actual rig frame as the avatar turns.
-					var local_side := signf((shoulder-torso).dot(frame*seat_right))
-					gesture=hips-torso+frame*seat_right*local_side*0.18 + Vector3.UP*0.012
-					if refined:
-						var palm_side := .215 if nocturne and state!="cloud_sit" else .195 if state!="cloud_sit" else .143
-						gesture=hips-torso+frame*(seat_right*local_side*lerpf(palm_side,.17,attentive) 							+seat_forward*lerpf(.035,.095,attentive))+Vector3.UP*lerpf(.012,.068,attentive)
-				if atelier and has_knee:
-					var lap := hips.lerp(knee,.56)-torso+Vector3.UP*.072
-					gesture=gesture.lerp(lap,.88)
-					if side=="right":
-						gesture=gesture.lerp(hips-torso+outward*.21-forward*.06,side_sit)
+					var support := hips+outward*(.222 if long_drape else .203)-forward*.038+Vector3.DOWN*.026
+					gesture=support-torso
+					if has_knee:
+						var thigh := world_bone(side+"UpperLeg")
+						var lap := thigh.lerp(knee,.43)+outward*.037+Vector3.UP*.065
+						var brace := crossed if lateral==cross_direction else 0.0
+						if side=="right":
+							brace=maxf(brace,side_sit)
+						gesture=(lap.lerp(support,brace)-torso).lerp(lap-torso,attentive*.32)
 				if hug_progress>0 and has_knee and roles.has(side+"Foot"):
 					var shin := (world_bone(side+"Foot")-knee).normalized()
 					var ahead := forward.slide(shin).normalized()
-					var pad := knee+shin*.04+ahead*.063+outward*.014
-					var wrist_target := pad+outward*.066-shin*.023
+					var pad := knee+shin*.055+ahead*.049+outward*.018
+					var wrist_target := pad+outward*.057-shin*.026
 					grip_direction=(pad-wrist_target).normalized()
 					grip_normal=(-ahead-outward*.22).normalized()
 					knee_grip=smoothstep(.22 if side=="left" else .32,.88 if side=="left" else .98,hug_progress)
 					gesture=gesture.lerp(wrist_target-torso,knee_grip)
 					gesture+=outward*.044*sin(PI*knee_grip)
-				if crossed>0 and side==("right" if cross_direction>0 else "left"):
-					gesture=gesture.lerp(hips-torso+outward*.265-forward*.045+Vector3.DOWN*.055,crossed)
+				if not atelier and crossed>0 and lateral==cross_direction:
+					gesture=gesture.lerp(hips-torso+outward*.23-forward*.038+Vector3.DOWN*.025,crossed)
 				if enabled and state=="happy":
 					gesture.y+=sin(now*8)*0.024
 			"dragged","thrown","falling":
@@ -910,13 +932,14 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 				var vertical := -0.04 if gesture_state=="reach" else -0.15 if gesture_state=="grip" else -0.21
 				gesture=Vector3(side_sign*0.135,vertical,0.29)
 			"walk","run":
-				var side_phase := -1.0 if side=="left" else 1.0
-				var stride := -sin(step_phase)*side_phase*gait
+				var stride := -sin(step_phase)*lateral*gait
 				var arm_length := shoulder.distance_to(world_bone(side+"LowerArm"))
 				arm_length += world_bone(side+"LowerArm").distance_to(world_bone(side+"Hand"))
-				var reach := arm_length*(.24 if gesture_state=="run" else .16)
-				gesture=shoulder-torso+outward*.027+forward*(.012+stride*reach)
-				gesture+=Vector3.DOWN*(arm_length*(.96-.04*maxf(0,stride)))
+				var reach := arm_length*(.21 if gesture_state=="run" else .135)
+				var clearance := arm_length*(.19 if long_drape else .125)
+				var wrist := shoulder+outward*clearance+forward*(arm_length*.075+stride*reach)
+				wrist+=Vector3.DOWN*(arm_length*(.95-.035*maxf(0,stride)))
+				gesture=wrist-torso
 			"cloud_summon":
 				gesture=outward*.16+forward*.18+Vector3.DOWN*(.16+.027*sin(now*6))
 			"hover":
@@ -949,11 +972,11 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 					gesture+=Vector3.UP*(.055*side_sign)+forward*(.03*side_sign)
 		var pole := Vector3(side_sign*0.65,-1.0,0.05)
 		if gesture_state in ["walk","run"]:
-			pole=outward*.36-forward
+			pole=outward*(.60 if long_drape else .42)-forward
 		elif gesture_state=="cloud_summon":
 			pole=outward*.38+Vector3.DOWN-forward*.2
 		elif atelier and (seated or gesture_state=="stand_up"):
-			pole=outward*.65+Vector3.DOWN-forward*.12
+			pole=outward*.68+Vector3.DOWN-forward*.34
 		if knee_grip>0.0:
 			pole=pole.lerp(outward*.95+Vector3.DOWN*.45-forward*.15,knee_grip)
 		# Keep targets in rig space, so turning the whole avatar carries both arms.
@@ -965,22 +988,20 @@ func _gesture(now: float, dt: float, enabled: bool, seated: bool, impact: String
 		wrist_targets[side]=previous_wrist.lerp(wrist_goal,follow)
 		elbow_targets[side]=elbow.lerp(elbow_goal,follow)
 		_solve_arm(side,wrist_targets[side],elbow_targets[side],lerpf(gesture_weight,1.0,knee_grip))
-		if gesture_state!="":
-			var hand := int(roles[side+"Hand"])
-			var finger := int(bone_name_ids.get("jbip"+side.left(1)+"middle1",-1))
-			if finger >= 0:
-				var wrist := skeleton.get_bone_global_pose(hand).origin
-				var direction := skeleton.get_bone_global_pose(finger).origin-wrist
-				if gesture_state=="seated" and atelier:
-					var palm := seat_forward + Vector3.DOWN*(0.22 if nocturne else 0.38)
-					palm+=seat_right*(.36 if side=="left" else -.36)
-					_rotate_chain(hand,direction,palm,gesture_weight*0.77)
-				elif atelier and gesture_state in ["walk","run","cloud_summon","stand_up","hover"]:
-					var forearm := wrist-skeleton.get_bone_global_pose(int(roles[side+"LowerArm"])).origin
-					_rotate_chain(hand,direction,forearm,gesture_weight*0.69)
-
-				if knee_grip>0.0:
-					_orient_knee_grip(side,hand,finger,inverse_frame*grip_direction,inverse_frame*grip_normal,knee_grip)
+		var hand := int(roles[side+"Hand"])
+		var finger := int(bone_name_ids.get("jbip"+side.left(1)+"middle1",-1))
+		if finger >= 0:
+			var wrist := bone_position(side+"Hand")
+			var forearm := (wrist-bone_position(side+"LowerArm")).normalized()
+			var arm_side := seat_right*lateral
+			if gesture_state=="seated" and atelier:
+				var palm := (seat_forward+arm_side*.13+Vector3.DOWN*.31).normalized()
+				_orient_hand(side,hand,finger,palm,Vector3.DOWN,gesture_weight*.86)
+			elif atelier and gesture_state in ["walk","run","cloud_summon","stand_up","hover"]:
+				var palm := (forearm+arm_side*.09+Vector3.DOWN*.20).normalized()
+				_orient_hand(side,hand,finger,palm,-arm_side,gesture_weight*.76)
+			if knee_grip>0.0:
+				_orient_hand(side,hand,finger,inverse_frame*grip_direction,inverse_frame*grip_normal,knee_grip)
 		_curl_grip(side,inverse_frame*grip_normal,knee_grip)
 
 
@@ -1001,7 +1022,7 @@ func _curl_grip(side: String, normal: Vector3, amount: float) -> void:
 			_rotate_chain(bone,axis,axis*cos(flex)+into_palm*sin(flex),1.0)
 
 
-func _orient_knee_grip(side: String, hand: int, finger: int, aim: Vector3, normal: Vector3, amount: float) -> void:
+func _orient_hand(side: String, hand: int, finger: int, aim: Vector3, normal: Vector3, amount: float) -> void:
 	var thumb := int(bone_name_ids.get("jbip"+side.left(1)+"thumb1",-1))
 	if thumb<0:
 		return
