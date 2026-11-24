@@ -1,3 +1,9 @@
+## Automatic CS 1.6 practice route recovery
+
+- Wait for a new engine round and a matching spawn observation before automatic routing.
+- Preserve narrow standing paths, use precise steering for automatic routes and replan away from a blocked heading after a confirmed stall.
+- Report destination, engine-confirmed zone entry, recovery and C4 verification separately. Add an isolated run, independent log check and optional HLTV recording for verified automatic drills.
+
 ## Emergency stop and ReflexVision validation
 
 - Extend Ctrl+Alt+F10 to cancel supervised jobs, Shared Control, preview and managed practice runs.

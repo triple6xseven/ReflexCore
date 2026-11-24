@@ -2,6 +2,23 @@
 
 ## CS 1.6 automatic plant routing
 
+### Fresh-round and recovery validation
+
+The earlier Inferno failure reproduced on the isolated server: one movement command was followed by `PoseDiscontinuity` and no plant. The controller now waits for a changed, live round generation and pairs it with the exact observation tick. Automatic steering and path simplification use stricter geometry checks. The engine's confirmed plant-zone flag can complete navigation early when the pose is valid. This fixed the Aztec case in which the player had entered the valid zone while the next planned waypoint still appeared unreachable.
+
+The test uses a stationary CT fixture on loopback. `Test-CS16AutoRoute.ps1` additionally checks the fresh GoldSrc log for a plant by the same owned actor. `de_train` was selected before tuning the candidate and was held out from route/steering tuning. Count match wins separately. The four controller runs below use one observed spawn per map and do not establish arbitrary-map or arbitrary-spawn reliability.
+
+| Map | Engine-confirmed zone and independently verified plant | Total wall time | Recovery attempts | Spawn to plant from game log |
+| --- | --- | ---: | ---: | ---: |
+| de_inferno | Yes | 46.84 s | 0 | 44 s |
+| de_train (held out) | Yes | 39.75 s | 1 | 38 s |
+| de_dust2 | Yes | 42.80 s | 1 | 41 s |
+| de_aztec | Yes | 48.81 s | 1 | 46 s |
+
+A separate Studio-panel run with Record replay enabled verified the Train plant again (40.2 s, one recovery) and saved a 389,117-byte HLTV demo. The plant was independently verified for the actual actor ID in the GoldSrc log.
+
+The earlier Dust II and Aztec totals below were shorter. The candidate uses smaller steering corrections and preserves more waypoints in narrow areas. These are single-run comparisons and do not isolate the cost of each change.
+
 Tested on the owned localhost GoldSrc server with a stationary CT fixture. These trials start from the actual actor spawn and use auto-discovered bombsites. The pass criterion is a fresh C4-plant acknowledgement from the engine.
 
 | Map | Verified C4 | Navigation | Total | Movement commands |

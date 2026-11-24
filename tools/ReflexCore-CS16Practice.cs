@@ -140,6 +140,10 @@ namespace ReflexCore.Practice
         public string schema { get; set; }
         public string map { get; set; }
         public uint engine_subject_id { get; set; }
+        public bool reached_plant_zone { get; set; }
+        public string route_site { get; set; }
+        public int recovery_attempts { get; set; }
+        public string route_stop { get; set; }
         public bool verified_plant { get; set; }
         public bool match_mode { get; set; }
         public bool verified_bot_defeat { get; set; }
@@ -290,11 +294,14 @@ namespace ReflexCore.Practice
         private DateTime runStartedUtc;
         private double? readyTick;
         private uint startSequence;
-        private bool waiting, cancellation, closeAfter, outputOverflow, startAttempted;
+        private bool waiting, cancellation, closeAfter, outputOverflow, startAttempted, drillRecorderSkipped;
+        private readonly string requestedMap;
+        private readonly CheckBox drillRecord=new CheckBox { Text="Record replay", AutoSize=true };
+        private bool drillReplaySaved;
 
-        private PracticePanel(string rootPath,bool run,bool match)
+        private PracticePanel(string rootPath,bool run,bool match,string map=null)
         {
-            root=rootPath; autoStart=run; matchMode=match;
+            root=rootPath; autoStart=run; matchMode=match; requestedMap=map;
             replayFolder=Path.Combine(root,"data","replays","cs16");
             Text=matchMode?"ReflexCore | CS 1.6 Offline Match":"ReflexCore | CS 1.6 Offline Practice";
             BackColor=Color.FromArgb(22,33,50);
@@ -325,7 +332,7 @@ namespace ReflexCore.Practice
             }
             top.Controls.Add(start); top.Controls.Add(stop);
             if(matchMode){ top.Controls.Add(spectate); top.Controls.Add(replays); }
-            else { top.Controls.Add(mapSelection); }
+            else { top.Controls.Add(mapSelection); top.Controls.Add(drillRecord); top.Controls.Add(replays); }
             ConfigureLabel(status,FontStyle.Bold);
             ConfigureLabel(evidence,FontStyle.Regular);
             status.Text="Ready for an isolated server";
@@ -373,6 +380,11 @@ namespace ReflexCore.Practice
                 catch(IOException) {}
                 catch(UnauthorizedAccessException) {}
             }
+            if(!String.IsNullOrEmpty(requestedMap)){
+                int mapIndex=mapSelection.Items.IndexOf(requestedMap);
+                if(mapIndex<=0){status.Text="Requested map unavailable in the owned server";return;}
+                mapSelection.SelectedIndex=mapIndex;
+            }
             if(autoStart)BeginRun();
         }
 
@@ -408,8 +420,8 @@ namespace ReflexCore.Practice
                 route=autoRoute
                     ? new PracticeRoute {map=(string)mapSelection.SelectedItem,site="automatic"}
                     : PracticeRoute.Load(settings.route);
-                if(autoRoute && !settings.MayStartServer)
-                    throw new InvalidOperationException("Automatic maps require the owned local practice server.");
+                if(autoRoute && (!settings.MayStartServer || !settings.stationary_opponent))
+                    throw new InvalidOperationException("Automatic maps require the owned local practice server and stationary opponent.");
                 if(matchMode && (route.map!="de_reflex_lab" || !settings.MayStartServer || settings.port>=65535))
                     throw new InvalidOperationException("An owned local lab is required for a match.");
                 recordStem=null;
@@ -420,6 +432,9 @@ namespace ReflexCore.Practice
                 readyTick=null;
                 cancellation=false;
                 startAttempted=false;
+                drillRecorderSkipped=false;
+                drillReplaySaved=false;
+                drillRecord.Enabled=false;
                 waiting=true;
                 start.Enabled=false;
                 stop.Enabled=true;
@@ -503,6 +518,7 @@ namespace ReflexCore.Practice
                 return;
             }
             if(matchMode && !EnsureRecorder()) return;
+            if(autoRoute && drillRecord.Checked && !DrillRecorderReady())return;
             StartController(state);
         }
 
@@ -534,6 +550,22 @@ namespace ReflexCore.Practice
             if(ownedServer==null)throw new InvalidOperationException("Could not start the isolated server.");
         }
 
+        private bool DrillRecorderReady()
+        {
+            if(drillRecorderSkipped || ownedServer==null || settings.port>=65535 ||
+                !File.Exists(Path.Combine(Path.GetDirectoryName(settings.server_exe),"hltv.exe")))return true;
+            try {
+                if(EnsureRecorder())return true;
+                if(recorderClock.ElapsedMilliseconds<5000)return false;
+            } catch(IOException) { }
+              catch(UnauthorizedAccessException) { }
+              catch(InvalidOperationException) { }
+              catch(System.ComponentModel.Win32Exception) { }
+            drillRecorderSkipped=true;
+            EndRecorder();
+            return true;
+        }
+
         private bool EnsureRecorder()
         {
             string directory=Path.GetDirectoryName(settings.server_exe);
@@ -543,7 +575,7 @@ namespace ReflexCore.Practice
                     throw new InvalidOperationException("The local spectator port is already in use.");
                 string exe=Path.Combine(directory,"hltv.exe");
                 if(!File.Exists(exe))throw new InvalidOperationException("Local HLTV recorder is unavailable.");
-                recordStem="match-"+Guid.NewGuid().ToString("N").Substring(0,10);
+                recordStem=(matchMode?"match-":"drill-")+Guid.NewGuid().ToString("N").Substring(0,10);
                 string filename=recordStem+"-stop.cfg";
                 recorderControl=new[] {Path.Combine(directory,filename),Path.Combine(directory,"cstrike",filename)};
                 foreach(string path in recorderControl)
@@ -761,10 +793,27 @@ namespace ReflexCore.Practice
                 return;
             }
             if(verified && latest!=null && latest.Actor==report.engine_subject_id && latest.Alive)plot.SetActor(latest);
-            if(verified)
+            if(autoRoute && recorder!=null && report!=null && report.engine_subject_id>0){
+                try { drillReplaySaved=SaveRecording(); }
+                catch(IOException) { }
+                catch(UnauthorizedAccessException) { }
+            }
+            if(verified){
                 Finish("Plant verified by the game engine",String.Format(CultureInfo.InvariantCulture,
-                    "{0} | Site {1} | {2:0.0}s total | {3:0.0}s navigation | {4:0.0}s planting",
-                    report.map,route.site,report.total_ms/1000.0,report.navigation_ms/1000.0,report.plant_ms/1000.0));
+                    "{0} | Planned site {1} | Win not evaluated | {2:0.0}s total | {3:0.0}s navigation | {4:0.0}s planting",
+                    report.map,report.route_site=="A"||report.route_site=="B"?report.route_site:route.site,report.total_ms/1000.0,report.navigation_ms/1000.0,report.plant_ms/1000.0)
+                    +" | Recovery attempts: "+Math.Max(0,Math.Min(2,report.recovery_attempts)));
+            }
+            else if(report!=null && report.outcome=="round_unverified")
+                Finish("Fresh round not verified","Install the current practice plugin and confirm the owned server started a new round.");
+            else if(report!=null && report.outcome=="route_recovery_failed")
+                Finish("Recovery route unavailable","A fresh position was confirmed but the planner could not find a detour.");
+            else if(report!=null && report.outcome=="route_failed" && report.route_stop=="pose_discontinuity")
+                Finish("Route stopped on a pose discontinuity","The position changed unexpectedly. No further movement was issued.");
+            else if(report!=null && report.outcome=="route_failed" && report.route_stop=="stalled")
+                Finish("Route blocked","The carrier detected a stalled approach and exhausted the allowed recovery attempts.");
+            else if(report!=null && report.reached_plant_zone && !cancellation)
+                Finish("Plant zone reached; plant not verified","The game confirmed the carrier was in the zone, but no matching C4 event was verified.");
             else if(cancellation)Finish("Practice stopped","The controller released the attempt.");
             else if(matchMode)Finish("Match not verified","The controller did not confirm the plant, bot defeat and round outcome.");
             else if(report!=null && report.outcome=="route_planning_failed")
@@ -794,9 +843,10 @@ namespace ReflexCore.Practice
             EndOwnedServer();
             spectate.Enabled=false;
             status.Text=message;
-            evidence.Text=detail;
+            evidence.Text=drillReplaySaved?"Replay saved in Recordings | "+detail:detail;
             start.Enabled=true;
             mapSelection.Enabled=true;
+            drillRecord.Enabled=true;
             stop.Enabled=false;
             if(closeAfter)BeginInvoke(new Action(Close));
         }
@@ -856,7 +906,7 @@ namespace ReflexCore.Practice
             finally {ownedServer.Dispose(); ownedServer=null;}
         }
 
-        public static void Run(string root,bool autoStart,bool matchMode)
+        public static void Run(string root,bool autoStart,bool matchMode,string map=null)
         {
             bool first;
             using(var one=new Mutex(true,matchMode?@"Local\ReflexCoreCs16Match":@"Local\ReflexCoreCs16Practice",out first))
@@ -864,7 +914,7 @@ namespace ReflexCore.Practice
                 if(!first)return;
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new PracticePanel(root,autoStart,matchMode));
+                Application.Run(new PracticePanel(root,autoStart,matchMode,map));
             }
         }
 

@@ -1,6 +1,6 @@
 use crate::{
-    cs16_route::{Decision, Navigator, Pose, Route, Site, StopReason},
     Result,
+    cs16_route::{Decision, Navigator, Pose, Route, Site, StopReason},
 };
 use serde::Serialize;
 use std::{
@@ -52,8 +52,26 @@ fn flag(s: &str) -> Result<bool> {
 impl State {
     fn parse(text: &str) -> Result<Self> {
         let fields: Vec<_> = text.split_ascii_whitespace().collect();
-        let [schema, map, seq, tick, id, alive, team, x, y, z, yaw, c4, zone, equipped, planted, won, bots, status] =
-            fields.as_slice()
+        let [
+            schema,
+            map,
+            seq,
+            tick,
+            id,
+            alive,
+            team,
+            x,
+            y,
+            z,
+            yaw,
+            c4,
+            zone,
+            equipped,
+            planted,
+            won,
+            bots,
+            status,
+        ] = fields.as_slice()
         else {
             return Err("Incomplete practice observation".into());
         };
@@ -121,6 +139,39 @@ impl State {
             z: self.pos[2],
             yaw_degrees: self.yaw.rem_euclid(360.0),
         }
+    }
+}
+
+struct RoundObservation {
+    sequence: u32,
+    generation: u32,
+    live: bool,
+    tick: f64,
+}
+
+impl RoundObservation {
+    fn parse(text: &str) -> Result<Self> {
+        let mut fields = text.split_ascii_whitespace();
+        if fields.next() != Some("reflexcore_cs16_round_v1") {
+            return Err("Invalid practice round observation".into());
+        }
+        let sequence = fields.next().ok_or("Missing round sequence")?.parse()?;
+        let generation = fields.next().ok_or("Missing round generation")?.parse()?;
+        let live = flag(fields.next().ok_or("Missing round phase")?)?;
+        let tick: f64 = fields.next().ok_or("Missing round tick")?.parse()?;
+        if !tick.is_finite() || tick < 0.0 || fields.next().is_some() {
+            return Err("Unexpected practice round data".into());
+        }
+        Ok(Self {
+            sequence,
+            generation,
+            live,
+            tick,
+        })
+    }
+
+    fn confirms_restart(&self, previous: u32, tick: f64) -> bool {
+        self.live && self.generation > previous && self.tick == tick
     }
 }
 
@@ -233,6 +284,20 @@ impl Mailbox {
             return Err("Incomplete or oversized practice observation".into());
         }
         State::parse(&text)
+    }
+
+    fn round_observation(&self, sequence: u32) -> Option<RoundObservation> {
+        let mut text = String::new();
+        File::open(self.dir.join("round-state.txt"))
+            .ok()?
+            .take(100)
+            .read_to_string(&mut text)
+            .ok()?;
+        if !text.ends_with('\n') {
+            return None;
+        }
+        let observed = RoundObservation::parse(&text).ok()?;
+        (observed.sequence == sequence).then_some(observed)
     }
 
     fn match_observation(&self, sequence: u32) -> Option<MatchObservation> {
@@ -349,6 +414,7 @@ struct Report {
     schema: &'static str,
     map: String,
     engine_subject_id: u32,
+    spawn: Option<[f64; 3]>,
     setup_ms: u64,
     navigation_ms: u64,
     plant_ms: u64,
@@ -356,6 +422,10 @@ struct Report {
     move_commands: u32,
     plant_commands: u32,
     stationary_opponent: bool,
+    reached_plant_zone: bool,
+    route_site: Option<Site>,
+    recovery_attempts: u8,
+    route_stop: Option<&'static str>,
     verified_plant: bool,
     match_mode: bool,
     verified_bot_defeat: bool,
@@ -413,6 +483,11 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         if match_mode {
             return Err("Automatic BSP routes currently support the plant drill".into());
         }
+        if !stationary_opponent {
+            return Err(
+                "Automatic BSP routes require the stationary local opponent fixture".into(),
+            );
+        }
         None
     } else {
         Some(Route::load(Path::new(route))?)
@@ -430,6 +505,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         schema: "reflexcore.cs16.practice.result.v1",
         map: state.map.clone(),
         engine_subject_id: 0,
+        spawn: None,
         setup_ms: 0,
         navigation_ms: 0,
         plant_ms: 0,
@@ -437,6 +513,10 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         move_commands: 0,
         plant_commands: 0,
         stationary_opponent,
+        reached_plant_zone: false,
+        route_site: None,
+        recovery_attempts: 0,
+        route_stop: None,
         verified_plant: false,
         match_mode,
         verified_bot_defeat: false,
@@ -476,7 +556,11 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     execution
 }
 
-fn automatic_route(mail: &Mailbox, spawn: &State, avoid_site: Option<Site>) -> Result<Navigator> {
+fn automatic_route(
+    mail: &Mailbox,
+    spawn: &State,
+    recovery: Option<(f64, Option<Site>)>,
+) -> Result<Navigator> {
     if !spawn.map.starts_with("de_") {
         return Err("Automatic plant drills require a demolition map".into());
     }
@@ -500,12 +584,18 @@ fn automatic_route(mail: &Mailbox, spawn: &State, avoid_site: Option<Site>) -> R
         .arg(file)
         .args(["--auto", "--start"])
         .args(coordinates);
-    if let Some(site) = avoid_site {
-        let site = match site {
-            Site::A => "A",
-            Site::B => "B",
-        };
-        command.args(["--resume", "--spacing", "16", "--avoid-site", site]);
+    if let Some((heading, avoid_site)) = recovery {
+        command.args(["--resume", "--spacing", "16"]);
+        command.arg(format!("--blocked-heading={heading}"));
+        if let Some(site) = avoid_site {
+            command.args([
+                "--avoid-site",
+                match site {
+                    Site::A => "A",
+                    Site::B => "B",
+                },
+            ]);
+        }
     }
     let mut child = command
         .stdin(Stdio::null())
@@ -554,7 +644,7 @@ fn automatic_route(mail: &Mailbox, spawn: &State, avoid_site: Option<Site>) -> R
     {
         return Err("Practice subject changed during BSP planning".into());
     }
-    Ok(Navigator::new(Route::parse(&bytes)?, &spawn.map)?)
+    Ok(Navigator::new(Route::parse(&bytes)?, &spawn.map)?.with_precise_steering())
 }
 
 fn attempt(
@@ -583,6 +673,18 @@ fn attempt(
     if state.bots != u8::from(report.stationary_opponent || report.match_mode) {
         return Err("Server does not match the requested opponent fixture".into());
     }
+    if nav.is_none() {
+        report.outcome = "round_unverified";
+    }
+    let initial_round = if nav.is_none() {
+        Some(
+            mail.round_observation(state.seq)
+                .ok_or("Install the current practice plugin to verify automatic-route spawns")?
+                .generation,
+        )
+    } else {
+        None
+    };
     *state = mail.command(state, 5, None)?;
     let reset_at = state.tick;
     let map = state.map.clone();
@@ -596,17 +698,23 @@ fn attempt(
             && s.c4
             && !s.planted
             && s.tick >= reset_at + 1.5
+            && initial_round.is_none_or(|previous| {
+                mail.round_observation(s.seq)
+                    .is_some_and(|round| round.confirms_restart(previous, s.tick))
+            })
             && (!report.match_mode || mail.match_observation(s.seq).is_some_and(|m| m.round_live))
     })?;
     report.engine_subject_id = state.id;
+    report.spawn = Some(state.pos);
     report.setup_ms = millis(started);
     let actor = state.id;
     report.outcome = "route_planning_failed";
-    let mut can_replan = nav.is_none();
+    let can_replan = nav.is_none();
     let mut nav = match nav {
         Some(route) => route,
         None => automatic_route(mail, state, None)?,
     };
+    report.route_site = Some(nav.site());
     let navigation_start = Instant::now();
     report.outcome = "route_failed";
     loop {
@@ -614,17 +722,34 @@ fn attempt(
             return Err("Practice route lost the live C4 carrier or reached the deadline".into());
         }
         let yaw = state.yaw.rem_euclid(360.0);
-        let pulse = match nav.step(state.pose(u64::from(state.seq))) {
+        let decision = nav.step(state.pose(u64::from(state.seq)));
+        // A verified engine zone is authoritative for automatic routes. Still reject
+        // stale/discontinuous pose evidence before accepting an early arrival.
+        if can_replan
+            && state.zone
+            && !matches!(decision, Decision::Stopped { reason } if reason != StopReason::Stalled)
+        {
+            break;
+        }
+        let pulse = match decision {
             Decision::Arrived { .. } => break,
             Decision::Stopped {
                 reason: StopReason::Stalled,
-            } if can_replan => {
-                can_replan = false;
-                nav = automatic_route(mail, state, Some(nav.site()))?;
+            } if can_replan && report.recovery_attempts < 2 && nav.blocked_heading().is_some() => {
+                let heading = nav.blocked_heading().ok_or("Missing stalled heading")?;
+                let avoid_site = (report.recovery_attempts > 0).then(|| nav.site());
+                report.route_stop = Some("stalled");
+                report.recovery_attempts += 1;
+                report.outcome = "route_recovery_failed";
+                nav = automatic_route(mail, state, Some((heading, avoid_site)))?;
+                report.route_site = Some(nav.site());
+                report.route_stop = None;
+                report.outcome = "route_failed";
                 continue;
             }
             Decision::Stopped { reason } => {
-                return Err(format!("Practice route stopped: {reason:?}").into())
+                report.route_stop = Some(reason.code());
+                return Err(format!("Practice route stopped: {reason:?}").into());
             }
             Decision::Turn { delta_degrees } => Pulse {
                 yaw: (yaw + delta_degrees + 180.0).rem_euclid(360.0) - 180.0,
@@ -634,7 +759,7 @@ fn attempt(
             },
             Decision::Advance { millis } => Pulse {
                 yaw: (yaw + 180.0).rem_euclid(360.0) - 180.0,
-                forward: 240,
+                forward: if can_replan && millis < 95 { 150 } else { 240 },
                 buttons: 0,
                 msec: millis.min(100) as u8,
             },
@@ -661,6 +786,7 @@ fn attempt(
             s.map == map && s.seq == seq && s.id == actor && s.alive && s.c4 && s.zone
         })
         .map_err(|_| "The engine did not confirm a plant zone at the final waypoint")?;
+    report.reached_plant_zone = true;
     let plant_start = Instant::now();
     report.outcome = "c4_equip_failed";
     *state = mail.command(state, 4, None)?;
@@ -840,6 +966,26 @@ mod tests {
         }
         let missing = ["--cancel-file", "--stationary-opponent"].map(str::to_owned);
         assert!(practice_options(&missing).is_err());
+    }
+
+    #[test]
+    fn fresh_round_requires_a_new_generation_and_live_phase() {
+        let old = RoundObservation::parse("reflexcore_cs16_round_v1 4 2 1 5.0\n").unwrap();
+        assert_eq!(old.sequence, 4);
+        assert!(!old.confirms_restart(2, 5.0));
+        let pending = RoundObservation::parse("reflexcore_cs16_round_v1 4 3 0 5.0\n").unwrap();
+        assert!(!pending.confirms_restart(2, 5.0));
+        assert!(
+            RoundObservation::parse("reflexcore_cs16_round_v1 4 3 1 5.0\n")
+                .unwrap()
+                .confirms_restart(2, 5.0)
+        );
+        assert!(
+            !RoundObservation::parse("reflexcore_cs16_round_v1 4 3 1 5.0\n")
+                .unwrap()
+                .confirms_restart(2, 4.0)
+        );
+        assert!(RoundObservation::parse("reflexcore_cs16_round_v1 4 3 1 extra\n").is_err());
     }
 
     #[test]
