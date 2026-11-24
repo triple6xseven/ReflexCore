@@ -21,6 +21,8 @@ Screenshots from the [3D companion development branch](https://github.com/triple
 
 ![ReflexCore Studio Diagnostics with the ZXC companion and numbered GPU metrics](docs/screenshots/studio-diagnostics-live-status.png)
 
+![ReflexCore Studio task queue with the ZXC companion](docs/screenshots/studio-agent-task-queue.png)
+
 ![ReflexCore Studio Diagnostics with the ZXC companion and Live Status widget](docs/screenshots/studio-diagnostics-and-zxc.png)
 
 ![ReflexCore Studio Agent dashboard, desktop companion and live hardware widget](docs/screenshots/studio-agent-and-companion.png)
