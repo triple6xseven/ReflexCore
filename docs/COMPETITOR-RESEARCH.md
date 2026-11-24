@@ -38,3 +38,7 @@ Sources were read at the linked commits. The table identifies the selected imple
 UFO2 documents native UIA and application APIs as separate execution channels. ReflexCore applies that boundary by exposing Background only for native folder tasks and a tested owned-window UIA route. Foreground-only tasks require explicit selection of Active window. UFO2 also describes a separate isolated desktop approach for input-dependent applications. ReflexCore's current background mode runs in the same Windows session with a non-activating fixture. [UFO2 architecture](https://github.com/microsoft/UFO/blob/main/ufo/README.md) and [control backends](https://github.com/microsoft/UFO/blob/main/documents/docs/ufo2/core_features/control_detection/overview.md)
 
 Microsoft Hybrid Computer Use documents semantic UIA and physical input as separate channels. ReflexCore uses the native semantic patterns in the background fixture and retains independent disk verification. [Hybrid Computer Use Windows platform](https://github.com/microsoft/Hybrid-Computer-Use/blob/main/docs/PLATFORMS.md)
+
+## Agent page discoverability
+
+The local ZxcLagLab sources expose preferences through visible toggles in SettingsUi.cs and separate Windows hotkey registration from optional input hooks in Hotkey.cs. Studio places the persisted background toggle above the queue, supports Enter in the request field, and keeps the existing tray stop shortcut visible. The Agent UI smoke test checks the empty state and verifies the controls do not overlap.

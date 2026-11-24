@@ -154,41 +154,53 @@ namespace ReflexCore.Control
             else if(initialTab=="Diagnostics")tabs.SelectedTab=diagnosticsTab;
             else tabs.SelectedTab=agent;
             if(tabs.SelectedTab==diagnosticsTab)diagnosticView.Show();
-            bridgeText=Info("Bridge: waiting",18,20,680);
+            bridgeText=Info("Bridge: waiting",18,20,510);
             bridgeText.Height=32;
             agent.Controls.Add(bridgeText);
-            var executionMode=new ComboBox{Location=new Point(558,211),Width=209,DropDownStyle=ComboBoxStyle.DropDownList,
-                AccessibleName="Agent execution mode"};
-            executionMode.Items.AddRange(new object[]{"Active window","Background"});
+            var executionMode=new CheckBox{Location=new Point(548,12),Size=new Size(219,38),
+                Appearance=Appearance.Button,FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,
+                BackColor=surface,ForeColor=text,AccessibleName="Run in background",TabIndex=0};
+            executionMode.FlatAppearance.BorderColor=accent;
+            executionMode.FlatAppearance.CheckedBackColor=Color.FromArgb(55,62,82);
+            agent.Controls.Add(executionMode);
             string modePath=Path.Combine(root,"data","settings","agent-execution-mode.txt");
-            executionMode.SelectedIndex=testQueue==null && LoadBackgroundMode(modePath)?1:0;
+            executionMode.Checked=testQueue==null && LoadBackgroundMode(modePath);
             AddButton(agent,"RUN AGENT DEMO",18,68,222,38,
-                ()=>RunTask(executionMode.SelectedIndex==1?"agent-background":"agent-demo"),true);
+                ()=>RunTask(executionMode.Checked?"agent-background":"agent-demo"),true);
             var nativeNotepad=AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
             var visualNotepad=AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
-            agent.Controls.Add(Info("Describe a folder task · English or Russian",18,112,748));
+            var requestLabel=Info("Describe a folder task · English or Russian",18,112,748);
+            requestLabel.Height=24;
+            agent.Controls.Add(requestLabel);
             var folderRequest=new TextBox{Location=new Point(18,144),Width=565,MaxLength=8192,
                 AccessibleName="Describe a folder task",BackColor=surface,ForeColor=text};
             agent.Controls.Add(folderRequest);
-            AddButton(agent,"PREVIEW REQUEST",594,141,173,31,()=>PreviewFolderRequest(folderRequest.Text),false);
-            agent.Controls.Add(Info("Check README.md and docs/install.pdf.    /    Поменяй расширения всех файлов на .log",18,175,748));
+            var previewRequest=AddButton(agent,"PREVIEW REQUEST",594,141,173,31,()=>PreviewFolderRequest(folderRequest.Text),false);
+            folderRequest.KeyDown+=delegate(object sender,KeyEventArgs args) {
+                if(args.KeyCode!=Keys.Enter || args.Modifiers!=Keys.None)return;
+                args.SuppressKeyPress=true;
+                previewRequest.PerformClick();
+            };
+            var example=Info("Check README.md and docs/install.pdf.    /    Поменяй расширения всех файлов на .log",18,175,748);
+            example.Height=24;
+            agent.Controls.Add(example);
             AddButton(agent,"VERIFY A HANDOFF FOLDER",18,207,260,34,SelectHandoff,false);
             AddButton(agent,"CHANGE FILE EXTENSIONS",288,207,260,34,()=>ShowExtensionRename("",""),false);
-            agent.Controls.Add(executionMode);
             var modeHint=Info("",245,250,523);
             modeHint.Height=30;
             agent.Controls.Add(modeHint);
             Action updateMode=delegate {
-                bool background=executionMode.SelectedIndex==1;
+                bool background=executionMode.Checked;
+                executionMode.Text=background?"Background: On":"Background: Off";
                 nativeNotepad.Enabled=visualNotepad.Enabled=!background;
                 modeHint.Text=background
                     ?"Background: folder tasks and the owned UIA demo. Notepad requires Active window."
                     :"Notepad tasks may activate their own test window.";
             };
             updateMode();
-            executionMode.SelectedIndexChanged+=delegate {
+            executionMode.CheckedChanged+=delegate {
                 updateMode();
-                if(testQueue==null && !SaveBackgroundMode(modePath,executionMode.SelectedIndex==1))
+                if(testQueue==null && !SaveBackgroundMode(modePath,executionMode.Checked))
                     modeHint.Text+=" Could not save this preference.";
             };
             agent.Controls.Add(Header("Task queue",18,250));
@@ -257,13 +269,13 @@ namespace ReflexCore.Control
             agent.Controls.Add(resultText);
             ReflexCore.Bridge.QueueEntry displayedResult=null;
             ReflexCore.Bridge.FolderResultLink resultLink=null;
-            var openReport=new Button{Text="Open report",Location=new Point(18,650),Size=new Size(140,32),Enabled=false};
-            var continueWorkflow=new Button{Text="Preview next step",Location=new Point(168,650),Size=new Size(165,32),Enabled=false};
+            var openReport=new Button{Text="Open report",Location=new Point(18,650),Size=new Size(140,32),Enabled=false,Visible=false};
+            var continueWorkflow=new Button{Text="Preview next step",Location=new Point(168,650),Size=new Size(165,32),Enabled=false,Visible=false};
             agent.Controls.Add(openReport);agent.Controls.Add(continueWorkflow);
             System.Collections.Generic.List<ReflexCore.Bridge.QueueEntry> visibleRows=null;
             Action showResult=delegate {
                 displayedResult=null;resultLink=null;
-                openReport.Enabled=false;continueWorkflow.Enabled=false;
+                openReport.Visible=false;continueWorkflow.Visible=false;
                 resultText.Text="";
                 if(jobs.SelectedItems.Count==0 || visibleRows==null)return;
                 var row=visibleRows.FirstOrDefault(item=>item.Id==(string)jobs.SelectedItems[0].Tag);
@@ -284,8 +296,8 @@ namespace ReflexCore.Control
                 displayedResult=row;
                 resultLink=queue.ReadFolderResult(row.Id);
                 bool validReport=resultLink!=null && FolderWorkflow.MatchesReport(resultLink.report,receipt);
-                openReport.Enabled=validReport;
-                continueWorkflow.Enabled=FolderWorkflow.CanContinue(receipt,resultLink,validReport);
+                openReport.Visible=openReport.Enabled=validReport;
+                continueWorkflow.Visible=continueWorkflow.Enabled=FolderWorkflow.CanContinue(receipt,resultLink,validReport);
                 resultText.Text=(summary.ready?"Ready":"Needs attention")+" · "+summary.present+" found · "+summary.missing+
                     " missing · "+summary.mismatched+" checksum mismatches · "+summary.unreadable+" unreadable · "+summary.changed+" changed"+
                     (continueWorkflow.Enabled?Environment.NewLine+"Step 1 complete. Preview step 2 when ready.":"");
@@ -520,7 +532,7 @@ namespace ReflexCore.Control
             {
                 var path=Path.Combine(root,"data","bridge","status.json");string state="offline",jobs="?";
                 if(File.Exists(path)){string s=File.ReadAllText(path);var m=Regex.Match(s,"\\\"state\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");if(m.Success)state=m.Groups[1].Value;var p=Regex.Match(s,"\\\"pending\\\"\\s*:\\s*(\\d+)");if(p.Success)jobs=p.Groups[1].Value;}
-                bridgeText.Text="BRIDGE: "+state.ToUpperInvariant()+"       PENDING: "+jobs+"       HOTKEY: Ctrl+Alt+P";
+                bridgeText.Text="BRIDGE: "+state.ToUpperInvariant()+"       PENDING: "+jobs+"       STOP: Ctrl+Alt+P";
                 serverStatus=File.Exists(Path.Combine(root,"data","bridge","citadel-server.json"))?File.ReadAllText(Path.Combine(root,"data","bridge","citadel-server.json")):"";
                 serverText.Text="CITADEL SERVER: "+(serverStatus.Contains("\"running\"")?"RUNNING  127.0.0.1:39771":"STOPPED");
                 modelText.Text="API KEY: "+(File.Exists(Path.Combine(root,"data","secrets","openai_key.dpapi"))?"CONFIGURED / DPAPI":"NOT CONFIGURED / LOCAL MODE");
@@ -785,15 +797,22 @@ namespace ReflexCore.Control
         {
             var page=pages.TabPages[0];
             var buttons=page.Controls.OfType<Button>().ToDictionary(button=>button.Text);
+            var mode=page.Controls.OfType<CheckBox>().Single(input=>input.AccessibleName=="Run in background");
+            var field=page.Controls.OfType<TextBox>().Single(input=>input.AccessibleName=="Describe a folder task");
+            if(!mode.Visible || queue.Snapshot().Count!=0 || mode.Top>=buttons["RUN AGENT DEMO"].Top)
+                throw new InvalidOperationException("Background toggle must be visible above an empty queue.");
+            foreach(var control in new System.Windows.Forms.Control[]{mode,field,buttons["PREVIEW REQUEST"],
+                buttons["VERIFY A HANDOFF FOLDER"],buttons["CHANGE FILE EXTENSIONS"]})
+                if(page.Controls.OfType<Label>().Any(label=>label.Visible && label.Bounds.IntersectsWith(control.Bounds)))
+                    throw new InvalidOperationException("A label overlaps an Agent control.");
             buttons["RUN AGENT DEMO"].PerformClick();
             buttons["NOTEPAD · CREATE FILE"].PerformClick();
             buttons["NOTEPAD · CHECK WITH MODEL"].PerformClick();
-            var mode=page.Controls.OfType<ComboBox>().Single(input=>input.AccessibleName=="Agent execution mode");
-            mode.SelectedIndex=1;
+            mode.Checked=true;
             if(buttons["NOTEPAD · CREATE FILE"].Enabled || buttons["NOTEPAD · CHECK WITH MODEL"].Enabled)
                 throw new InvalidOperationException("Background mode permits a foreground-only task.");
             buttons["RUN AGENT DEMO"].PerformClick();
-            mode.SelectedIndex=0;
+            mode.Checked=false;
             refreshQueue();
             var jobs=page.Controls.OfType<ListView>().Single();
             if(!buttons["VERIFY A HANDOFF FOLDER"].Visible || !buttons["CHANGE FILE EXTENSIONS"].Visible ||
