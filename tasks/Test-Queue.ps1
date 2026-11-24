@@ -102,6 +102,8 @@ exit 9
     }
     Assert-Queue ((Get-ChildItem -LiteralPath (Join-Path $bridge 'queue-history') -File).Count -eq 101) 'History retention exceeded bound or touched unrelated file'
     Assert-Queue (Test-Path -LiteralPath $sentinel) 'Non-receipt removed'
+    Assert-Queue (@($store.Snapshot() | Where-Object State -eq 'cancelled').Count -le 100) 'History exceeded display limit'
+    Assert-Queue ($store.Snapshot().Count -eq 100) 'Unrelated file consumed a history slot'
     Write-Output 'Queue passed restart recovery, approval, single worker, active and pending cancellation, failure, stop-all and history retention.'
     if($AllowInput){
         foreach($file in 'ReflexCore-VisionHost.cs','ReflexCore-VisionLoop.ps1','ReflexCore-SkillMemory.ps1'){

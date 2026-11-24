@@ -146,7 +146,8 @@ namespace ReflexCore.Bridge
                 string dir=ended?history:Path.Combine(bridge,state);
                 var paths=Files(dir,ended?"*":"*.job");
                 paths=ended?paths.OrderByDescending(x=>x,StringComparer.Ordinal):paths.OrderBy(x=>x,StringComparer.Ordinal);
-                foreach(string path in paths.Take(100)){
+                int shown=0;
+                foreach(string path in paths){
                     string id=IdOf(path);
                     if(!ValidId(id))continue;
                     string label=ended?Path.GetExtension(path).TrimStart('.'):state;
@@ -155,6 +156,7 @@ namespace ReflexCore.Bridge
                     if(!ended || !terminalKinds.TryGetValue(id,out kind))kind=ReadKind(path);
                     if(ended){retained.Add(id);terminalKinds[id]=kind;}
                     result.Add(new QueueEntry{Id=id,Task=kind,State=label});
+                    if(++shown==100)break;
                 }
             }
             foreach(string id in terminalKinds.Keys.Where(key=>!retained.Contains(key)).ToArray())terminalKinds.Remove(id);
