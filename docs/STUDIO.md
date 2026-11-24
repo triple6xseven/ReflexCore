@@ -38,3 +38,7 @@ In one stationary Agent-page measurement, about eight seconds per build, the pre
 
 
 See [emergency stop and the application allowlist](EMERGENCY-STOP.md).
+
+### Skill library
+
+Open **Agent > Skill library** to view built-in experimental skills, their inputs and verifiers, and the movement observations stored in the local SQLite database. Counts refer to bounded replay samples, not completed user tasks. **Choose installation** reads another local ReflexCore installation with an existing database. The library opens the database read-only through the same engine command as the CLI, `reflexcore.exe learning registry`.

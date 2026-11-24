@@ -190,6 +190,7 @@ namespace ReflexCore.Control
             agent.Controls.Add(example);
             AddButton(agent,"VERIFY A HANDOFF FOLDER",18,207,260,34,SelectHandoff,false);
             AddButton(agent,"CHANGE FILE EXTENSIONS",288,207,260,34,()=>ShowExtensionRename("",""),false);
+            AddButton(agent,"SKILL LIBRARY",558,207,209,34,ShowSkillLibrary,false);
             var modeHint=Info("",245,250,523);
             modeHint.Height=30;
             agent.Controls.Add(modeHint);
@@ -544,6 +545,150 @@ namespace ReflexCore.Control
             }catch{}
         }
         string PowerShellExe(){return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");}
+        void ShowSkillLibrary()
+        {
+            var theme=ReflexThemeCatalog.Load();
+            var rows=new System.Collections.Generic.Dictionary<string,string>();
+            using(var dialog=new Form {Text="Skill library",StartPosition=FormStartPosition.CenterParent,
+                ClientSize=new Size(860,480),MinimumSize=new Size(650,390),BackColor=theme.Bg,ForeColor=theme.Text})
+            using(var grid=new DataGridView {Dock=DockStyle.Fill,ReadOnly=true,RowHeadersVisible=false,
+                AllowUserToAddRows=false,AllowUserToDeleteRows=false,MultiSelect=false,
+                AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,EnableHeadersVisualStyles=false,
+                SelectionMode=DataGridViewSelectionMode.FullRowSelect,BackgroundColor=theme.Bg,
+                GridColor=theme.Track,BorderStyle=BorderStyle.None})
+            {
+                grid.Columns.Add("skill","Skill ID");
+                grid.Columns.Add("version","Version");
+                grid.Columns.Add("category","Category");
+                grid.Columns.Add("environment","Environment");
+                grid.Columns.Add("samples","Verified / samples");
+                grid.ColumnHeadersDefaultCellStyle.BackColor=theme.Card;
+                grid.ColumnHeadersDefaultCellStyle.ForeColor=theme.Text;
+                grid.DefaultCellStyle.BackColor=theme.Bg;
+                grid.DefaultCellStyle.ForeColor=theme.Text;
+                grid.DefaultCellStyle.SelectionBackColor=theme.Accent;
+                grid.DefaultCellStyle.SelectionForeColor=theme.OnAccent;
+                grid.AlternatingRowsDefaultCellStyle.BackColor=theme.Card;
+                grid.RowTemplate.Height=29;
+                var summary=new Label {Dock=DockStyle.Top,Height=40,Padding=new Padding(12,10,8,4),
+                    Text="Loading skills and saved movement observations...",ForeColor=theme.Sub};
+                var detail=new Label {Dock=DockStyle.Bottom,Height=86,Padding=new Padding(12,8,8,4),BackColor=theme.Card};
+                dialog.Controls.Add(grid);
+                dialog.Controls.Add(detail);
+                var chooseData=new Button {Dock=DockStyle.Right,Width=174,Text="Choose installation",FlatStyle=FlatStyle.Flat,
+                    BackColor=theme.Card,ForeColor=theme.Text};
+                chooseData.FlatAppearance.BorderColor=theme.Track;
+                var header=new Panel {Dock=DockStyle.Top,Height=40};
+                summary.Dock=DockStyle.Fill;
+                header.Controls.Add(summary);
+                header.Controls.Add(chooseData);
+                dialog.Controls.Add(header);
+                grid.SelectionChanged+=delegate {
+                    string description;
+                    detail.Text=grid.SelectedRows.Count==1 && rows.TryGetValue(
+                        Convert.ToString(grid.SelectedRows[0].Cells[0].Value),out description)?description:"";
+                };
+                Action<string> load=async delegate(string installation) {
+                    chooseData.Enabled=false;
+                    grid.Rows.Clear();
+                    rows.Clear();
+                    summary.Text="Loading skills and saved movement observations...";
+                    try
+                    {
+                        string json=await System.Threading.Tasks.Task.Run(()=>ReadSkillRegistry(installation));
+                        if(dialog.IsDisposed)return;
+                        var serializer=new System.Web.Script.Serialization.JavaScriptSerializer {MaxJsonLength=262144};
+                        var report=serializer.Deserialize<SkillLibraryReport>(json);
+                        if(report==null || report.skills==null || report.bounded_replay_statistics==null)
+                            throw new InvalidDataException();
+                        foreach(var skill in report.skills)
+                        {
+                            rows[skill.id]="Expected effect: "+skill.effect+"   |   Verifier: "+skill.verifier+
+                                Environment.NewLine+"Requires: "+String.Join(", ",skill.requires??new string[0])+
+                                Environment.NewLine+"Inputs: "+String.Join(", ",skill.inputs??new string[0]);
+                            bool hasSamples=false;
+                            foreach(var item in report.bounded_replay_statistics)
+                            {
+                                if(item.skill!=skill.id || item.version!=skill.version)continue;
+                                grid.Rows.Add(skill.id,skill.version,skill.category,item.environment,
+                                    item.verified_one_pulse+" / "+item.trials);
+                                hasSamples=true;
+                            }
+                            if(!hasSamples)grid.Rows.Add(skill.id,skill.version,skill.category,"—","No samples yet");
+                        }
+                        summary.Text="Built-in experimental skills and local SQLite movement statistics";
+                    }
+                    catch(Exception)
+                    {
+                        if(!dialog.IsDisposed)summary.Text="Could not read the skill registry. Check the build or try another installation.";
+                    }
+                    finally { if(!dialog.IsDisposed)chooseData.Enabled=true; }
+                };
+                chooseData.Click+=delegate {
+                    using(var folder=new FolderBrowserDialog {Description="Choose the ReflexCore installation that contains your skill memory.",
+                        ShowNewFolderButton=false})
+                    {
+                        if(folder.ShowDialog(dialog)!=DialogResult.OK)return;
+                        if(!File.Exists(Path.Combine(folder.SelectedPath,"data","private","goal-memory-v1.sqlite3")))
+                        {
+                            MessageBox.Show(dialog,"This folder does not contain ReflexCore skill memory.","Skill library");
+                            return;
+                        }
+                        load(folder.SelectedPath);
+                    }
+                };
+                dialog.Shown+=delegate {load(root);};
+                using(var icon=Icon==null?null:(Icon)Icon.Clone())
+                {
+                    if(icon!=null)dialog.Icon=icon;
+                    dialog.ShowDialog();
+                }
+            }
+        }
+
+        string ReadSkillRegistry(string installation)
+        {
+            var start=new ProcessStartInfo(Path.Combine(root,"target","release","reflexcore.exe"),"learning registry")
+            {WorkingDirectory=installation,CreateNoWindow=true,UseShellExecute=false,RedirectStandardOutput=true};
+            using(var child=Process.Start(start))
+            {
+                var output=child.StandardOutput.ReadToEndAsync();
+                if(!child.WaitForExit(5000))
+                {
+                    if(!child.HasExited)child.Kill();
+                    throw new TimeoutException();
+                }
+                if(child.ExitCode!=0)throw new InvalidDataException();
+                return output.GetAwaiter().GetResult();
+            }
+        }
+
+        sealed class SkillLibraryReport
+        {
+            public SkillLibraryEntry[] skills {get;set;}
+            public SkillLibrarySample[] bounded_replay_statistics {get;set;}
+        }
+
+        sealed class SkillLibraryEntry
+        {
+            public string id {get;set;}
+            public int version {get;set;}
+            public string category {get;set;}
+            public string effect {get;set;}
+            public string verifier {get;set;}
+            public string[] requires {get;set;}
+            public string[] inputs {get;set;}
+        }
+
+        sealed class SkillLibrarySample
+        {
+            public string skill {get;set;}
+            public int version {get;set;}
+            public string environment {get;set;}
+            public int trials {get;set;}
+            public int verified_one_pulse {get;set;}
+        }
+
         void OpenOfflineTool(string file,string arguments)
         {
             string path=Path.Combine(root,"tools",file);
