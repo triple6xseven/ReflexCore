@@ -1122,6 +1122,13 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     if(!Regex.IsMatch(file,@"\A[a-zA-Z0-9_-]{1,100}\.job\z"))throw new InvalidDataException("Invalid job filename");
                     psi.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""
                         +Path.Combine(root,"tools","ReflexCore-QueuedWorker.ps1")+"\" -Manifest "+file;
+                    if(name=="verify-handoff.ps1"){
+                        var epoch=new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc);
+                        var submitted=DateTime.ParseExact(file.Substring(0,17),"yyyyMMddHHmmssfff",
+                            System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AssumeUniversal|System.Globalization.DateTimeStyles.AdjustToUniversal);
+                        psi.EnvironmentVariables["REFLEX_HANDOFF_SUBMIT_US"]=((submitted-epoch).Ticks/10).ToString();
+                        psi.EnvironmentVariables["REFLEX_HANDOFF_LAUNCH_US"]=((DateTime.UtcNow-epoch).Ticks/10).ToString();
+                    }
                     psi.WorkingDirectory = root;
                     psi.UseShellExecute = false;
                     psi.CreateNoWindow = true;

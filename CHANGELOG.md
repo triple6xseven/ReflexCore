@@ -1,5 +1,10 @@
 ## Guarded user Goals and stable skill identity
 
+## Unreleased — Verify a Handoff Folder
+
+- Add a CPU-only CLI and Studio task for reusable handoff checklists, optional SHA-256 verification, and independently verified local reports.
+
+
 - Add versioned Goal manifests with fresh AutomationId predicates, a pinned foreground window, and final readback.
 - Keep reliability across cost and order changes. Seed matching legacy rows by exact manifest and Flow fingerprint.
 - Isolate the simulation under the legacy-demo command and retain its original aliases.

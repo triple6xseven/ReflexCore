@@ -39,6 +39,8 @@ mod cs16_route;
 #[cfg(windows)]
 mod vision;
 
+#[cfg(windows)]
+mod handoff;
 mod legacy_demo;
 
 use std::env;
@@ -68,6 +70,7 @@ COMMANDS:
   act <window>     Inspect / act on a UI element (dry-run by default)
   flow <command>   Validate/run local UI automation scenarios
   agent <command>  Plan and run verified goal skills
+  handoff <folder> <checklist.json> <new-report.json>  Verify a handoff folder
   unified <command>  Bounded CS16 goal coordinator (no SendInput)
   cs16 <command>   Inspect Counter-Strike 1.6 telemetry and benchmark offline rounds
   citadel-bridge serve  JSONL Rust Goal Agent for Citadel
@@ -97,6 +100,8 @@ fn main() -> Result<()> {
         .map(String::as_str)
         .unwrap_or("help");
 
+    #[cfg(windows)]
+    if command == "handoff" { return handoff::run(&args[1..]); }
     #[cfg(windows)]
     if command == "learning" {
         return learning::run(&args[1..]);

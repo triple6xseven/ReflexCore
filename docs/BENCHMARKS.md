@@ -186,3 +186,20 @@ A second paired WinForms fixture run matched the five-run acceptance protocol wi
 | tools/ReflexCore-VisionHost.cs | 68f8274d483ed98e85a924fedfbfcb01be23c96153ba445d1f9efc9e2dcde465 | c4bbf80d64a232ace719df836dc3ad2e27deee06834dc794c54923dba0c09a14 |
 | tools/ReflexCore-VisionLoop.ps1 | dd618f74f8175ed89fbbf1440ee744530e6ba15615288be63e7aea2cee2fec49 | 8dda8e5bd561ca158f2efb0bb32faa6b2ad76185a85f7d7253bd977f119547b5 |
 | tools/ReflexCore-Diagnostics.cs | 7796fd7a079406795dee809ae96a36c1547dcb82f6bbdd53ec505ce00b2b0ff1 | aaa80d3a8899a43eb207b2330e519849371aa27d84ec14c3fa1e6b179dcd7688 |
+
+## Verify a Handoff Folder
+
+Windows 11 Pro 10.0.26300, Ryzen 5 4600H, 8 GB installed RAM (7,915,913,216 bytes visible to Windows). The worker used CPU-only native I/O and SHA-256. The Ollama server was present with zero loaded models. All 48 measured receipts recorded zero model calls. The offline assertion can also be run with the server stopped.
+
+Four paired sessions with identical synthetic filenames and bytes in both modes. Each mode starts a fresh isolated tray controller and fresh worker. Cold is the first run of a controller session. Warm is the next five runs, each with a new worker. The filesystem cache was left intact. Each manifest checked 100 entries. The hash variant read 12.5 MiB. The outer test reopened each report, checked its matching receipt and independently validated every requested digest.
+
+All time cells are nearest-rank p50 / p95 in milliseconds. Queue wait begins at job ID allocation and ends just before supervisor launch. Startup includes the supervised PowerShell worker and Rust process launch. Total is the per-run sum of queue wait, startup, and Rust worker duration. Terminal history delivery after the worker exits is outside these timing intervals.
+
+| Mode | Verified | Queue wait | Startup | Checking | Report write | Readback | Worker | Total | Peak private max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Metadata cold | 4/4 | 11.1 / 56.7 | 408.7 / 480.7 | 18.9 / 20.2 | 6.8 / 8.2 | 9.5 / 12.0 | 38.4 / 42.3 | 461.0 / 575.7 | 1.25 MiB |
+| Metadata warm | 20/20 | 5.0 / 6.6 | 412.8 / 480.5 | 19.1 / 22.8 | 5.7 / 9.4 | 9.8 / 14.5 | 36.6 / 49.3 | 456.1 / 519.8 | 1.26 MiB |
+| SHA-256 cold | 4/4 | 10.6 / 11.4 | 403.2 / 736.8 | 58.9 / 83.6 | 4.7 / 6.4 | 10.0 / 11.1 | 75.3 / 100.2 | 489.7 / 848.1 | 1.37 MiB |
+| SHA-256 warm | 20/20 | 4.7 / 6.4 | 408.4 / 602.4 | 59.6 / 87.6 | 5.8 / 20.1 | 11.1 / 13.8 | 76.7 / 110.0 | 490.5 / 720.0 | 1.38 MiB |
+
+The metadata worker met the 1-second warm p95 target. The largest measured cost was launching the supervised worker. Effective hash throughput over the entire warm checking phase was approximately 210 MiB/s at p50 checking time and 143 MiB/s at p95 checking time. This includes file opens, scope checks, and cancellation checks. Worker private memory is the Windows peak commit charge of the Rust process. Release executable SHA-256 `aae4e0c9c737d77f684f6d4a6782568c036fe0fc9af3a613a680625daa2b8dc8`. Reproduce with [the handoff acceptance commands](HANDOFF-FOLDER.md#reproduce). Add `-MetricsFile` with a new file path to export run-correlated, path-free samples.

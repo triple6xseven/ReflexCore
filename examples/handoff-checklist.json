@@ -1,0 +1,8 @@
+{
+  "schema": "reflexcore.handoff.checklist.v1",
+  "name": "Project handoff",
+  "files": [
+    { "path": "README.md" },
+    { "path": "docs/COGNITIVE-RUNTIME.md" }
+  ]
+}

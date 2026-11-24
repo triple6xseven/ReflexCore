@@ -50,3 +50,7 @@ calibration, covering a target with another window, or taking over the
 mouse terminates the session. Resize the window or zoom out if the deck
 and drop point cannot fit together. Browser PointerEvents are also
 available with the Windows pointer checkbox clear.
+
+## Native handoff verification
+
+[Verify a Handoff Folder](HANDOFF-FOLDER.md) runs from the CLI or the supervised Studio queue. Rust checks a typed checklist through native filesystem I/O and independently verifies the local report. The task needs zero model calls.

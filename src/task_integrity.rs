@@ -115,6 +115,10 @@ pub(crate) fn write_receipt(run: &str, fault: Option<Fault>, verified: bool) -> 
         "stage": "goal", "outcome": outcome, "verification": verification,
         "reason": fault.map(Fault::code).unwrap_or(if verified { "verified_goal" } else { "no_effect_evidence" })
     });
+    publish_receipt(&id, run, &document)
+}
+
+pub(crate) fn publish_receipt(id: &str, run: &str, document: &Value) -> Result<()> {
     let staging = format!("data/bridge/running/{id}.{run}.tmp");
     let dest = format!("data/bridge/running/{id}.receipt.json");
     fs::write(&staging, serde_json::to_vec(&document)?)?;

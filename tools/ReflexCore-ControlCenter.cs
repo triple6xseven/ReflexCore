@@ -26,7 +26,7 @@ namespace ReflexCore.Control
             string fixture=Path.Combine(Path.GetTempPath(),"ReflexCore-StudioQueue-"+Guid.NewGuid().ToString("N"));
             var tasks=Directory.CreateDirectory(Path.Combine(fixture,"tasks"));
             try{
-                foreach(string task in new[]{"agent-demo","notepad-save","notepad-visual"})
+                foreach(string task in new[]{"agent-demo","notepad-save","notepad-visual","verify-handoff"})
                     File.WriteAllText(Path.Combine(tasks.FullName,task+".ps1"),"");
                 using(var form=new Dashboard(root,"Agent",new ReflexCore.Bridge.QueueStore(fixture)))form.ShowStudio(true);
             }finally{Directory.Delete(fixture,true);}
@@ -159,6 +159,7 @@ namespace ReflexCore.Control
             AddButton(agent,"NOTEPAD · CREATE FILE",250,68,237,38,()=>RunTask("notepad-save"),false);
             AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,68,270,38,()=>RunTask("notepad-visual"),false);
             agent.Controls.Add(Header("Task queue",18,131));
+            AddButton(agent,"VERIFY A HANDOFF FOLDER",497,122,270,34,SelectHandoff,false);
             var jobs=new QueueListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
                 OwnerDraw=true,BorderStyle=BorderStyle.None,
                 Location=new Point(18,168),Size=new Size(748,215),AccessibleName="Task queue"};
@@ -238,7 +239,7 @@ namespace ReflexCore.Control
                             string hour=DateTime.TryParseExact(row.Id.Substring(0,17),"yyyyMMddHHmmssfff",
                                 System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AssumeUniversal|System.Globalization.DateTimeStyles.AdjustToUniversal,out created)
                                 ?created.ToLocalTime().ToString("dd.MM HH:mm:ss"):"—";
-                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":"Local task";
+                            string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":row.Task=="handoff"?"Verify a handoff folder":"Local task";
                             string state=row.State=="pending"?"Pending":row.State=="running"?"Running":
                                 row.State=="stopping"?"Stopping":row.State=="completed"?(row.Verification=="verified"?"Verified":"Finished without verification"):
                                 row.State=="cancelled"?(row.Verification=="unknown"?"Cancelled · effect unknown":"Cancelled"):
@@ -481,6 +482,46 @@ namespace ReflexCore.Control
             }
             var dir=Path.Combine(root,"data","bridge");Directory.CreateDirectory(dir);File.WriteAllText(Path.Combine(dir,"control.txt"),code);
         }
+        void SelectHandoff()
+        {
+            using(var folder=new FolderBrowserDialog { Description="Select the local handoff folder" })
+            using(var list=new System.Windows.Forms.OpenFileDialog { Title="Choose a checklist or type a new checklist filename", Filter="JSON checklist|*.json", CheckFileExists=false, DefaultExt="json" })
+            using(var output=new System.Windows.Forms.SaveFileDialog { Title="Choose a new report file", Filter="JSON report|*.json", FileName="handoff-report.json", OverwritePrompt=false })
+            {
+                try{
+                    if(folder.ShowDialog(this)!=DialogResult.OK || list.ShowDialog(this)!=DialogResult.OK)return;
+                    if(!File.Exists(list.FileName) && !CreateHandoffChecklist(list.FileName))return;
+                    if(output.ShowDialog(this)!=DialogResult.OK)return;
+                    if(File.Exists(output.FileName)){MessageBox.Show(this,"Choose a new report filename. This file already exists.");return;}
+                    queue.SubmitHandoff(folder.SelectedPath,list.FileName,output.FileName);
+                    refreshQueue();
+                }catch(IOException){MessageBox.Show(this,"Could not save the checklist or submit the task.");}
+                 catch(UnauthorizedAccessException){MessageBox.Show(this,"Access was denied. Choose a writable location.");}
+            }
+        }
+        bool CreateHandoffChecklist(string path)
+        {
+            using(var form=new Form{Text="Create handoff checklist",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(510,320),
+                BackColor=BackColor,ForeColor=ForeColor,MinimizeBox=false,MaximizeBox=false}){
+                var hint=new Label{Dock=DockStyle.Top,Height=46,Text="Enter one relative file path per line. For a checksum, append | followed by the SHA-256 value."};
+                var entries=new TextBox{Multiline=true,Dock=DockStyle.Fill,ScrollBars=ScrollBars.Vertical,AcceptsReturn=true};
+                var save=new Button{Text="Save checklist",Dock=DockStyle.Bottom,Height=36,DialogResult=DialogResult.OK};
+                form.Controls.Add(entries);form.Controls.Add(save);form.Controls.Add(hint);
+                if(form.ShowDialog(this)!=DialogResult.OK)return false;
+                var files=new System.Collections.Generic.List<object>();
+                foreach(var line in entries.Lines.Where(l=>!String.IsNullOrWhiteSpace(l))){
+                    var fields=line.Split('|');
+                    if(fields.Length>2 || (fields.Length==2 && !Regex.IsMatch(fields[1].Trim(),@"\A[0-9a-fA-F]{64}\z"))){
+                        MessageBox.Show(this,"Each checksum must have 64 hexadecimal digits.");return false;}
+                    files.Add(new {path=fields[0].Trim(),sha256=fields.Length==2?fields[1].Trim():null});
+                }
+                if(files.Count==0 || files.Count>1024){MessageBox.Show(this,"Enter between 1 and 1,024 files.");return false;}
+                var json=new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(
+                    new {schema="reflexcore.handoff.checklist.v1",name=Path.GetFileNameWithoutExtension(path),files});
+                using(var writer=new StreamWriter(new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None))){writer.Write(json);}
+                return true;
+            }
+        }
         void RunTask(string task)
         {
             queue.Submit(task,true);
@@ -495,7 +536,10 @@ namespace ReflexCore.Control
             buttons["NOTEPAD · CHECK WITH MODEL"].PerformClick();
             refreshQueue();
             var jobs=page.Controls.OfType<ListView>().Single();
-            if(jobs.Items.Count!=3 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=3)
+            if(!buttons["VERIFY A HANDOFF FOLDER"].Visible)throw new InvalidOperationException("Handoff action missing");
+            queue.SubmitHandoff(root,Path.Combine(root,"examples","handoff-checklist.json"),Path.Combine(root,"smoke-report.json"));
+            refreshQueue();
+            if(jobs.Items.Count!=4 || queue.Snapshot().Select(row=>row.Task).Distinct().Count()!=4)
                 throw new InvalidOperationException("Queued tasks missing from Studio");
             if(jobs.Columns.Cast<ColumnHeader>().Sum(column=>column.Width)!=jobs.ClientSize.Width)
                 throw new InvalidOperationException("Queue header does not fill its viewport");
