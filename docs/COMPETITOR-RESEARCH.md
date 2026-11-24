@@ -42,3 +42,10 @@ Microsoft Hybrid Computer Use documents semantic UIA and physical input as separ
 ## Agent page discoverability
 
 The local ZxcLagLab sources expose preferences through visible toggles in SettingsUi.cs and separate Windows hotkey registration from optional input hooks in Hotkey.cs. Studio places the persisted background toggle above the queue, supports Enter in the request field, and keeps the existing tray stop shortcut visible. The Agent UI smoke test checks the empty state and verifies the controls do not overlap.
+
+## MCP workflow and offline feedback
+
+- The MCP SDK and tools specification expose structured tool results and retain text results for compatible clients. ReflexCore declares output schemas and returns both representations without adding a resident service. [SDK](https://github.com/modelcontextprotocol/typescript-sdk) and [tool contract](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+- Voyager combines a skill library with feedback about execution. ReflexCore exposes its available workflow contracts and separately reports retained task outcomes. These outcomes can inform later selection without granting a command-generation path. [Voyager](https://github.com/MineDojo/Voyager).
+- Windows Agent Arena defines task evaluation independently of agent execution. ReflexCore checks file reports with independent readback and confirms a game round from fresh server events before publishing its verdict. [Windows Agent Arena task guide](https://github.com/microsoft/WindowsAgentArena/blob/main/docs/Develop-Tasks.md).
+- Gymnasium distinguishes task termination from truncation. ReflexCore carries the distinction into its offline summary, with independent categories for operator cancellation and infrastructure failure. [Gymnasium environment contract](https://github.com/Farama-Foundation/Gymnasium/blob/main/gymnasium/core.py).

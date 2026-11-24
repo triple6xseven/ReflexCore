@@ -88,7 +88,7 @@ try{
     [IO.File]::WriteAllText((Join-Path $folder $unicode),'test')
     $good=(Get-FileHash -LiteralPath (Join-Path $folder $unicode)).Hash
     if($Mcp){
-        foreach($f in 'ReflexCore-Mcp.ps1','ReflexCore-Mcp.cs','ReflexCore-Queue.cs'){
+        foreach($f in 'ReflexCore-Mcp.ps1','ReflexCore-Mcp.cs','ReflexCore-McpLab.cs','ReflexCore-Queue.cs'){
             Copy-Item -LiteralPath (Join-Path $root "tools/$f") -Destination (Join-Path $fixture "tools/$f")
         }
         $settings=Join-Path $fixture 'data/settings'
@@ -120,7 +120,7 @@ try{
             $hello=Invoke-Mcp 'initialize' @{protocolVersion='2025-06-18';capabilities=@{};clientInfo=@{name='test';version='1'}}
             Require ($hello.serverInfo.name -eq 'reflexcore') 'MCP server identity not found'
             Invoke-Mcp 'notifications/initialized' @{} -Notification
-            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 5) 'Wrong MCP tools'
+            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 7) 'Wrong MCP tools'
             Require ((Invoke-Tool 'list_skills' @{}).isError) 'MCP did not honor the off switch'
             [IO.File]::WriteAllText((Join-Path $settings 'mcp.enabled'),'on')
             Require (((Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json).skills.Count -gt 0) 'MCP skill catalog is empty'
@@ -130,6 +130,42 @@ try{
             Require ($projects.projects.Count -eq 2) 'MCP project discovery failed'
             Require ((Invoke-Tool 'submit_handoff_check' @{folder='.';checklist='checklist.json';report='unknown.json'}).isError) 'MCP chose an ambiguous project'
             Checklist @(@{path='absent'})
+            [IO.File]::WriteAllText((Join-Path $settings 'mcp-handoff-presets.json'),'{"reflexcore":{"release":"folder"}}')
+            $presetRoot=Join-Path $fixture 'data/private/mcp-checklists'
+            [void][IO.Directory]::CreateDirectory($presetRoot)
+            Copy-Item -LiteralPath $list -Destination (Join-Path $presetRoot 'reflexcore.release.json')
+            $projects=Invoke-Tool 'list_projects' @{}
+            Require ($projects.structuredContent.projects[0].presets[0] -eq 'release') 'Saved preset not present in structured discovery'
+            $saved=Invoke-Tool 'submit_saved_handoff' @{project='reflexcore';preset='release'}
+            $savedId=$saved.structuredContent.task_id
+            $pending=Invoke-Tool 'get_task_result' @{task_id=$savedId}
+            Require ($pending.structuredContent.state -eq 'pending_approval' -and $pending.structuredContent.next_action -eq 'approve_in_studio') 'Missing approval state'
+            Require ($store.Request($savedId,'approve')) 'Saved workflow could not be approved'
+            $savedReceipt=Terminal-Job $savedId
+            $savedResult=Invoke-Tool 'get_task_result' @{task_id=$savedId}
+            Require ($savedResult.structuredContent.folder_verdict -eq 'needs_attention') 'Saved workflow lost folder verdict'
+            Evaluate ($store.ReadFolderResult($savedId).report) $savedReceipt @(@{path='absent'}) @('missing') 'Needs attention'
+            $feedback=(Invoke-Tool 'list_skills' @{}).structuredContent.handoff_feedback
+            Require ($feedback.verified -eq 1 -and $feedback.verified_needs_attention -eq 1) 'Verified negative finding was not retained as workflow evidence'
+            $changed=(Invoke-Tool 'submit_saved_handoff' @{project='reflexcore';preset='release'}).structuredContent
+            $changedId=$changed.task_id
+            [IO.File]::AppendAllText((Join-Path $presetRoot 'reflexcore.release.json'),' ')
+            Require ($store.Request($changedId,'approve')) 'Changed-checklist job could not be approved for rejection'
+            $changedReceipt=Terminal-Job $changedId
+            Require ($changedReceipt.verification -ne 'verified' -and !(Test-Path -LiteralPath ($store.ReadFolderResult($changedId).report))) 'Edited checklist was accepted after approval'
+
+            $lab=Join-Path $fixture 'data/private/mcp-lab'
+            [void][IO.Directory]::CreateDirectory($lab)
+            $labId='1'*32
+            $testRun=@{schema='reflexcore.lab.run.v1';map='de_dust2';run_id=$labId;termination='truncated';
+                server_log_confirmed=$false;shot_requests=1;discharges=0;hits=0;private_path='hidden'}
+            [IO.File]::WriteAllText((Join-Path $lab ($labId+'.json')),($testRun|ConvertTo-Json -Compress))
+            [IO.File]::WriteAllText((Join-Path $lab (('2'*32)+'.json')),($testRun|ConvertTo-Json -Compress))
+            $runs=(Invoke-Tool 'list_lab_runs' @{}).structuredContent.runs
+            Require ($runs.Count -eq 1 -and $runs[0].termination -eq 'truncated' -and
+                $runs[0].shot_requests -eq 1 -and $runs[0].discharges -eq 0 -and
+                $null -eq $runs[0].win -and !$runs[0].PSObject.Properties['private_path']) 'Invalid or private lab evidence escaped the adapter'
+
             $argsForCheck=@{project='reflexcore';folder='folder';checklist='checklist.json';report='mcp-report.json'}
             $outside=@{project='zxclaglab';folder='..';checklist='checklist.json';report='mcp-report.json'}
             Require ((Invoke-Tool 'submit_handoff_check' $outside).isError) 'MCP accepted a path outside the scope'

@@ -234,3 +234,9 @@ Four of five rounds closed with a log-confirmed plant and Terrorist win. No acto
 Observation percentiles summarize synchronized snapshot reads, including retries, with 296 to 2,563 samples per attempt. Decision percentiles summarize the local branch only, excluding action acknowledgment, with 148 to 1,281 samples. Values of zero are below microsecond reporting resolution. The maximum sampled Rust worker working set was 7.16 MiB; GoldSrc, HLTV, and Studio were outside this measurement. The first trial produced an HLTV demo with a valid GoldSrc header, Dust II map name, and finalized directory. Interactive playback was not tested.
 
 The separate active-round stop reached a cancelled outcome after one acknowledged move and zero attack requests or plants. The stationary Dust II Plant Drill passed with fresh server-log evidence. Cargo tests passed 120/120. AMXX compilation, the practice launcher self-test, Studio UI smoke, and the eight-scene synthetic scorer fixture passed.
+
+## MCP workflow pilot
+
+One local zxcLagLab release presence check matched all four configured files. The queue receipt and independent report agreed on the run ID and Ready verdict. The Rust worker took 20.661 ms, including 8.110 ms for readback. Worker startup took 428.860 ms. Peak worker private memory was 1,232,896 bytes. Zero model calls and zero checksum bytes were recorded. Single-run figures do not estimate tail latency or validate the executable itself.
+
+Two owned Dust II attempts exercised the MCP evidence publisher. The older installed plugin rejected setup; the record reported infrastructure failure and a null winner. After temporarily installing the current compiled plugin, the log confirmed one closed Terrorist win and plant. The controller recorded one contact, one shot request, zero actor discharges, and zero hits. Observation p95 was 2,876 microseconds across 2,607 samples. This pilot measured evidence reporting and did not demonstrate improved combat.

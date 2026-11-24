@@ -16,11 +16,28 @@ The server and Studio must use the same ReflexCore installation. The tray must b
 
 ## Use
 
-Ask the client to list ReflexCore skills, then check a folder with an existing checklist. For example, submit `folder` as `.`, `checklist` as `checklist.json`, and `report` as `verification.json`. Use `list_projects` to discover the configured projects and pass the selected name as `project`. Paths are relative to that project root. The registry stores references to existing project folders and does not copy the projects. Studio approval is required for every new check, and the report path must be new. Hover a queue row to see its task ID.
+Ask Codex to check a local project's release folder. The client calls `list_projects`, selects a saved preset, and submits it through `submit_saved_handoff`. The current task ID is shown in Studio as a queue-row tooltip. Selecting the pending row shows its folder and checklist name. Approve the specific check in Studio. The server exposes no approval tool.
 
-Poll `get_task_result` with the submitted task ID. The receipt distinguishes task verification from folder readiness. A verified result can include missing files and zero model calls. The MCP result exposes counts, measurements and reason codes. Detailed filenames and hashes stay in the local report. Cancellation requests and terminal cancellation are separate outcomes.
+Saved presets are private installation settings. In `data/settings/mcp-handoff-presets.json`, map each project name to a preset name and a project-relative folder. For example, `{"zxclaglab":{"release":"artifacts/portable"}}`. Put the typed checklist at `data/private/mcp-checklists/zxclaglab.release.json`. The queue binds the requested checklist digest at submission. Reports use new names under `data/private/mcp-reports`. Existing projects are used in place.
 
-The client can use the catalog, verifier descriptions, movement statistics and typed task outcomes to improve skill selection in future requests. This bridge adds no new trainer. The existing learning mode continues to govern experimental training.
+Explicit checks still use `submit_handoff_check` with `folder`, `checklist`, and `report` relative to the selected project. `get_task_result` returns the next operator step, a workflow version, the typed receipt and a separate folder verdict. Verified checks may report missing items. Filenames and hashes stay in the local report. Cancellation requests and completed cancellation are separate outcomes.
+
+`list_skills` exposes the executable workflow separately from the experimental movement catalog. It distinguishes missing memory from an empty replay history and groups retained handoff receipts by verified, cancelled, interrupted and other unverified outcomes. The optional `data/settings/mcp-memory-root.txt` selects another local ReflexCore installation for read-only SQLite access. Values and paths stay local. The bridge does not add a trainer or share observations between incompatible workflows.
+
+## Local Codex plugin
+
+ReflexCore ships a local plugin catalog with release-check and offline-lab-evidence workflows. The plugin uses the existing `reflexcore` connection, so Studio and Codex share the same queue and project settings.
+
+~~~powershell
+codex plugin marketplace add (Get-Location).Path
+codex plugin add reflexcore@reflexcore-local
+~~~
+
+Open a new Codex session after installation so the new tools and workflows can be discovered.
+
+## Offline lab evidence
+
+Run the owned GoldSrc match harness with `-PublishMcpSummary` to make its redacted result queryable through `list_lab_runs`. It returns up to 20 recent summaries. The same run ID identifies the private harness results. The controller supplies contacts, requests, discharges and hits. A fresh server log independently confirms closed rounds, plants and winners. Cancellation, truncation and infrastructure failures leave the round verdict unknown. The reader validates the schema and file identity and projects only allowed fields. It exposes no screenshots, positions, paths, raw logs or game actions.
 
 ## Test
 
@@ -29,4 +46,4 @@ cargo build --release --locked
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tasks\Test-Handoff.ps1 -Mcp
 ```
 
-The fixture covers stdio initialization, tool discovery, the off switch, scope rejection, approval, an independently reopened report, a matched terminal receipt and cancellation before execution.
+The fixture covers stdio initialization, tool discovery, the off switch, scope rejection, saved presets, approval, edited-checklist rejection, independent report readback, typed receipts, cancellation before execution and rejection of foreign lab summaries.

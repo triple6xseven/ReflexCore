@@ -331,6 +331,11 @@ namespace ReflexCore.Control
                 if(jobs.SelectedItems.Count==0 || visibleRows==null)return;
                 var row=visibleRows.FirstOrDefault(item=>item.Id==(string)jobs.SelectedItems[0].Tag);
                 if(row==null)return;
+                if(row.Task=="handoff" && row.State=="pending"){
+                    var pending=queue.ReadFolderResult(row.Id);
+                    if(pending!=null)resultText.Text="Folder: "+pending.folder+Environment.NewLine+"Checklist: "+Path.GetFileName(pending.checklist);
+                    return;
+                }
                 var receipt=row.Receipt;
                 if(row.Task=="rename" && row.State=="interrupted"){
                     int? confirmed=ExtensionRename.ConfirmedCount(row.Id);

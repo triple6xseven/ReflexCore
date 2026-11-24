@@ -446,6 +446,18 @@ mod tests {
     }
 
     #[test]
+    fn loss_without_plant_is_a_completed_round() {
+        let spawn = event(PLAYER, "Spawned_With_The_Bomb");
+        let loss = r#"Team "CT" triggered "CTs_Win" (CT "1") (T "0")"#;
+        let complete = fixture(&[(3, &spawn), (5, START), (30, loss), (30, END)]);
+        assert_eq!(complete.verified_plants, 0);
+        assert_eq!(complete.verified_completed_actor_rounds, 1);
+        assert_eq!(complete.verified_completed_actor_wins, 0);
+        let interrupted = fixture(&[(3, &spawn), (5, START), (30, loss)]);
+        assert_eq!(interrupted.verified_completed_actor_rounds, 0);
+    }
+
+    #[test]
     fn requires_actual_plant_from_the_selected_terrorist() {
         let spawn = event(PLAYER, "Spawned_With_The_Bomb");
         let other_plant = event(OTHER_T, "Planted_The_Bomb");
@@ -714,13 +726,13 @@ pub fn run(args: &[String]) -> Result<()> {
     let args: Vec<_> = args.iter().map(String::as_str).collect();
     let ["benchmark", path, "--player", player, rest @ ..] = args.as_slice() else {
         return Err(
-            "Usage: reflexcore cs16 benchmark <server.log> --player <userid> [--require-bot-win|--require-plant-kill-win]"
+            "Usage: reflexcore cs16 benchmark <server.log> --player <userid> [--require-completed-round|--require-bot-win|--require-plant-kill-win]"
                 .into(),
         );
     };
     if !matches!(
         rest,
-        [] | ["--require-bot-win"] | ["--require-plant-kill-win"]
+        [] | ["--require-completed-round"] | ["--require-bot-win"] | ["--require-plant-kill-win"]
     ) {
         return Err("Invalid CS16 benchmark arguments".into());
     }
@@ -730,6 +742,13 @@ pub fn run(args: &[String]) -> Result<()> {
         .ok_or("Player must be a positive server userid")?;
     let report = analyze_file(Path::new(path), player)?;
     println!("{}", serde_json::to_string_pretty(&report)?);
+    if rest == ["--require-completed-round"] {
+        return if report.verified_completed_actor_rounds > 0 {
+            Ok(())
+        } else {
+            Err("No completed round found for the selected player".into())
+        };
+    }
     if report.verified_plants == 0 {
         return Err("No verified plant found in the selected player's rounds".into());
     }

@@ -10,11 +10,13 @@ param(
     [switch]$CancelInRound,
     [switch]$Record,
     [switch]$Coach,
+    [switch]$PublishMcpSummary,
     [string]$CoachVisionReport
 )
 if($SavedRoute -and (!$Match -or $Map -cne 'de_reflex_lab')){throw 'SavedRoute requires the original match'}
 if($CancelInRound -and (!$Match -or !$EvidenceDirectory)){throw 'Cancellation requires match evidence output'}
 if($Record -and (!$EvidenceDirectory -or $Port -eq 65534)){throw 'Recording requires evidence output and a spare adjacent port'}
+if($PublishMcpSummary -and (!$Match -or $SavedRoute)){throw 'MCP summaries require an automatic offline match'}
 $ErrorActionPreference='Stop'
 if($CoachVisionReport -and !$Coach){throw '-CoachVisionReport requires -Coach'}
 $serverPath=(Resolve-Path -LiteralPath $Server).Path
@@ -38,6 +40,9 @@ $env:REFLEX_LEARNING_MODE='off'
 $process=$null
 $console=Join-Path $lab 'qconsole.log'
 $offset=if(Test-Path -LiteralPath $console){(Get-Item -LiteralPath $console).Length}else{0}
+$report=$null
+$parsed=$null
+$logConfirmed=$false
 $coachEvidence=$null
 $runId=[guid]::NewGuid().ToString('N')
 $artifact=$null
@@ -121,7 +126,9 @@ try{
     }finally{$file.Dispose()}
     if($artifact){Copy-Item -LiteralPath $log -Destination ($artifact+'.log')}
     if($report.engine_subject_id -eq 0){throw "Actor setup failed: $($report.outcome)"}
-    $evidence=& $exe cs16 benchmark $log --player $report.engine_subject_id
+    $benchmarkArgs=@('cs16','benchmark',$log,'--player',$report.engine_subject_id)
+    if($Match -and !$SavedRoute -and !$CancelInRound){$benchmarkArgs+='--require-completed-round'}
+    $evidence=& $exe @benchmarkArgs
     if($artifact){$evidence | Set-Content -LiteralPath ($artifact+'.benchmark.json') -Encoding UTF8}
     if($LASTEXITCODE -ne 0){throw 'Independent game log parser failed'}
     $evidence | Write-Output
@@ -135,6 +142,7 @@ try{
     }elseif($SavedRoute){
         if($result -ne 0 -or $parsed.verified_plant_bot_round_wins -ne 1){throw 'Original lab match regression failed'}
     }elseif($result -ne 0 -or $parsed.verified_plants -lt 1){throw 'Automatic drill did not verify a plant'}
+    if($Match -and !$SavedRoute -and !$CancelInRound){$logConfirmed=$true}
     if($Coach){$coachEvidence=$evidence -join [Environment]::NewLine}
 }finally{
     if($recorder){
@@ -161,6 +169,37 @@ try{
     foreach($key in $environment.Keys){[Environment]::SetEnvironmentVariable($key,$environment[$key],'Process')}
     [IO.File]::Delete($log)
     Pop-Location
+    if($PublishMcpSummary){
+        $kind=if($logConfirmed){'completed'}
+            elseif($report.outcome -ceq 'cancelled'){'cancelled'}
+            elseif($report -and $report.engine_subject_id -gt 0 -and !$report.round_completed){'truncated'}
+            else{'infrastructure_failure'}
+        $death=$null;$win=$null;$plant=$null
+        if($logConfirmed){
+            $completed=@($parsed.rounds | Where-Object {
+                $_.close -ceq 'round_end' -and $null -ne $_.terrorist_win -and
+                $null -ne $_.c4_acquired_from_round_start_seconds
+            })
+            if($completed.Count -ne 1){throw 'Independent round evidence is ambiguous'}
+            $death=$null -ne $completed[0].player_death_from_round_start_seconds
+            $win=$parsed.verified_completed_actor_wins -eq 1
+            $plant=$parsed.verified_plants -eq 1
+        }
+        $summary=@{
+            schema='reflexcore.lab.run.v1';run_id=$runId;map=$Map;termination=$kind
+            server_log_confirmed=$logConfirmed;contacts=$report.contacts;shot_requests=$report.match_shots
+            discharges=$report.combat.shots;hits=$report.combat.hits;defender_discharges=$report.combat.defender_shots
+            observation_p95_us=$report.observation_us.p95;decision_p95_us=$report.decision_us.p95
+            win=$win;plant=$plant;death=$death
+        }
+        $directory=[IO.Directory]::CreateDirectory((Join-Path $root 'data/private/mcp-lab')).FullName
+        $target=Join-Path $directory ($runId+'.json')
+        $temp=$target+'.tmp'
+        try{
+            [IO.File]::WriteAllText($temp,($summary | ConvertTo-Json -Compress))
+            [IO.File]::Move($temp,$target)
+        }finally{[IO.File]::Delete($temp)}
+    }
 }
 if($Coach){
     $coachInput=$log+'.json'

@@ -1,0 +1,20 @@
+{
+  "name": "reflexcore-local",
+  "interface": {
+    "displayName": "ReflexCore local"
+  },
+  "plugins": [
+    {
+      "name": "reflexcore",
+      "source": {
+        "source": "local",
+        "path": "./plugins/reflexcore"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

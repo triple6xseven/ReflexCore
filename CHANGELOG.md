@@ -2,6 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Discover saved release checks in Codex, show approval context in Studio, and publish redacted offline lab outcomes through MCP.
 - Add a local MCP server for skill discovery and approved handoff checks, with scope and enable controls in the Studio sidebar.
 - Add a themed Studio skill library with read-only SQLite movement statistics and an installation picker.
 - Apply the active Studio palette to match replays. Verify opposing teams on the owned CS 1.6 server and distinguish a shot request from an actual discharge.
