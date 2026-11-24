@@ -310,3 +310,5 @@
 * Port the zxcLagLab WPF navigation, material and control templates, original theme data and artwork, gallery, scrolling, and window controls to the public ReflexCore Studio. Preserve the six operator panels through an in-process WindowsFormsHost.
 
 The prior Windows source identified itself as VisionLoop 0.7.0 Preview3 FIX4. Its Rust package manifest still reported 0.1.0. See docs/BENCHMARKS.md for the measured baseline.
+
+- Consume the owned GoldSrc actor's pending spawn view on first combat input and record lethal fixture damage even when the round closes. Add an offline pixel-only Ollama scene observer with independent YOLOX gating and scene scoring.

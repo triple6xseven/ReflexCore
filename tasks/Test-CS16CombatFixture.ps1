@@ -143,8 +143,8 @@ function Invoke-CombatTrial([string]$Case,[string]$Variant,[bool]$Cancel){
             $row.primary_attack_events=$trace.primary_attack_events
             $row.playback_events=$trace.playback_events
             $row.damage_events=$trace.damage_events
-            if($trace.target_health_before -ge 0 -and $trace.target_health_after -ge 0){
-                $row.health_loss=[Math]::Max(0,$trace.target_health_before-$trace.target_health_after)
+            if($trace.target_health_before -gt 0 -and $trace.reason -eq 'clip_decreased'){
+                $row.health_loss=[Math]::Max(0,$trace.target_health_before-[Math]::Max(0,$trace.target_health_after))
             }
             $decrements=[Math]::Max(0,$trace.clip_before-$trace.clip_after)
             $row.discharges=if($decrements -eq $trace.playback_events){$decrements}else{$null}

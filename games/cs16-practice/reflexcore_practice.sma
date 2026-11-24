@@ -44,7 +44,7 @@ public plugin_precache()
 
 public plugin_init()
 {
-    register_plugin("ReflexCore CS16 Practice", "1.3", "ReflexCore");
+    register_plugin("ReflexCore CS16 Practice", "1.4", "ReflexCore");
     g_enabled = register_cvar("rc_practice_enabled", "0");
     g_max_clients = get_maxplayers();
     get_mapname(g_map, charsmax(g_map));
@@ -59,6 +59,7 @@ public plugin_init()
     RegisterHam(Ham_Weapon_PrimaryAttack, "weapon_ak47", "fixture_primary");
     register_forward(FM_CmdStart, "fixture_command");
     register_forward(FM_PlaybackEvent, "fixture_playback", 1);
+    RegisterHam(Ham_TakeDamage, "player", "fixture_damage", 1);
     RegisterHam(Ham_Killed, "player", "match_death", 1);
     register_event("SendAudio", "terrorist_win", "a", "2=%!MRAD_terwin");
     set_task(0.10, "practice_tick", RC_TICK, "", 0, "b");
@@ -168,9 +169,18 @@ public round_closed()
     g_round_live = false;
 }
 
+public fixture_damage(victim, inflictor, attacker, Float:damage, bits)
+{
+    // A lethal shot can close the round before the CSX damage notification.
+    if (g_fixture_dispatching && attacker == g_subject && victim == g_passive_ct
+        && owns_subject() && owns_actor(victim, g_passive_userid) && damage > 0.0
+        && (bits & DMG_BULLET) && get_user_health(victim) < g_fixture_health_before)
+        g_hits++;
+}
+
 public client_damage(attacker, victim, damage, weapon, hitplace, teamattack)
 {
-    if (g_adversarial && g_round_live && !teamattack && damage > 0 && weapon == CSW_AK47
+    if (!g_fixture && g_adversarial && g_round_live && !teamattack && damage > 0 && weapon == CSW_AK47
         && attacker == g_subject && victim == g_passive_ct && owns_subject()
         && owns_actor(g_passive_ct, g_passive_userid))
         g_hits++;
@@ -476,6 +486,17 @@ add_fake_client(const name[], const team[])
     return actor;
 }
 
+consume_subject_spawn_view()
+{
+    if (g_spawn_view_pending)
+    {
+        // The network client-data path consumes fixed spawn angles. Our fake client has no packet recipient.
+        if (pev(g_subject, pev_fixangle) == 1)
+            set_pev(g_subject, pev_fixangle, 0);
+        g_spawn_view_pending = false;
+    }
+}
+
 bool:move_subject(Float:yaw, Float:forward_speed, Float:side_speed, buttons, millis)
 {
     if (!owns_subject() || !is_user_alive(g_subject) || cs_get_user_team(g_subject) != CS_TEAM_T || millis < 1)
@@ -484,13 +505,7 @@ bool:move_subject(Float:yaw, Float:forward_speed, Float:side_speed, buttons, mil
         return false;
     if ((buttons & IN_ATTACK) && (!inside_plant_zone() || !c4_equipped()))
         return false;
-    if (g_spawn_view_pending)
-    {
-        // The network client-data path consumes fixed spawn angles. Our fake client has no packet recipient.
-        if (pev(g_subject, pev_fixangle) == 1)
-            set_pev(g_subject, pev_fixangle, 0);
-        g_spawn_view_pending = false;
-    }
+    consume_subject_spawn_view();
     new Float:max_speed;
     pev(g_subject, pev_maxspeed, max_speed);
     if (!g_warned_slow && (forward_speed || side_speed) && max_speed <= 1.0)
@@ -635,6 +650,7 @@ bool:match_shot()
     new Float:angles[3];
     if (!target_angles(g_subject, g_passive_ct, angles))
         return false;
+    consume_subject_spawn_view();
     // Release before each single shot so a semi-auto weapon can re-arm.
     engfunc(EngFunc_RunPlayerMove, g_subject, angles, 0.0, 0.0, 0.0, 0, 0, 20);
     new before = cs_get_weapon_ammo(weapon);
@@ -850,6 +866,8 @@ fixture_shot()
     }
     g_fixture_before = g_fixture_after = cs_get_weapon_ammo(weapon);
     g_fixture_health_before = g_fixture_health_after = get_user_health(g_passive_ct);
+    if (g_fixture_policy)
+        consume_subject_spawn_view();
     if (g_fixture_before <= 0)
     {
         copy(g_fixture_reason, charsmax(g_fixture_reason), "empty_clip");

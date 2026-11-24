@@ -24,6 +24,7 @@ const input = statSync(file);
 if (!input.isFile() || input.size > 128 * 1024 * 1024) throw new Error('Expected a frame-record file of at most 128 MiB');
 const frames = new Set();
 const age = [];
+const sceneObserver = { frames: 0, correct: 0, falseMatch: 0, missedMatch: 0, unavailable: 0 };
 let emptyMatchFrames = 0;
 let synchronizedMatchFrames = 0;
 const counts = { tp: 0, fp: 0, fn: 0, negativeFramesWithBoxes: 0, nonMatchFramesWithBoxes: 0, emptyMatchFramesWithBoxes: 0 };
@@ -36,12 +37,25 @@ for await (const line of lines) {
     const { frame, tick, scene, truth, detections, observation_age_ms, source } = record;
     if (!Number.isSafeInteger(frame) || frame < 0 || frames.has(frame) ||
         !(source === undefined || source === 'annotated_clip') || !scenes.has(scene) || (observation_age_ms !== undefined &&
-            (!Number.isFinite(observation_age_ms) || observation_age_ms < 0 || observation_age_ms > 60000)) || (scene === 'match' && !(source === 'annotated_clip' && tick === null) && (!Number.isSafeInteger(tick) || tick < 0)) ||
+            (!Number.isFinite(observation_age_ms) || observation_age_ms < 0 || observation_age_ms > (record.scene_model ? 180000 : 60000))) || (scene === 'match' && !(source === 'annotated_clip' && tick === null) && (!Number.isSafeInteger(tick) || tick < 0)) ||
         !Array.isArray(truth) || truth.length > 256 || !truth.every(validBox) ||
         !Array.isArray(detections) || detections.length > 256 || !detections.every(item =>
             item && validBox(item.box) && Number.isFinite(item.score) && item.score >= 0 && item.score <= 1) ||
         (scene !== 'match' && truth.length !== 0)) {
         throw new Error('Invalid frame record or duplicate frame ID');
+    }
+    if (record.predicted_scene !== undefined) {
+        const prediction = record.predicted_scene;
+        if (!scenes.has(prediction) || prediction === 'stale' ||
+            !['observed', 'timeout', 'encoding_error', 'invalid_response', 'service_error'].includes(record.observer_status) ||
+            (record.observer_status !== 'observed' && prediction !== 'unknown')) {
+            throw new Error('Invalid scene observer evidence');
+        }
+        sceneObserver.frames++;
+        if (record.observer_status !== 'observed') sceneObserver.unavailable++;
+        else if (prediction === scene) sceneObserver.correct++;
+        if (prediction === 'match' && scene !== 'match') sceneObserver.falseMatch++;
+        if (prediction !== 'match' && scene === 'match') sceneObserver.missedMatch++;
     }
     frames.add(frame);
     byScene[scene]++;
@@ -80,6 +94,7 @@ age.sort((a, b) => a - b);
 const percentile = q => age.length ? age[Math.ceil(q * age.length) - 1] : null;
 console.log(JSON.stringify({
     frames: frames.size, byScene, ...counts,
+    ...(sceneObserver.frames ? { sceneObserver } : {}),
     nonMatchFrames, emptyMatchFrames, synchronizedMatchFrames,
     nonMatchFalsePositiveRate: rate(counts.nonMatchFramesWithBoxes, nonMatchFrames),
     emptyMatchFalsePositiveRate: rate(counts.emptyMatchFramesWithBoxes, emptyMatchFrames),

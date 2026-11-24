@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from reflexvision_players import Players
+from reflexvision_scene import detect_in_scene, observe_scene, read_frame
 
 SCENES = {"menu", "console", "loading", "match", "dead", "spectator", "unknown", "stale"}
 
@@ -19,25 +20,34 @@ def evaluate(args):
 
     os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", str(4096 * 4096))
     detector = Players(args.model_root)
+    root = args.manifest.resolve().parent
     with args.output.open("x", encoding="utf-8") as output:
         for frame, record in enumerate(records):
             scene = record["scene"]
             if scene not in SCENES:
                 raise ValueError("Unexpected scene")
-            source = args.manifest.parent / record["image"]
-            if source.stat().st_size > 16 * 1024 * 1024:
-                raise ValueError("Frame exceeds 16 MiB")
+            relative = Path(record["image"])
+            if relative.anchor or ".." in relative.parts:
+                raise ValueError("Use images relative to the manifest folder")
+            source = (root / relative).resolve(strict=True)
+            if not source.is_relative_to(root):
+                raise ValueError("Image is outside the manifest folder")
             started = time.perf_counter()
-            image = detector.cv.imread(str(source))
-            if image is None:
-                raise ValueError("Client frame cannot be decoded")
-            height, width = image.shape[:2]
-            if not (1 <= width <= 640 and 1 <= height <= 1536):
-                raise ValueError("Use the live capture dimensions for replay")
-            image[:height * 24 // 100, :width * 18 // 100] = 0
-            image[height * 92 // 100:] = 0
-            boxes = detector.detect(image) if scene == "match" or args.raw else []
+            image = read_frame(detector.cv, source)
+            predicted = scene
+            observation = {}
+            if args.scene_model:
+                inference_start = time.perf_counter()
+                predicted, status = observe_scene(detector.cv, image, args.scene_model)
+                observation = {
+                    "predicted_scene": predicted,
+                    "observer_status": status,
+                    "scene_model": args.scene_model,
+                    "scene_inference_ms": round((time.perf_counter() - inference_start) * 1000, 3),
+                }
+            boxes = detect_in_scene(detector, image, "match" if args.raw else predicted)
             sample = {
+                **observation,
                 "frame": frame,
                 "source": "annotated_clip",
                 "scene": scene,
@@ -54,5 +64,8 @@ if __name__ == "__main__":
     parser.add_argument("manifest", type=Path)
     parser.add_argument("model_root", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--raw", action="store_true", help="Score the ungated detector")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--scene-model", choices=["qwen3-vl:2b-instruct", "qwen3-vl:4b-instruct"],
+                      help="Predict the scene from pixels using local Ollama before detecting people")
+    mode.add_argument("--raw", action="store_true", help="Score the ungated detector")
     evaluate(parser.parse_args())

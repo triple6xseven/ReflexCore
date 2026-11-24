@@ -75,3 +75,18 @@ node tools/score-reflexvision.mjs <observations.jsonl>
 ~~~
 
 Pass --raw to evaluate detections in all scenes. Default replay runs YOLOX only on annotated match frames and suppresses output for menu, console, loading, death, spectator, unknown and stale labels. Replay age measures loading, masking and inference to result creation. This excludes live capture and tracking. Live player tracks remain disabled pending a trustworthy source of client scene transitions.
+
+## Observe a saved client frame
+
+Run the installed local Ollama vision model on an owned game frame with no labels or route. The observer receives pixels before HUD masking. Only its match prediction enables the existing CPU YOLOX person detector. The JSON result contains the scene, model status, processing time and boxes. A person box carries no team identity. A single still cannot establish freshness. This offline tool supplies no live control input.
+
+```powershell
+$vision = Join-Path $env:LOCALAPPDATA 'ReflexCore/vision'
+py tools/reflexvision_scene.py .\match.png $vision
+py tools/evaluate-reflexvision.py .\manifest.json $vision .\observed.jsonl --scene-model qwen3-vl:2b-instruct
+node tools/score-reflexvision.mjs .\observed.jsonl
+```
+
+Use a new output filename for each evaluation. The existing default evaluator uses human scene labels to isolate detector quality. The model mode uses labels only during scoring. Unknown and service failures suppress the detector, and the scorer counts missed matches and unavailable observations separately. Only explicit local replay inputs go to the loopback Ollama service.
+
+The [YOLOX postprocessor](https://github.com/Megvii-BaseDetection/YOLOX/blob/main/yolox/utils/boxes.py) combines objectness and class confidence before suppression. ReflexVision retains that person detector independently of scene classification. [Microsoft UFO](https://github.com/microsoft/UFO) separates responsibilities across specialized agents. Here the scene observer proposes a bounded label and independent replay annotations evaluate its usefulness.
