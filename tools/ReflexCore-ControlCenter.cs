@@ -176,7 +176,7 @@ namespace ReflexCore.Control
             AddButton(game,"▶ OPEN AI ARENA IN CHROME",18,125,420,53,()=>OpenGame(),true);
             AddButton(game,"START SERVER",462,125,305,53,()=>StartServer(),false);
             AddButton(game,"STOP SERVER",18,199,420,47,()=>StopServer(),false);
-            AddButton(game,"OPEN GAME SOURCE",462,199,305,47,()=>Process.Start("explorer.exe",Path.Combine(root,"Sandbox for intelegent test","citadel-zero")),false);
+            AddButton(game,"OPEN GAME SOURCE",462,199,305,47,()=>Process.Start("explorer.exe",Path.Combine(root,"sandbox","citadel-zero")),false);
             game.Controls.Add(Info("Akvarium 3D offers three missions. Run the agent in Chrome or as a headless Node.js process.",18,285,755));
             game.Controls.Add(Info("Choose an agent mode and the 3D or 2D camera in the game, then start the agent. API calls require a separate action.",18,360,755));
 

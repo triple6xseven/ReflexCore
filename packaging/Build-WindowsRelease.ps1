@@ -32,7 +32,7 @@ try {
     $files=git ls-files
     Assert-Exit 'Source inventory'
     foreach($name in $files){
-        if($name -match '^(tools|companion3d|examples|tasks|docs|games|assets|src|ui|packaging|Sandbox for intelegent test)/' -or $name -in @('LICENSE','README.md','CHANGELOG.md','Cargo.toml','Cargo.lock')){
+        if($name -match '^(tools|companion3d|examples|tasks|docs|games|assets|src|ui|packaging|sandbox)/' -or $name -in @('LICENSE','README.md','CHANGELOG.md','Cargo.toml','Cargo.lock')){
             Put (Join-Path $root $name) "ReflexCore/$name"
         }
     }

@@ -192,7 +192,7 @@ namespace ReflexCore.Citadel
 
         public static void SelfTest(string project)
         {
-            string arena=Path.Combine(project,"Sandbox for intelegent test","citadel-zero");
+            string arena=Path.Combine(project,"sandbox","citadel-zero");
             if (!File.Exists(Path.Combine(arena,"index.html"))) throw new Exception("3D Arena HTML missing");
             if (!File.Exists(Path.Combine(arena,"ocean-arena.html"))) throw new Exception("Akvarium 3D world missing");
             if (!File.Exists(Path.Combine(arena,"strategy.js"))) throw new Exception("Strategy JS missing");
@@ -282,7 +282,7 @@ namespace ReflexCore.Citadel
         static string ErrorJson(string message){return Json.Serialize(new {ok=false,error=message});}
         static string StaticPath(string path)
         {
-            string baseDir=Path.Combine(Root,"Sandbox for intelegent test","citadel-zero");
+            string baseDir=Path.Combine(Root,"sandbox","citadel-zero");
             switch(path){
                 case "/":case "/index.html":return Path.Combine(baseDir,"index.html");
                 case "/style.css":return Path.Combine(baseDir,"style.css");
@@ -378,7 +378,7 @@ namespace ReflexCore.Citadel
             if(data==null||!data.ContainsKey("mission"))return ErrorJson("Mission required");
             string mission=Convert.ToString(data["mission"]);
             if(mission!="destroy-core"&&mission!="disable-defenses"&&mission!="no-giants")return ErrorJson("Invalid mission");
-            string file=Path.Combine(Root,"Sandbox for intelegent test","citadel-zero","agent-headless.js");
+            string file=Path.Combine(Root,"sandbox","citadel-zero","agent-headless.js");
             if(!File.Exists(file))return ErrorJson("Headless engine not installed");
             using(var proc=new Process())
             {
