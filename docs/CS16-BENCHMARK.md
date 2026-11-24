@@ -18,6 +18,20 @@ Plant success requires C4 evidence and a matching player plant event in the same
 
 The reader was tested with a real local `de_dust2` capture. It identified the only measured round, its C4 spawn and freeze end, and reported zero verified plants after the capture closed 83 seconds later. This is a baseline with incomplete objective evidence. It supplies no successful completion time.
 
+## Isolated spawn-to-plant acceptance
+
+The original `de_reflex_lab` scenario ran on a loopback-only dedicated server with Valve's Steam legacy GameDLL, ReHLDS 3.15.0.896, Metamod 1.21.1-am and AMX Mod X 1.10.0.5488. Each trial started a fresh server with one ReflexCore Terrorist and one stationary CT. The server used standard movement, C4 issuance and planting. The adapter drove its fake clients through the GameDLL's team and class lifecycle before restarting the round. It acknowledges the one-shot spawn view update for its own fake client so the engine can accept subsequent yaw input.
+
+The previous adapter stalled at maximum speed 1.00 with the actor still in team selection. In the revised adapter, all three trials reached the plant site and planted. Both the actor-scoped CSX callback and the GameDLL log recorded each plant. The independent benchmark scored the fresh console capture from `-condebug` for the same actor and recorded 13 seconds from spawn and freeze end in each trial. Timings use the stock one-second event clock.
+
+Across the three successful runs, controller navigation measured 8,546–8,580 ms and planting measured 4,154–4,162 ms. Total wall time measured 14,764–14,796 ms, including setup and the final stop. Median total time was 14,769 ms. Each trial used 78 movement commands and 36 planting commands.
+
+One cancellation test created the private cancellation marker after five movement commands. The controller exited with a cancelled receipt 208 ms later, with the stop acknowledged, its exclusive lock released and zero plant commands. Pass `--cancel-file <unique-private-file>` after `--allow-offline` to request this behavior. Create the marker during the run and manage it from the caller that owns it.
+
+A subsequent Dust II trial generated 28 collision-checked waypoints from a measured C4 spawn. The next restart selected a spawn 96 units away, outside the route's initial 24-unit radius. The controller stopped at the anchor check with zero movement commands. Dust II needs route selection after observing the actual spawn. Easy-bot scoring remains a separate test.
+
+The tested adapter source SHA-256 is `c28fdb0f9dccb8bafc6a0b93607e6a46bcf0b91784783f1f5a73f3ac0a345459`. The controller source SHA-256 is `445e776eead62d71d5d02b6b1207979b9d3f3e08b64b4a881bce1ebeb9bd2bf0`.
+
 ## Read-only telemetry
 
 ~~~powershell

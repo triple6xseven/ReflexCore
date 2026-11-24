@@ -8,10 +8,14 @@
 #define RC_SUBJECT "ReflexCore"
 #define RC_PASSIVE_CT "ReflexCore Passive Fixture"
 #define RC_SCHEMA "reflexcore_cs16_practice_v1"
+#define RC_JOINED 0
+#define RC_PICKING_TEAM 4
+#define RC_JOIN_TICKS 4
 
 new g_enabled, g_max_clients, g_subject, g_userid, g_sequence;
 new bool:g_planted, bool:g_t_won, bool:g_initialized;
 new bool:g_warned_slow;
+new bool:g_spawn_view_pending;
 new g_passive_ct, g_passive_userid;
 new g_map[49], g_directory[192], g_command[224], g_state[224], g_staging[224];
 new g_status[16] = "ready";
@@ -53,8 +57,25 @@ bool:authorized()
 
 bool:owns_subject()
 {
-    return g_subject > 0 && is_user_connected(g_subject) && is_user_bot(g_subject)
-        && get_user_userid(g_subject) == g_userid;
+    return owns_actor(g_subject, g_userid);
+}
+
+bool:owns_actor(actor, userid)
+{
+    return actor > 0 && userid > 0 && is_user_connected(actor) && is_user_bot(actor)
+        && get_user_userid(actor) == userid;
+}
+
+joining_state(actor)
+{
+    return get_ent_data(actor, "CBasePlayer", "m_iJoiningState");
+}
+
+run_neutral_tick(actor)
+{
+    new Float:angles[3];
+    pev(actor, pev_v_angle, angles);
+    engfunc(EngFunc_RunPlayerMove, actor, angles, 0.0, 0.0, 0.0, 0, 0, 1);
 }
 
 bool:t_has_c4()
@@ -80,6 +101,7 @@ public new_round()
     g_planted = false;
     g_t_won = false;
     g_warned_slow = false;
+    g_spawn_view_pending = true;
 }
 
 public bomb_planted(planter)
@@ -216,11 +238,7 @@ read_command()
         case 3:
         {
             if (owns_subject() && is_user_alive(g_subject))
-            {
-                new Float:angles[3];
-                pev(g_subject, pev_v_angle, angles);
-                engfunc(EngFunc_RunPlayerMove, g_subject, angles, 0.0, 0.0, 0.0, 0, 0, 1);
-            }
+                run_neutral_tick(g_subject);
             copy(g_status, charsmax(g_status), "stopped");
         }
         case 4:
@@ -235,7 +253,9 @@ read_command()
         }
         case 5:
         {
-            if (owns_subject() && cs_get_user_team(g_subject) == CS_TEAM_T)
+            if (owns_subject() && joining_state(g_subject) == RC_JOINED && cs_get_user_team(g_subject) == CS_TEAM_T
+                && (g_passive_ct == 0 || (owns_actor(g_passive_ct, g_passive_userid)
+                    && joining_state(g_passive_ct) == RC_JOINED)))
             {
                 server_cmd("sv_restart 1");
                 copy(g_status, charsmax(g_status), "restarting");
@@ -247,8 +267,7 @@ read_command()
         {
             // A stationary fixture opponent activates normal two-team round rules.
             // It has no AI driver and receives no movement commands.
-            if (g_passive_ct <= 0 || !is_user_connected(g_passive_ct)
-                || get_user_userid(g_passive_ct) != g_passive_userid)
+            if (!owns_actor(g_passive_ct, g_passive_userid))
             {
                 g_passive_ct = add_fake_client(RC_PASSIVE_CT, "2");
                 g_passive_userid = g_passive_ct > 0 ? get_user_userid(g_passive_ct) : 0;
@@ -263,6 +282,7 @@ bool:add_subject()
 {
     g_subject = add_fake_client(RC_SUBJECT, "1");
     g_userid = g_subject > 0 ? get_user_userid(g_subject) : 0;
+    g_spawn_view_pending = true;
     return owns_subject();
 }
 
@@ -282,8 +302,19 @@ add_fake_client(const name[], const team[])
     if (!is_user_connected(actor) || !is_user_bot(actor) || get_user_userid(actor) <= 0)
         return 0;
 
-    engclient_cmd(actor, "jointeam", team);
-    engclient_cmd(actor, "joinclass", "1");
+    // Let the GameDLL initialize its team menu before issuing team/class commands.
+    for (new i = 0; i < RC_JOIN_TICKS && joining_state(actor) != RC_PICKING_TEAM; i++)
+        run_neutral_tick(actor);
+    new menu_state = joining_state(actor);
+    if (menu_state == RC_PICKING_TEAM)
+    {
+        engclient_cmd(actor, "jointeam", team);
+        engclient_cmd(actor, "joinclass", "1");
+        for (new i = 0; i < RC_JOIN_TICKS && joining_state(actor) != RC_JOINED; i++)
+            run_neutral_tick(actor);
+    }
+    server_print("ReflexCore practice: team selection state %d -> %d, team %d.",
+        menu_state, joining_state(actor), _:cs_get_user_team(actor));
     return actor;
 }
 
@@ -291,13 +322,23 @@ bool:move_subject(Float:yaw, Float:forward_speed, Float:side_speed, buttons, mil
 {
     if (!owns_subject() || !is_user_alive(g_subject) || cs_get_user_team(g_subject) != CS_TEAM_T || millis < 1)
         return false;
+    if (joining_state(g_subject) != RC_JOINED)
+        return false;
     if ((buttons & IN_ATTACK) && (!inside_plant_zone() || !c4_equipped()))
         return false;
+    if (g_spawn_view_pending)
+    {
+        // The network client-data path consumes fixed spawn angles. Our fake client has no packet recipient.
+        if (pev(g_subject, pev_fixangle) == 1)
+            set_pev(g_subject, pev_fixangle, 0);
+        g_spawn_view_pending = false;
+    }
     new Float:max_speed;
     pev(g_subject, pev_maxspeed, max_speed);
     if (!g_warned_slow && (forward_speed || side_speed) && max_speed <= 1.0)
     {
-        server_print("ReflexCore practice: engine limited movement (maximum speed %.2f).", max_speed);
+        server_print("ReflexCore practice: engine limited movement (maximum speed %.2f, join state %d).",
+            max_speed, joining_state(g_subject));
         g_warned_slow = true;
     }
     new Float:angles[3];

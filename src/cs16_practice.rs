@@ -4,6 +4,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::{
+    cell::Cell,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -16,6 +17,7 @@ const STOP: u8 = 3;
 const PLANT_BUTTON: u8 = 1;
 const WAIT: Duration = Duration::from_millis(35);
 const COMMAND_DEADLINE: Duration = Duration::from_secs(3);
+const PLANT_SETTLE_DEADLINE: Duration = Duration::from_secs(1);
 const ATTEMPT_DEADLINE: Duration = Duration::from_secs(120);
 
 #[derive(Clone)]
@@ -125,6 +127,8 @@ impl Drop for Lock {
 
 struct Mailbox {
     dir: PathBuf,
+    cancel_file: Option<PathBuf>,
+    last_submitted: Cell<u32>,
     _lock: Lock,
 }
 
@@ -137,7 +141,7 @@ struct Pulse {
 }
 
 impl Mailbox {
-    fn open(dir: &Path) -> Result<Self> {
+    fn open(dir: &Path, cancel_file: Option<PathBuf>) -> Result<Self> {
         let dir = dir.canonicalize()?;
         if !dir.ends_with(Path::new("addons/amxmodx/data/reflexcore")) {
             return Err("Specify the isolated practice plugin mailbox directory".into());
@@ -149,8 +153,13 @@ impl Mailbox {
             .open(&lock)?;
         let mailbox = Self {
             dir,
+            cancel_file,
+            last_submitted: Cell::new(0),
             _lock: Lock(lock),
         };
+        if mailbox.cancel_requested()? {
+            return Err("Practice cancellation file already exists".into());
+        }
         if mailbox.dir.join("command.txt").exists() {
             return Err(
                 "A pending command is present. Start a fresh practice server before retrying"
@@ -158,6 +167,20 @@ impl Mailbox {
             );
         }
         Ok(mailbox)
+    }
+
+    fn cancel_requested(&self) -> Result<bool> {
+        match &self.cancel_file {
+            Some(path) => Ok(path.try_exists()?),
+            None => Ok(false),
+        }
+    }
+
+    fn check_cancel(&self) -> Result<()> {
+        if self.cancel_requested()? {
+            return Err("Offline practice cancelled".into());
+        }
+        Ok(())
     }
 
     fn read(&self) -> Result<State> {
@@ -172,8 +195,20 @@ impl Mailbox {
     }
 
     fn wait_for(&self, timeout: Duration, accept: impl Fn(&State) -> bool) -> Result<State> {
+        self.wait_for_state(timeout, accept, true)
+    }
+
+    fn wait_for_state(
+        &self,
+        timeout: Duration,
+        accept: impl Fn(&State) -> bool,
+        interruptible: bool,
+    ) -> Result<State> {
         let started = Instant::now();
         while started.elapsed() < timeout {
+            if interruptible {
+                self.check_cancel()?;
+            }
             if let Ok(state) = self.read() {
                 if accept(&state) {
                     return Ok(state);
@@ -185,6 +220,9 @@ impl Mailbox {
     }
 
     fn command(&self, before: &State, op: u8, pulse: Option<Pulse>) -> Result<State> {
+        if op != STOP {
+            self.check_cancel()?;
+        }
         let seq = before.seq.checked_add(1).ok_or("Practice sequence limit")?;
         let pulse = pulse.unwrap_or(Pulse {
             yaw: 0.0,
@@ -213,7 +251,12 @@ impl Mailbox {
             let _ = fs::remove_file(temp);
         }
         moved?;
-        let state = self.wait_for(COMMAND_DEADLINE, |s| s.map == before.map && s.seq >= seq)?;
+        self.last_submitted.set(seq);
+        let state = self.wait_for_state(
+            COMMAND_DEADLINE,
+            |s| s.map == before.map && s.seq >= seq,
+            op != STOP,
+        )?;
         if state.seq != seq
             || state.tick < before.tick
             || matches!(state.status.as_str(), "rejected" | "unavailable")
@@ -223,6 +266,26 @@ impl Mailbox {
             );
         }
         Ok(state)
+    }
+
+    fn stop_subject(&self, known: &State) {
+        let seq = self.last_submitted.get();
+        if seq == 0 {
+            return;
+        }
+        if let Ok(latest) = self.wait_for_state(
+            COMMAND_DEADLINE,
+            |s| {
+                s.map == known.map
+                    && s.seq >= seq
+                    && s.id != 0
+                    && (known.id == 0 || s.id == known.id)
+                    && s.tick >= known.tick
+            },
+            false,
+        ) {
+            let _ = self.command(&latest, STOP, None);
+        }
     }
 }
 
@@ -246,20 +309,41 @@ fn millis(start: Instant) -> u64 {
     start.elapsed().as_millis() as u64
 }
 
+fn practice_options(mut options: &[String]) -> Result<(bool, Option<PathBuf>)> {
+    let mut stationary_opponent = false;
+    let mut cancel_file = None;
+    while let Some((option, rest)) = options.split_first() {
+        options = match option.as_str() {
+            "--stationary-opponent" if !stationary_opponent => {
+                stationary_opponent = true;
+                rest
+            }
+            "--cancel-file" if cancel_file.is_none() => {
+                let (path, remaining) = rest
+                    .split_first()
+                    .ok_or("Missing practice cancellation path")?;
+                if path.starts_with("--") || Path::new(path).file_name().is_none() {
+                    return Err("Invalid practice cancellation path".into());
+                }
+                cancel_file = Some(PathBuf::from(path));
+                remaining
+            }
+            _ => return Err("Invalid practice options".into()),
+        };
+    }
+    Ok((stationary_opponent, cancel_file))
+}
+
 pub(crate) fn run(args: &[String]) -> Result<()> {
     let [verb, mailbox, route, consent, options @ ..] = args else {
-        return Err("Usage: cs16 practice <isolated-mailbox> <route.json> --allow-offline [--stationary-opponent]".into());
+        return Err("Usage: cs16 practice <isolated-mailbox> <route.json> --allow-offline [--stationary-opponent] [--cancel-file <file>]".into());
     };
     if verb != "practice" || consent != "--allow-offline" {
         return Err("The isolated CS 1.6 practice runner requires --allow-offline".into());
     }
-    let stationary_opponent = match options {
-        [] => false,
-        [option] if option == "--stationary-opponent" => true,
-        _ => return Err("Invalid practice options".into()),
-    };
+    let (stationary_opponent, cancel_file) = practice_options(options)?;
     let route = Route::load(Path::new(route))?;
-    let box_ = Mailbox::open(Path::new(mailbox))?;
+    let box_ = Mailbox::open(Path::new(mailbox), cancel_file)?;
     let started = Instant::now();
     let first = box_.wait_for(COMMAND_DEADLINE, |_| true)?;
     let mut state = box_.wait_for(COMMAND_DEADLINE, |s| {
@@ -281,13 +365,10 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         outcome: "setup_failed",
     };
     let execution = attempt(&box_, &mut state, &mut nav, &mut report, started);
-    if state.id != 0 {
-        if let Ok(latest) = box_.read() {
-            if latest.map == state.map && latest.id == state.id && latest.seq >= state.seq {
-                let _ = box_.command(&latest, STOP, None);
-            }
-        }
+    if execution.is_err() && box_.cancel_requested().unwrap_or(false) {
+        report.outcome = "cancelled";
     }
+    box_.stop_subject(&state);
     report.total_ms = millis(started);
     println!("{}", serde_json::to_string_pretty(&report)?);
     execution
@@ -372,16 +453,20 @@ fn attempt(
     })?;
     report.outcome = "plant_event_missing";
     while plant_start.elapsed() < Duration::from_secs(12) && started.elapsed() < ATTEMPT_DEADLINE {
-        if state.id != actor || !state.alive || state.team != 1 {
+        if state.id != actor || !state.alive || state.team != 1 || state.planted {
             break;
         }
-        if state.planted {
-            report.verified_plant = true;
-            report.outcome = "verified";
-            report.plant_ms = millis(plant_start);
-            return Ok(());
-        }
         if !state.zone || !state.c4 || !state.equipped {
+            if !state.c4 && report.plant_commands > 0 {
+                // The game can remove C4 before the server's plant callback runs.
+                let seq = state.seq;
+                let remaining = ATTEMPT_DEADLINE.saturating_sub(started.elapsed());
+                if let Ok(confirmed) = mail.wait_for(PLANT_SETTLE_DEADLINE.min(remaining), |s| {
+                    s.map == map && s.seq == seq && s.id == actor && s.planted
+                }) {
+                    *state = confirmed;
+                }
+            }
             break;
         }
         *state = mail.command(
@@ -394,8 +479,13 @@ fn attempt(
                 msec: 100,
             }),
         )?;
-        report.plant_ms = millis(plant_start);
         report.plant_commands += 1;
+    }
+    report.plant_ms = millis(plant_start);
+    if state.map == map && state.id == actor && state.planted {
+        report.verified_plant = true;
+        report.outcome = "verified";
+        return Ok(());
     }
     Err("No actor-scoped C4 plant event was observed in the local game".into())
 }
@@ -403,6 +493,30 @@ fn attempt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepts_owned_cancel_marker_in_either_option_order() {
+        for options in [
+            [
+                "--stationary-opponent",
+                "--cancel-file",
+                "private-run.cancel",
+            ],
+            [
+                "--cancel-file",
+                "private-run.cancel",
+                "--stationary-opponent",
+            ],
+        ] {
+            let args = options.map(str::to_owned);
+            assert_eq!(
+                practice_options(&args).unwrap(),
+                (true, Some(PathBuf::from("private-run.cancel")))
+            );
+        }
+        let missing = ["--cancel-file", "--stationary-opponent"].map(str::to_owned);
+        assert!(practice_options(&missing).is_err());
+    }
 
     #[test]
     fn typed_state_accepts_only_uncontested_game() {
