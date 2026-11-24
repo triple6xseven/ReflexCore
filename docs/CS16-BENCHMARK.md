@@ -72,3 +72,6 @@ cargo build --release --locked
 ~~~
 
 The versioned companion snapshot binds the simulation tick, command sequence, actor and round generation. The plugin checks the generation on adversarial commands that move or equip the actor. Contact, accepted attack requests, clip decrements and AK-47 damage events have separate counters. The independent GoldSrc log establishes completion, plant, winner and combat kill evidence. A completed loss or a win without planting can be represented. Observation percentiles cover synchronized mailbox reads and retries. Decision percentiles cover the combat branch only, excluding mailbox commands and engine acknowledgement. Working set is sampled for the Rust worker by the harness. Keep resulting JSON, logs and demos outside the repository.
+
+
+Use **Watch replay** in the practice window to choose a finalized GoldSrc demo. Select the Counter-Strike 1.6 client on first use in that window. Studio stages a uniquely named copy in the client's cstrike folder and opens the client with the replay command. Close a running game client before launching playback if it refuses a second instance.

@@ -293,7 +293,7 @@ namespace ReflexCore.Practice
         private string[] recorderControl = new string[0];
         private long consoleOffset;
         private int spectatorPort;
-        private string replayFolder;
+        private string replayFolder, latestReplay, replayClient;
         private readonly RoutePlot plot=new RoutePlot();
         private readonly Label status=new Label(), evidence=new Label();
         private readonly Button start=new Button(), stop=new Button();
@@ -338,7 +338,9 @@ namespace ReflexCore.Practice
                 Directory.CreateDirectory(replayFolder);
                 Process.Start("explorer.exe",Quote(replayFolder));
             };
-            foreach(var button in new[] {start,stop,spectate,replays})
+            var watch=new Button {Text="Watch replay", AutoSize=true};
+            watch.Click+=delegate { WatchReplay(); };
+            foreach(var button in new[] {start,stop,spectate,replays,watch})
             {
                 button.FlatStyle=FlatStyle.Flat;
                 button.BackColor=Color.FromArgb(42,61,87);
@@ -348,6 +350,7 @@ namespace ReflexCore.Practice
             top.Controls.Add(start); top.Controls.Add(stop);
             if(matchMode){ top.Controls.Add(mapSelection); top.Controls.Add(spectate); top.Controls.Add(replays); }
             else { top.Controls.Add(mapSelection); top.Controls.Add(drillRecord); top.Controls.Add(replays); }
+            top.Controls.Add(watch);
             ConfigureLabel(status,FontStyle.Bold);
             ConfigureLabel(evidence,FontStyle.Regular);
             if(matchMode)evidence.Height=48;
@@ -693,6 +696,44 @@ namespace ReflexCore.Practice
             }
         }
 
+        private void WatchReplay()
+        {
+            try
+            {
+                Directory.CreateDirectory(replayFolder);
+                using(var demo=new OpenFileDialog { Title="Choose a Counter-Strike replay",
+                    Filter="GoldSrc demos (*.dem)|*.dem", InitialDirectory=replayFolder,
+                    FileName=latestReplay??"" })
+                {
+                    if(demo.ShowDialog(this)!=DialogResult.OK)return;
+                    if(!HasClosedDemo(demo.FileName))
+                        throw new IOException("This demo is incomplete or is not a GoldSrc replay.");
+                    if(!File.Exists(replayClient))
+                    {
+                        using(var client=new OpenFileDialog {Title="Choose hl.exe from Counter-Strike 1.6",
+                            Filter="GoldSrc client (hl.exe)|hl.exe", CheckFileExists=true})
+                        {
+                            if(client.ShowDialog(this)!=DialogResult.OK)return;
+                            if(!String.Equals(Path.GetFileName(client.FileName),"hl.exe",StringComparison.OrdinalIgnoreCase) ||
+                               !Directory.Exists(Path.Combine(Path.GetDirectoryName(client.FileName),"cstrike")))
+                                throw new IOException("Choose hl.exe next to the cstrike folder.");
+                            replayClient=client.FileName;
+                        }
+                    }
+                    string game=Path.GetDirectoryName(replayClient);
+                    string stem="reflex-"+Guid.NewGuid().ToString("N");
+                    File.Copy(demo.FileName,Path.Combine(game,"cstrike",stem+".dem"),false);
+                    Process.Start(new ProcessStartInfo(replayClient,"-game cstrike -console +viewdemo "+stem)
+                        {WorkingDirectory=game,UseShellExecute=false});
+                    latestReplay=demo.FileName;
+                }
+            }
+            catch(Exception error)
+            {
+                MessageBox.Show(this,error.Message,"Watch replay",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
+        }
+
         private bool SaveRecording()
         {
             RequestRecorderExit();
@@ -707,7 +748,9 @@ namespace ReflexCore.Practice
                         if(HasClosedDemo(source))
                         {
                             Directory.CreateDirectory(replayFolder);
-                            File.Copy(source,Path.Combine(replayFolder,Path.GetFileName(source)),false);
+                            string destination=Path.Combine(replayFolder,Path.GetFileName(source));
+                            File.Copy(source,destination,false);
+                            latestReplay=destination;
                             return true;
                         }
                     }
@@ -822,7 +865,7 @@ namespace ReflexCore.Practice
                 bool win=report.match_mode && report.verified_bot_defeat && report.verified_round_win && VerifyMatchLog(report);
                 bool replay=win && SaveRecording();
                 Finish(win?"Plant, bot defeat and round win verified":"Match result not independently verified",
-                    win?(replay?"HLTV replay saved. Open Recordings to view the demo.":"Engine log verified the win; HLTV did not finalize a replay."):
+                    win?(replay?"HLTV replay saved. Select Watch replay to view it.":"Engine log verified the win; HLTV did not finalize a replay."):
                     "The fresh game log must confirm all three events in the same round.");
                 return;
             }
