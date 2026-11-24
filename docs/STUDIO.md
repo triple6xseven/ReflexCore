@@ -43,4 +43,4 @@ See [emergency stop and the application allowlist](EMERGENCY-STOP.md).
 
 Open **Agent > Skill library** to view built-in experimental skills, their inputs and verifiers, and the movement observations stored in the local SQLite database. Counts refer to bounded replay samples, not completed user tasks. **Choose installation** reads another local ReflexCore installation with an existing database. The library opens the database read-only through the same engine command as the CLI, `reflexcore.exe learning registry`.
 
-On **Agent**, use **Ask Reflex** for a file check or extension change in English or Russian. An example button fills the editable request. **Preview task** opens the folder and review flow. Demo tasks are grouped below the queue.
+On **Agent**, use **Ask Reflex** for a file check or extension change in English or Russian. An example button fills the editable request. **Preview task** opens the folder and review flow. Demo actions are grouped above the queue.

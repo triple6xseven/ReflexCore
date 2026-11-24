@@ -232,14 +232,14 @@ namespace ReflexCore.Control
             string modePath=Path.Combine(root,"data","settings","agent-execution-mode.txt");
             executionMode.Checked=testQueue==null && LoadBackgroundMode(modePath);
 
-            agent.Controls.Add(Header("Demos",18,710));
-            var modeHint=Info("",190,710,577);
+            agent.Controls.Add(Header("Demos",18,249));
+            var modeHint=Info("",190,249,577);
             modeHint.Height=34;
             agent.Controls.Add(modeHint);
-            AddButton(agent,"RUN AGENT DEMO",18,752,222,38,
+            AddButton(agent,"RUN AGENT DEMO",18,284,222,38,
                 ()=>RunTask(executionMode.Checked?"agent-background":"agent-demo"),false);
-            var nativeNotepad=AddButton(agent,"NOTEPAD · CREATE FILE",250,752,237,38,()=>RunTask("notepad-save"),false);
-            var visualNotepad=AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,752,270,38,()=>RunTask("notepad-visual"),false);
+            var nativeNotepad=AddButton(agent,"NOTEPAD · CREATE FILE",250,284,237,38,()=>RunTask("notepad-save"),false);
+            var visualNotepad=AddButton(agent,"NOTEPAD · CHECK WITH MODEL",497,284,270,38,()=>RunTask("notepad-visual"),false);
             Action updateMode=delegate {
                 bool background=executionMode.Checked;
                 executionMode.Text=background?"Background: On":"Background: Off";
@@ -254,10 +254,10 @@ namespace ReflexCore.Control
                 if(testQueue==null && !SaveBackgroundMode(modePath,executionMode.Checked))
                     modeHint.Text+=" Could not save this preference.";
             };
-            agent.Controls.Add(Header("Task queue",18,250));
+            agent.Controls.Add(Header("Task queue",18,332));
             var jobs=new QueueListView{View=View.Details,FullRowSelect=true,MultiSelect=false,HideSelection=false,
                 OwnerDraw=true,BorderStyle=BorderStyle.None,
-                Location=new Point(18,287),Size=new Size(748,215),AccessibleName="Task queue"};
+                Location=new Point(18,369),Size=new Size(748,133),AccessibleName="Task queue"};
             var selectionColor=Color.FromArgb(75,51,92);
             jobs.Tag=new Action<Color,Color,Color>((card,ink,highlight)=>{
                 selectionColor=Color.FromArgb((card.R*3+highlight.R)/4,(card.G*3+highlight.G)/4,(card.B*3+highlight.B)/4);
@@ -996,6 +996,10 @@ namespace ReflexCore.Control
             var buttons=page.Controls.OfType<Button>().ToDictionary(button=>button.Text);
             var mode=page.Controls.OfType<CheckBox>().Single(input=>input.AccessibleName=="Run in background");
             var field=page.Controls.OfType<TextBox>().Single(input=>input.AccessibleName=="Ask Reflex");
+            var demoActions=new[]{buttons["RUN AGENT DEMO"],buttons["NOTEPAD · CREATE FILE"],buttons["NOTEPAD · CHECK WITH MODEL"]};
+            var queueList=page.Controls.OfType<ListView>().Single();
+            if(demoActions.Any(button=>!button.Visible || button.Bottom>queueList.Top || button.Bottom>page.ClientSize.Height))
+                throw new InvalidOperationException("Demo actions must be visible above the queue without scrolling.");
             if(!mode.Visible || queue.Snapshot().Count!=0 || mode.Top>=buttons["RUN AGENT DEMO"].Top)
                 throw new InvalidOperationException("Background toggle must be visible above an empty queue.");
             foreach(var control in new System.Windows.Forms.Control[]{mode,field,buttons["Preview task"],
