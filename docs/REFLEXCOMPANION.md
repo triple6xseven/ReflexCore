@@ -253,3 +253,7 @@ With magic enabled, Window Companion and Free Roam may travel from a cloud to a 
 The runtime preserves the selected MSAA at every scale. Native input regions reuse their previous outline for small pose changes, with scale-aware clearance. Studio reports the active Godot graphics adapter. When Windows has no preference for that exact renderer executable, the tray requests High performance for it. Existing application preferences take priority. This setting does not select hardware for Studio or Ollama.
 
 On GTX 1650 Ti in the same ZXC cloud preview capped at 60 FPS, scale 100% held 60 FPS. Scale 200% averaged 45.7 FPS before the change with MSAA disabled by the old scale guard and 48.2 FPS afterward with 4x MSAA. Frame p95 moved from 27.2 ms to 23.4 ms in this run. Identical performance at roughly three times the viewport pixels is not guaranteed.
+
+## Window magnet and monitor contact
+
+Companion & Widgets / Movement / Window magnet enables attraction to exposed window edges, controls the reach from 50% to 200%, and restores the standard 100% with Reset window magnet. Gentle mouse releases near an eligible ledge blend into the seat. Throws keep their physical trajectory. Ledge clearance is based on the seated body above and below the support. Monitor collisions use the visible-body bounds, while the transparent render margin remains available for animation and effects.

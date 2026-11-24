@@ -2,6 +2,8 @@ extends RefCounted
 
 const STEP := 1.0 / 120.0
 const SEAT_RATIO := 0.61
+const SIDE_INSET := 0.22
+const TOP_INSET := 0.09
 const CLIMB_SECONDS := 0.94
 const STAND_SECONDS := 0.42
 var position := Vector2.ZERO
@@ -10,6 +12,7 @@ var held := false
 var falling := false
 var landing_at := -5.0
 var rest_at := 0.0
+var drop_magnet_until := -1.0
 var support := Rect2i()
 var supported := false
 var seated := false
@@ -57,6 +60,7 @@ func _end_ferry() -> void:
 	portal_scale=1
 
 func place(p: Vector2) -> void:
+	drop_magnet_until=-1.0
 	_end_ferry()
 	ferry_until=0
 	position = p
@@ -102,6 +106,7 @@ func interrupt(now: float, physics: bool) -> void:
 		cloud_deadline=operator_until+0.8
 
 func grab(now := 0.0, seat_y := 0.0) -> void:
+	drop_magnet_until=-1.0
 	_end_ferry()
 	held = true
 	stand_until=0.0
@@ -129,7 +134,8 @@ func drag_to(target: Vector2, observed: Vector2, dt: float) -> void:
 		remaining -= step
 	angle = lerpf(angle,clampf(observed.x/3400.0,-0.23,0.23),1-exp(-9*dt))
 
-func release(push: Vector2, physics: bool, now: float, recovery_delay := 1.4) -> void:
+func release(push: Vector2, physics: bool, now: float, recovery_delay := 1.4, magnetic_drop := false) -> void:
+	drop_magnet_until=now+.13 if magnetic_drop and push.length_squared()<8100.0 else -1.0
 	held = false
 	impact_at=-5.0
 	falling = physics
@@ -167,9 +173,11 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 	var foot := float(size.y)-25*float(size.y)/500
 	var seat := size.y*SEAT_RATIO
 	var floor := float(desk.end.y)-3
-	var min_x := float(desk.position.x)+5
-	var max_x := maxf(min_x,float(desk.end.x-size.x)-5)
-	var top := float(desk.position.y)+5
+	# The body layout includes empty space beside and above the visible rig.
+	var inset_x := size.x*SIDE_INSET
+	var min_x := float(desk.position.x)-inset_x
+	var max_x := maxf(min_x,float(desk.end.x-size.x)+inset_x)
+	var top := float(desk.position.y)-size.y*TOP_INSET
 	var bottom := maxf(top,floor-foot)
 	var walk_windows := mode in ["windows","roam"]
 	var real_physics: bool = options.get("physics",true)
@@ -180,6 +188,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		_leave_cloud(size)
 	cloud_alpha=move_toward(cloud_alpha,1.0 if (cloud_since>=0 and now-cloud_since>0.57 or now<cloud_collision_until) else 0.0,dt*3.8)
 	if held:
+		position=position.clamp(Vector2(min_x,top),Vector2(max_x,bottom))
 		if absf(position.x+size.x*0.5-cloud_x)>size.x*0.55:
 			cloud_collision_until=0
 		return "dragged"
@@ -210,6 +219,17 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			if seated:
 				angle=move_toward(angle,0,dt*3)
 				return "sit"
+	var magnet := clampf(float(options.get("window_magnet",1.0)),0.5,2.0) if options.get("window_magnet_enabled",true) else 0.0
+	if walk_windows and magnet>0 and now<drop_magnet_until:
+		var perch := _drop_perch(windows,desk,size,seat,magnet)
+		if perch.has_area():
+			drop_magnet_until=-1.0
+			falling=false
+			velocity=Vector2.ZERO
+			climb_edge=perch
+			climb_id=_id(perch,identities)
+			climb_origin=position
+			return _climb(dt,now,perch,identities,seat,size)
 	if falling:
 		physics_time += minf(dt,0.05)
 		while physics_time>=STEP and falling:
@@ -245,7 +265,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 
 	var target := Rect2i()
 	if walk_windows and now>=maxf(lock_until,operator_until) and now>=roam_until:
-		target=_reachable(windows,foreground if mode=="windows" else Rect2i(),desk,size,foot,seat)
+		target=_reachable(windows,foreground if mode=="windows" else Rect2i(),desk,size,foot,seat,magnet)
 	if climb_progress>0:
 		var tracked := _climb_target(windows,identities)
 		var shift := _origin(tracked,identities)-_origin(climb_edge,identities)
@@ -257,7 +277,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 			return "falling" if falling else "recovering"
 		return _climb(dt,now,tracked,identities,seat,size)
 	if cloud_seated and now>=maxf(ferry_until,operator_until):
-		if stand_until==0.0 and not ferry_edge.has_area() and not target.has_area() and not occupied and now-cloud_since>2.2:
+		if stand_until==0.0 and not ferry_edge.has_area() and not target.has_area() and magnet>0 and not occupied and now-cloud_since>2.2:
 			var best := INF
 			for edge in windows:
 				var goal := _ferry_goal(edge,desk,size)
@@ -477,7 +497,7 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 		if not _fits(window,desk,size):
 			continue
 		var y := float(window.position.y)
-		if old.y+foot>y+1 or position.y+foot<y or y>=edge:
+		if y-foot<top or old.y+foot>y+1 or position.y+foot<y or y>=edge:
 			continue
 		var crossed := clampf((y-old.y-foot)/maxf(position.y-old.y,0.001),0,1)
 		var x := lerpf(old.x,position.x,crossed)+size.x*0.5
@@ -502,7 +522,7 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 func _climb(dt: float, now: float, edge: Rect2i, identities: Dictionary, seat: float, size: Vector2i) -> String:
 	climb_progress+=dt/CLIMB_SECONDS
 	var lift := smoothstep(0.38,0.91,climb_progress)
-	position.y=lerpf(climb_origin.y,maxf(climb_origin.y-size.y*0.27,float(edge.position.y)-seat),lift)
+	position.y=lerpf(climb_origin.y,float(edge.position.y)-seat,lift)
 	if climb_progress<0.18:
 		return "approach"
 	if climb_progress<0.35:
@@ -554,8 +574,8 @@ func _climb_target(windows: Array[Rect2i], identities: Dictionary) -> Rect2i:
 
 func _fits(edge: Rect2i, desk: Rect2i, size: Vector2i) -> bool:
 	return desk.intersection(edge).size.x>=94 and edge.size.y>0 \
-		and edge.position.y>=desk.position.y+size.y*SEAT_RATIO+5 \
-		and edge.position.y<=desk.end.y-size.y*0.25
+		and edge.position.y>=desk.position.y+size.y*.46+5 \
+		and edge.position.y<=desk.end.y-size.y*.31
 
 func _ferry_goal(edge: Rect2i, desk: Rect2i, size: Vector2i) -> Vector2:
 	if not _fits(edge,desk,size):
@@ -564,12 +584,14 @@ func _ferry_goal(edge: Rect2i, desk: Rect2i, size: Vector2i) -> Vector2:
 	var pad := size.x*.24
 	var left := maxf(edge.position.x+pad,desk.position.x+size.x*.5+5)
 	var right := minf(edge.end.x-pad,desk.end.x-size.x*.5-5)
-	if left>right or y<desk.position.y+5 or y+size.y>desk.end.y:
+	if left>right:
 		return Vector2.INF
 	return Vector2((left+right-size.x)*.5,y)
 
-func _reachable(windows: Array[Rect2i], foreground: Rect2i, desk: Rect2i, size: Vector2i, foot: float, seat: float) -> Rect2i:
+func _reachable(windows: Array[Rect2i], foreground: Rect2i, desk: Rect2i, size: Vector2i, foot: float, seat: float, magnet: float) -> Rect2i:
 	var best := Rect2i()
+	if magnet<=0:
+		return best
 	var best_score := INF
 	var center := position.x+size.x*0.5
 	for edge in windows:
@@ -578,7 +600,7 @@ func _reachable(windows: Array[Rect2i], foreground: Rect2i, desk: Rect2i, size: 
 		var lift := position.y+seat-edge.position.y
 		var below := edge.position.y-(position.y+foot)
 		var horizontal := absf(center-clampf(center,edge.position.x+40,edge.end.x-40))
-		if lift>size.y*0.25 or below>20 or horizontal>size.x*0.62:
+		if lift>size.y*(.31+.13*(magnet-1.0)) or below>28.0*magnet or horizontal>size.x*.74*magnet:
 			continue
 		# A person can reach down from their current ledge only within a short step.
 		if support.has_area() and absf(edge.position.y-support.position.y)>size.y*0.30:
@@ -586,5 +608,18 @@ func _reachable(windows: Array[Rect2i], foreground: Rect2i, desk: Rect2i, size: 
 		var score := horizontal+absf(lift)*0.6-(120 if edge==foreground else 0)
 		if score<best_score:
 			best_score=score
+			best=edge
+	return best
+
+func _drop_perch(windows: Array[Rect2i], desk: Rect2i, size: Vector2i, seat: float, magnet: float) -> Rect2i:
+	var best := Rect2i()
+	var nearest := size.y*.14*magnet
+	var center := position.x+size.x*.5
+	for edge in windows:
+		if not _fits(edge,desk,size) or center<edge.position.x+24 or center>edge.end.x-24:
+			continue
+		var distance := absf(position.y+seat-edge.position.y)
+		if distance<nearest:
+			nearest=distance
 			best=edge
 	return best

@@ -200,6 +200,16 @@ public sealed partial class StudioWindow
             new object[] { "taskbar", "windows", "roam", "stationary", "follow", "hover" });
         WidgetToggle(behavior, "Physics", "physics");
         WidgetToggle(behavior, "Magic Platforms", "magic");
+        var magnet = Section(behavior, "Window magnet");
+        WidgetToggle(magnet, "Attract companion to window edges", "window_magnet_enabled");
+        WidgetNumber(magnet, "Magnet strength", "window_magnet", 50, 200, "%", 100);
+        WidgetButtons(magnet, ("Reset window magnet", () =>
+        {
+            ChangeWidget("window_magnet_enabled", true);
+            ChangeWidget("window_magnet", 1.0);
+            LayoutWidgets();
+            ApplyWidgetChanges();
+        }));
         WidgetNumber(behavior, "Gravity", "gravity", 120, 2400, "px/s²");
         WidgetNumber(behavior, "Walk speed", "walk_speed", 10, 280, "px/s");
         WidgetButtons(behavior, ("Reset 3D position", () =>

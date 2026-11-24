@@ -1,3 +1,8 @@
+## Companion window magnet and monitor edges
+
+- Expand usable window seating, add adjustable magnet strength and manual drop seating, and share visible-body bounds between dragging and release.
+- Coalesce rapid pose status writes and hold the faster frame cadence through adjacent transition phases without reducing render quality.
+
 ## Companion high-scale rendering and GPU
 
 - Preserve selected MSAA at 200%, reduce redundant rig projections and native input-region updates, and show the actual graphics adapter in Studio.

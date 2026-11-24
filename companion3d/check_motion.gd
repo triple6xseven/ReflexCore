@@ -83,15 +83,15 @@ func _initialize() -> void:
 		[Vector2(-330,10),Vector2(705,-705),"top_right"],
 		[Vector2(-1400,70),Vector2(-750,-750),"top_left"],
 		[Vector2(-390,32),Vector2(750,-750),"top_right"],
-		[Vector2(-1420,405),Vector2(-650,750),"bottom_left"],
-		[Vector2(-345,405),Vector2(650,750),"bottom_right"]]:
+		[Vector2(-1496,405),Vector2(-650,750),"bottom_left"],
+		[Vector2(-264,405),Vector2(650,750),"bottom_right"]]:
 		body.place(sample[0])
 		body.grab()
 		body.release(sample[1],true,clock)
 		impacts.clear()
 		_step(1.9)
 		_expect(impacts.has(sample[2]),"Missing boundary impact: "+sample[2])
-		_expect(body.position.x>=DESK.position.x and body.position.x+SIZE.x<=DESK.end.x and not body.falling,"Throw did not settle within the monitor.")
+		_expect(body.position.x+SIZE.x*Motion.SIDE_INSET>=DESK.position.x-.001 and body.position.x+SIZE.x*(1-Motion.SIDE_INSET)<=DESK.end.x+.001 and not body.falling,"Throw did not settle within the monitor.")
 	body.place(Vector2(-990,40))
 	body.grab()
 	body.release(Vector2(55,0),true,clock)
@@ -218,6 +218,33 @@ func _initialize() -> void:
 		if travel=="portal":
 			edges.clear()
 	_expect(not ferry.seated and ferry.portal_scale==1.0,"Invalid portal persisted")
+	# Recreate a high but usable window edge and test a gentle release near it.
+	var ledge := Rect2i(-1190,260,560,360)
+	var ledges: Array[Rect2i]=[ledge]
+	for strength in [0.0,1.0,2.0]:
+		var dropped := Motion.new()
+		var settings := {"mode":"windows","physics":true,"magic":false,
+			"window_magnet_enabled":strength>0,"window_magnet":strength}
+		dropped.place(Vector2(-980,ledge.position.y-SIZE.y*Motion.SEAT_RATIO+92))
+		dropped.grab()
+		dropped.release(Vector2.ZERO,true,1.0,.22,true)
+		dropped.update(DT,1.0+DT,DESK,SIZE,Vector2i.ZERO,settings,ledges)
+		_expect((dropped.climb_progress>0)==(strength==2.0),"Window magnet did not honor strength or Off.")
+		if strength==2.0:
+			for tick in 65:
+				dropped.update(DT,1.0+(tick+2)*DT,DESK,SIZE,Vector2i.ZERO,settings,ledges)
+			_expect(dropped.seated and dropped.support==ledge,"High window did not hold the seated rig.")
+	for side in [-1,1]:
+		var corner := Motion.new()
+		var hold_settings := {"mode":"stationary","physics":false}
+		var no_edges: Array[Rect2i]=[]
+		corner.place(Vector2(DESK.position.x-250 if side<0 else DESK.end.x+250, DESK.end.y))
+		corner.grab()
+		corner.update(DT,1.0,DESK,SIZE,Vector2i.ZERO,hold_settings,no_edges)
+		var held_at := corner.position
+		corner.release(Vector2.ZERO,false,1.0,.22,true)
+		corner.update(DT,1.0+DT,DESK,SIZE,Vector2i.ZERO,hold_settings,no_edges)
+		_expect(held_at.is_equal_approx(corner.position),"Gentle release snapped away from the corner.")
 	if not failed:
 		print("Companion motion: reachable ledges, all climb phases, moving/removed supports, fast release, clouds, bounded throws and spring drag passed.")
 	quit(1 if failed else 0)

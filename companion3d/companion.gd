@@ -16,7 +16,7 @@ const DEFAULTS := {
 	"legwear_den": 40, "legwear_color": "dark", "custom_legwear_den": 40, "custom_legwear_color": "dark",
 	"custom_outfit": "lunar", "custom_hair": "lunar", "custom_head": "lunar", "sit_style": "swing", "intensity": 1.0,
 	"animate": true, "bubble": true, "top": true, "fullscreen_overlay": false, "clickthrough": false, "fps": 30,
-	"bubble_style": "glass", "poll_ms": 400, "magic": true, "msaa": 2, "edition": "nocturne"
+	"bubble_style": "glass", "poll_ms": 400, "magic": true, "window_magnet_enabled": true, "window_magnet": 1.0, "msaa": 2, "edition": "nocturne"
 }
 const MODE_NAMES := ["Stationary", "Taskbar Companion", "Window Companion", "Free Roam", "Follow Cursor", "Hover"]
 const MODE_VALUES := ["stationary", "taskbar", "windows", "roam", "follow", "hover"]
@@ -84,6 +84,7 @@ var paused := false
 var passthrough := false
 var avatar_state := "idle"
 var last_reported_pose := ""
+var transition_fps_until := 0.0
 var pressed_zone := "happy"
 var last_animated_touch := -99.0
 var click_pose := "happy"
@@ -313,6 +314,7 @@ func _read_options() -> Dictionary:
 			next[key] = value
 	if not next.mode in MODE_VALUES:
 		next.mode = "taskbar"
+	next.window_magnet=clampf(float(next.window_magnet),0.5,2.0)
 	next.zoom = clampf(float(next.zoom),0.65,2.0)
 	next.gravity = clampf(float(next.gravity),120,2400)
 	next.walk_speed = clampf(float(next.walk_speed),10,280)
@@ -482,8 +484,13 @@ func _camera_layout() -> void:
 	camera.size=1.65*h/(body_size.y-horizontal_pad)
 	camera.position.y=(0.5-(39.0*float(options.zoom)+view_margin.y)/h)*camera.size
 
-func _screen_rect() -> Rect2i:
+func _screen_rect(pointer := Vector2i.MAX) -> Rect2i:
 	var screen := get_window().current_screen
+	if pointer!=Vector2i.MAX:
+		for candidate in DisplayServer.get_screen_count():
+			if Rect2i(DisplayServer.screen_get_position(candidate),DisplayServer.screen_get_size(candidate)).has_point(pointer):
+				screen=candidate
+				break
 	if screen<0 or screen>=DisplayServer.get_screen_count():
 		screen=DisplayServer.get_primary_screen()
 	var rect := DisplayServer.screen_get_usable_rect(screen)
@@ -667,7 +674,7 @@ func _process(delta: float) -> void:
 	var pointer_distance := _model_distance(local)
 	_check_drag_release()
 	if pressed:_maybe_grab(Vector2(pointer))
-	var area := _screen_rect()
+	var area := _screen_rect(pointer) if motion.held else _screen_rect()
 	if motion.held:
 		var wanted := Vector2(pointer)-contact
 		# Follow the cursor between displays while leaving all applications untouched.
@@ -789,10 +796,12 @@ func _process(delta: float) -> void:
 	var changing_leg_cross: bool = rig!=null and rig.crossed>0 and rig.crossed<1
 	var starting_walk: bool = rig!=null and physical in ["walk","run"] and rig.gait<.95
 	if preview or physical in ["cloud_fly","portal","stand_up"] or seat_transition or starting_walk or changing_cloud_pose or changing_leg_cross or cloud_turning:
+		transition_fps_until=now+.52
+	if now<transition_fps_until:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
 	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
-	if status_clock>=1.8 or avatar_state!=last_reported_pose:
+	if status_clock>=1.8 or (status_clock>=0.22 and avatar_state!=last_reported_pose):
 		last_reported_pose=avatar_state
 		_publish()
 	if smoke_time>0 and now>=smoke_time:
@@ -1164,7 +1173,7 @@ func _release(react := true) -> void:
 		var speed:=throw_velocity*(1-smoothstep(0.07,0.18,age)) if react else Vector2.ZERO
 		if speed.length()<90:
 			speed=Vector2.ZERO
-		motion.release(speed,bool(options.physics),now,0.22)
+		motion.release(speed,bool(options.physics),now,0.22,react)
 		_write_position()
 	elif react:
 		pet_at=-5.0
