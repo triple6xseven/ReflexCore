@@ -216,3 +216,21 @@ Windows 11, Ryzen 5 4600H, 8 GB installed RAM. The owned server ran GoldSrc prot
 Five exploratory Dust II rounds on the first compatible snapshot protocol closed with an independently verified C4 plant and Terrorist win. They used one observed spawn. Two had pre-plant contact and a defender discharge. Two attack requests from the controller produced zero confirmed actor discharges, damage events or rifle kills. An initial setup attempt and a later batch of setup attempts exposed match snapshot compatibility failures. The raw reports remain private. The saved-route laboratory independently confirmed a plant, defender kill and win.
 
 The vision pilot used two manually labeled archival client crops at 480x360. One showed a visible player and one showed the game console. Neither had a synchronized server tick. YOLOX-Tiny used the upstream ONNX checkpoint at 416x416. Its SHA-256 is 427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7. The upstream repository supplies Apache-2.0 licensing. At IoU 0.50 the raw detector matched one player, missed zero and returned two false boxes on the console frame. Precision was 1/3 and recall was 1/1. Supplying manual scene labels suppressed both console boxes. Replay latency p50/p95 was 65.606/65.905 ms raw and 3.353/70.886 ms gated. This pilot excludes live capture and tracking. [Checkpoint release](https://github.com/Megvii-BaseDetection/YOLOX/releases/tag/0.1.1rc0) and [upstream license](https://github.com/Megvii-BaseDetection/YOLOX/blob/main/LICENSE).
+
+### Final five-round cohort
+
+Runtime revision f27b62f481804b0655cf4fee5d3a7ff0cedc0d07. Release executable SHA-256 170FA133D7D2F5B6D25236B97029DDF6B7E0E3FFA1735E0B1AD8AFCCDA5B70CD. AMXX plugin SHA-256 86AC1BAB94E016DEFC117F80166D9F86850BDC49A177581D7B95455613C75616. All five fresh server starts selected the same observed Terrorist spawn (-832, -800, 177). This cohort provides no evidence of spawn generalization.
+
+| Trial | Pre-plant contacts | Actor requests / discharges / hits | Defender discharges before / after plant | Log-confirmed plant / win | Worker elapsed (s) | Observation p50/p95 (us) | Decision p50/p95 (us) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1 | 1 / 0 / 0 | 1 / 0 | 1 / 1 | 79.230 | 425 / 1003 | 0 / 0 |
+| 2 | 0 | 0 / 0 / 0 | 1 / 0 | 1 / 1 | 79.040 | 419 / 1025 | 0 / 0 |
+| 3 | 0 | 0 / 0 / 0 | 0 / 0 | 1 / 1 | 78.378 | 392 / 1010 | 0 / 0 |
+| 4 | 0 | 0 / 0 / 0 | 0 / 0 | 1 / 1 | 78.923 | 418 / 1015 | 0 / 0 |
+| 5 | 0 | 0 / 0 / 0 | 0 / 0 | 0 / 0 | 21.127 | 389 / 595 | 0 / 0 |
+
+Four of five rounds closed with a log-confirmed plant and Terrorist win. No actor kill or death was observed. In trial 5, route recovery exhausted its budget after a stall before reaching A; the benchmark rejected the run because no plant was independently verified. In trial 1 the controller reached contact and issued a shot request, with no confirmed discharge. Two pre-plant defender discharges were measured across the cohort. Post-plant defender discharge remains unverified. Across implementation iterations there were 16 ordinary Dust II attempts: six setup failures, five exploratory plants and wins, and these five final attempts. The cancellation and regression trials were separate.
+
+Observation percentiles summarize synchronized snapshot reads, including retries, with 296 to 2,563 samples per attempt. Decision percentiles summarize the local branch only, excluding action acknowledgment, with 148 to 1,281 samples. Values of zero are below microsecond reporting resolution. The maximum sampled Rust worker working set was 7.16 MiB; GoldSrc, HLTV, and Studio were outside this measurement. The first trial produced an HLTV demo with a valid GoldSrc header, Dust II map name, and finalized directory. Interactive playback was not tested.
+
+The separate active-round stop reached a cancelled outcome after one acknowledged move and zero attack requests or plants. The stationary Dust II Plant Drill passed with fresh server-log evidence. Cargo tests passed 120/120. AMXX compilation, the practice launcher self-test, Studio UI smoke, and the eight-scene synthetic scorer fixture passed.
