@@ -531,7 +531,14 @@ namespace ReflexCore.Control
                     var actions=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=40};
                     var inspect=new Button{Text="Preview",AutoSize=true};
                     var apply=new Button{Text="Rename files",AutoSize=true,Enabled=false};
-                    actions.Controls.Add(inspect);actions.Controls.Add(apply);
+                    var history=new Button{Text="Open rename logs",AutoSize=true};
+                    history.Click+=delegate {
+                        string directory=ExtensionRename.JournalDirectory;
+                        if(!Directory.Exists(directory)){ status.Text="No rename logs yet.";return; }
+                        try{Process.Start(new ProcessStartInfo{FileName=directory,UseShellExecute=true});}
+                        catch(System.ComponentModel.Win32Exception){status.Text="Could not open the rename log folder."; }
+                    };
+                    actions.Controls.Add(inspect);actions.Controls.Add(apply);actions.Controls.Add(history);
                     ExtensionRename plan=null;
                     EventHandler reset=delegate { plan=null;apply.Enabled=false;list.Items.Clear();status.Text=""; };
                     from.TextChanged+=reset;to.TextChanged+=reset;
@@ -546,13 +553,27 @@ namespace ReflexCore.Control
                          catch(IOException error){status.Text=error.Message;}
                          catch(UnauthorizedAccessException){status.Text="The folder could not be read.";}
                     };
-                    apply.Click+=delegate {
+                    bool renaming=false;
+                    dialog.FormClosing+=delegate(object sender,FormClosingEventArgs args) { if(renaming)args.Cancel=true; };
+                    apply.Click+=async delegate {
                         if(plan==null || MessageBox.Show(dialog,"Rename "+plan.Entries.Count+" files as listed?",
                             "Confirm rename",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
-                        int renamed;string error;
-                        bool done=plan.Apply(out renamed,out error);
-                        reset(this,EventArgs.Empty);
-                        status.Text="Renamed "+renamed+" files."+(done?"":" "+error);
+                        var approved=plan;
+                        renaming=true;
+                        settings.Enabled=false;actions.Enabled=false;
+                        status.Text="Renaming files and writing the local log...";
+                        try {
+                            var result=await Task.Run(()=>{
+                                int renamed;string error;
+                                bool done=approved.Apply(ExtensionRename.JournalDirectory,out renamed,out error);
+                                return Tuple.Create(renamed,done,error);
+                            });
+                            reset(this,EventArgs.Empty);
+                            status.Text="Renamed "+result.Item1+" files."+(result.Item2?"":" "+result.Item3);
+                        } finally {
+                            renaming=false;
+                            settings.Enabled=true;actions.Enabled=true;
+                        }
                     };
                     dialog.Controls.Add(list);dialog.Controls.Add(status);dialog.Controls.Add(actions);dialog.Controls.Add(settings);
                     if(destination.Length>0)dialog.Shown+=delegate { inspect.PerformClick(); };

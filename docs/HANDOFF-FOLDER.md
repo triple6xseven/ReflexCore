@@ -52,4 +52,6 @@ In **Agent**, select **Change file extensions** or enter a supported request in 
 
 Review the current and proposed names, select **Rename files**, and confirm. The action renames files in the selected folder and skips subfolders and links. Existing destinations block the preview or execution. If Windows blocks a rename after some files have moved, the dialog shows how many completed. The action changes filenames only; it does not convert the file format.
 
+Select **Open rename logs** in the rename dialog to open `%LOCALAPPDATA%\ReflexCore\rename-history`. Each private JSON Lines file records the folder, UTC times, original and new filenames, and the final count. The app flushes an intent before each move and records completion immediately afterward. An intent without a completion calls for checking both filenames after an interruption. The app requires a writable journal before it starts. Moves use Windows no-overwrite semantics in the same folder. The worker stops at the first error and reports any files already renamed. This feature does not delete files or roll back successful moves automatically.
+
 Run `powershell.exe -NoProfile -File tasks/Test-ExtensionRename.ps1` to exercise the parser and verify changes on synthetic files.

@@ -142,37 +142,115 @@ namespace ReflexCore.Control
             return entries;
         }
 
-        public bool Apply(out int renamed, out string error)
+        public static string JournalDirectory
+        {
+            get {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "ReflexCore","rename-history");
+            }
+        }
+
+        sealed class RenameJournal : IDisposable
+        {
+            readonly FileStream stream;
+            readonly System.Web.Script.Serialization.JavaScriptSerializer serializer =
+                new System.Web.Script.Serialization.JavaScriptSerializer();
+
+            public RenameJournal(string path)
+            {
+                stream = new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.Read);
+            }
+
+            public void Record(string action, string folder, Entry entry, int count)
+            {
+                var record = new {
+                    schema="reflexcore.rename.journal.v1",
+                    utc=DateTime.UtcNow.ToString("o",System.Globalization.CultureInfo.InvariantCulture),
+                    action,folder,
+                    before=entry==null?null:entry.Before,
+                    after=entry==null?null:entry.After,
+                    renamed=count
+                };
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(serializer.Serialize(record) + "\n");
+                stream.Write(bytes,0,bytes.Length);
+                stream.Flush(true);
+            }
+
+            public void Dispose() { stream.Dispose(); }
+        }
+
+        public bool Apply(string historyDirectory, out int renamed, out string error)
         {
             renamed = 0;
             error = "";
+            RenameJournal journal;
             try {
-                using (new FolderPins(folder)) {
-                    var current = Scan(folder,source,destination);
-                    if (current.Count != entries.Count) throw new IOException("Folder contents changed. Preview again.");
-                    for (int i = 0; i < entries.Count; ++i) {
-                        var expected = entries[i];
-                        var actual = current[i];
-                        if (expected.Before != actual.Before || expected.After != actual.After ||
-                            expected.Length != actual.Length || expected.LastWrite != actual.LastWrite ||
-                            expected.Created != actual.Created)
-                            throw new IOException("Folder contents changed. Preview again.");
-                    }
-                    foreach (var entry in entries) {
-                        var path = Path.Combine(folder,entry.Before);
-                        if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint|FileAttributes.Directory)) != 0)
-                            throw new IOException("A source file changed.");
-                        File.Move(path,Path.Combine(folder,entry.After));
-                        ++renamed;
-                    }
-                }
-                return true;
+                string history = Path.GetFullPath(historyDirectory).TrimEnd(Path.DirectorySeparatorChar);
+                if (String.Equals(folder.TrimEnd(Path.DirectorySeparatorChar),history,StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Cannot rename files in the history folder.");
+                Directory.CreateDirectory(history);
+                string name = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss",System.Globalization.CultureInfo.InvariantCulture)
+                    + "-" + Guid.NewGuid().ToString("N") + ".jsonl";
+                journal = new RenameJournal(Path.Combine(history,name));
             } catch (IOException) {
-                error = "Stopped because the folder changed, a file is in use, or a destination already exists. Preview again.";
+                error = "Could not create the rename log. No files were changed.";
+                return false;
             } catch (UnauthorizedAccessException) {
-                error = "Stopped because access to a file was denied.";
+                error = "Could not create the rename log. No files were changed.";
+                return false;
             }
-            return false;
+
+            using (journal) {
+                try {
+                    journal.Record("started",folder,null,renamed);
+                    using (new FolderPins(folder)) {
+                        VerifyPreview();
+                        foreach (var entry in entries) {
+                            var path = Path.Combine(folder,entry.Before);
+                            if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint|FileAttributes.Directory)) != 0)
+                                throw new IOException("A source file changed.");
+
+                            // A flushed intent preserves the original name even if the process stops during the move.
+                            journal.Record("intent",null,entry,renamed);
+                            File.Move(path,Path.Combine(folder,entry.After));
+                            ++renamed;
+                            journal.Record("renamed",null,entry,renamed);
+                        }
+                    }
+                    journal.Record("completed",null,null,renamed);
+                    return true;
+                } catch (IOException) {
+                    error = StopAndRecord(journal,renamed);
+                    return false;
+                } catch (UnauthorizedAccessException) {
+                    error = StopAndRecord(journal,renamed);
+                    return false;
+                }
+            }
+        }
+
+        static string StopAndRecord(RenameJournal journal, int renamed)
+        {
+            const string incomplete = "The rename log could not be completed. Inspect the folder before retrying.";
+            try {
+                journal.Record("stopped",null,null,renamed);
+                return "Stopped at the first file or log error. Check the log and preview again.";
+            } catch (IOException) { return incomplete; }
+              catch (UnauthorizedAccessException) { return incomplete; }
+        }
+
+        void VerifyPreview()
+        {
+            var current = Scan(folder,source,destination);
+            if (current.Count != entries.Count) throw new IOException("Folder contents changed. Preview again.");
+            for (int i = 0; i < entries.Count; ++i) {
+                var expected = entries[i];
+                var actual = current[i];
+                if (expected.Before != actual.Before || expected.After != actual.After ||
+                    expected.Length != actual.Length || expected.LastWrite != actual.LastWrite ||
+                    expected.Created != actual.Created)
+                    throw new IOException("Folder contents changed. Preview again.");
+            }
         }
     }
 }
