@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$AllowInput,[switch]$VisualCancellation)
+param([switch]$AllowInput,[switch]$VisualCancellation,[switch]$UiaFixture)
 $ErrorActionPreference='Stop'
 if($VisualCancellation -and !$AllowInput){throw 'Use -AllowInput for the visible cancellation test'}
 $root=Split-Path $PSScriptRoot -Parent
@@ -26,9 +26,12 @@ function Is-State($id,$state){return [bool]($store.Snapshot()|Where-Object {$_.I
 function Wait-Verified($id){
     Wait-Queue {
         if(Is-State $id 'failed'){
+            $row=$store.Snapshot()|Where-Object Id -ceq $id
+            $flow=Join-Path $fixture 'data/flow_last_run.json'
+            if(Test-Path -LiteralPath $flow){Write-Host ([IO.File]::ReadAllText($flow))}
             $detail=Join-Path $fixture 'fixture-stage'
             if(Test-Path -LiteralPath $detail){throw ('Fixture failed at '+[IO.File]::ReadAllText($detail))}
-            throw 'Queued fixture exited unsuccessfully'
+            throw ('Queued fixture exited unsuccessfully: '+$row.Reason)
         }
         Is-State $id 'completed'
     } 'Queued fixture did not complete'
@@ -66,6 +69,7 @@ exit 9
     Assert-Queue (Is-State $orphan 'interrupted') 'Lost claim was replayed or forgotten'
     Assert-Queue ($store.Request($old,'approve')) 'Approval rejected'
     Wait-Queue {Is-State $old 'completed'} 'Approved job did not finish'
+    Assert-Queue (($store.Snapshot()|Where-Object Id -ceq $old).Verification -ceq 'not_confirmed') 'Exit code zero became verified'
     $active=$store.Submit('notepad-save',$true)
     Wait-Queue {Test-Path -LiteralPath (Join-Path $fixture 'entered')} 'Worker did not enter task'
     # Emulate a worker from another supervisor generation competing in the same desktop session.
@@ -92,8 +96,26 @@ exit 9
     Assert-Queue ([IO.File]::ReadAllText((Join-Path $fixture 'trace')) -ceq 'ss') 'Unexpected task replay'
     Assert-Queue (!$store.Request($waiting,'cancel')) 'Terminal job accepted cancellation'
     $future=$store.Submit('short',$false)
-    [IO.File]::WriteAllText((Join-Path $bridge 'control.txt'),'stop-all')
+    $emergency=$type.GetMethod('EmergencyStopAgents',[Reflection.BindingFlags]'Instance,NonPublic')
+    [void]$emergency.Invoke($tray,@())
+    [void]$emergency.Invoke($tray,@())
+    Assert-Queue (Test-Path -LiteralPath (Join-Path $bridge 'global-stop.signal')) 'Emergency stop did not broadcast to participants'
     Wait-Queue {Is-State $future 'cancelled'} 'Emergency stop skipped a queued job'
+    Put-Task 'unresponsive' @'
+$project=Split-Path $PSScriptRoot -Parent
+[IO.File]::WriteAllText((Join-Path $project 'unresponsive-entered'),'')
+Start-Sleep -Seconds 30
+[IO.File]::WriteAllText((Join-Path $project 'unresponsive-late-effect'),'')
+'@
+    $unresponsive=$store.Submit('unresponsive',$true)
+    Wait-Queue {Test-Path -LiteralPath (Join-Path $fixture 'unresponsive-entered')} 'Unresponsive worker did not start'
+    Assert-Queue ($store.Request($unresponsive,'cancel')) 'Unresponsive worker stop rejected'
+    Tick-Queue
+    Assert-Queue (Is-State $unresponsive 'stopping') 'Outstanding stop was reported as terminal'
+    Wait-Queue {Is-State $unresponsive 'cancelled'} 'Owned-worker fallback did not finish'
+    $forced=$store.Snapshot()|Where-Object Id -ceq $unresponsive
+    Assert-Queue ($forced.Verification -ceq 'unknown' -and $forced.Reason -ceq 'cleanup_unconfirmed') 'Forced stop falsely confirmed effects'
+    Assert-Queue (!(Test-Path -LiteralPath (Join-Path $fixture 'unresponsive-late-effect'))) 'Worker acted after forced stop'
     $sentinel=Join-Path $bridge 'queue-history/leave-me.txt'
     [IO.File]::WriteAllText($sentinel,'fixture')
     for($i=0;$i -lt 104;$i++){
@@ -103,6 +125,17 @@ exit 9
     Assert-Queue ((Get-ChildItem -LiteralPath (Join-Path $bridge 'queue-history') -File).Count -eq 101) 'History retention exceeded bound or touched unrelated file'
     Assert-Queue (Test-Path -LiteralPath $sentinel) 'Non-receipt removed'
     Write-Output 'Queue passed restart recovery, approval, single worker, active and pending cancellation, failure, stop-all and history retention.'
+    if($UiaFixture){
+        $binaryDir=[IO.Directory]::CreateDirectory((Join-Path $fixture 'target/release'))
+        Copy-Item -LiteralPath (Join-Path $root 'target/release/reflexcore.exe') -Destination $binaryDir.FullName
+        Copy-Item -LiteralPath (Join-Path $root 'tools/ReflexCore-Fixture.ps1') -Destination (Join-Path $fixture 'tools')
+        Copy-Item -LiteralPath (Join-Path $root 'tasks/agent-demo.ps1') -Destination (Join-Path $fixture 'tasks')
+        $uia=$store.Submit('agent-demo',$true)
+        Wait-Verified $uia
+        $result=$store.Snapshot()|Where-Object Id -ceq $uia
+        Assert-Queue ($result.Verification -ceq 'verified' -and $result.Reason -ceq 'verified_goal') 'Verified Goal receipt was missing'
+        Write-Output 'Owned UIA fixture passed independent output readback and delivered a verified queue receipt.'
+    }
     if($AllowInput){
         foreach($file in 'ReflexCore-VisionHost.cs','ReflexCore-VisionLoop.ps1','ReflexCore-SkillMemory.ps1'){
             Copy-Item -LiteralPath (Join-Path $root ('tools/'+$file)) -Destination (Join-Path $fixture 'tools')

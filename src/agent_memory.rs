@@ -27,7 +27,11 @@ fn flow_digest(flow: &str) -> Option<Vec<u8>> {
     if !crate::flow::has_terminal_assertion(&bytes) {
         return None;
     }
-    Some(Sha256::digest(&bytes).to_vec())
+    // Outcomes produced before effect binding must not influence the new verifier.
+    let mut digest = Sha256::new();
+    digest.update(b"reflexcore.flow.effect-proof.v2\0");
+    digest.update(&bytes);
+    Some(digest.finalize().to_vec())
 }
 
 pub(super) struct Memory {

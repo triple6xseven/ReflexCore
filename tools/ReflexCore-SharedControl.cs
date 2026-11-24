@@ -511,7 +511,12 @@ Return only action and at_bombsite as strict JSON.";
                 throw new Exception("Ollama telemetry metric conversion failed");
             if(OllamaTuning.Load(root,"deep").model.Length<1 || OllamaTuning.Int(new Dictionary<string,object>{{"num_ctx",999999}},"num_ctx",2048,512,8192)!=2048)
                 throw new Exception("Qwen settings validation failed");
-            Console.WriteLine("[ReflexCore] Shared Control 0.5.3: safety, scan codes, Qwen JSON, timing and scene tests passed.");
+            DateTime began=DateTime.UtcNow;
+            if(LabWindow.IsNewStop(began.AddTicks(-1),began,DateTime.MinValue)
+                || !LabWindow.IsNewStop(began.AddTicks(1),began,DateTime.MinValue)
+                || LabWindow.IsNewStop(began.AddTicks(1),began,began.AddTicks(1)))
+                throw new InvalidOperationException("Shared Control accepted a stale/duplicate emergency stop.");
+            Console.WriteLine("[ReflexCore] Shared Control: safety, scan codes, Qwen JSON, timing, scene and stop freshness tests passed.");
         }
         [STAThread]
         public static void Run(string root)
@@ -1288,6 +1293,10 @@ Return only action and at_bombsite as strict JSON.";
             logicalDown.Clear();injectedDown.Clear();logicalLeft=logicalRight=injectedLeft=injectedRight=false;
             ShowState("ARMED / 3s","Switch to CS 1.6. Physical input releases agent-held controls and pauses replay for three seconds.");
         }
+        internal static bool IsNewStop(DateTime signal,DateTime started,DateTime seen)
+        {
+            return signal>started && signal>seen;
+        }
         void StopCurrent(bool save)
         {
             CancelVision();
@@ -1447,7 +1456,7 @@ Return only action and at_bombsite as strict JSON.";
                     string signal=Path.Combine(root,"data","bridge","global-stop.signal");
                     if(File.Exists(signal)){
                         DateTime at=File.GetLastWriteTimeUtc(signal);
-                        if(at>startedUtc&&at>lastGlobalStopUtc){
+                        if(IsNewStop(at,startedUtc,lastGlobalStopUtc)){
                             lastGlobalStopUtc=at;StopCurrent(false);
                             ShowState("GLOBAL STOP", "Control Center requested stop; input and Qwen request cancelled.");
                         }

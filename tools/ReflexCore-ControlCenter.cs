@@ -145,7 +145,7 @@ namespace ReflexCore.Control
                 if(!jobs.Visible)return;
                 try{
                     var rows=queue.Snapshot();
-                    string signature=String.Join("|",rows.Select(row=>row.Id+"/"+row.State).ToArray());
+                    string signature=String.Join("|",rows.Select(row=>row.Id+"/"+row.State+"/"+row.Verification+"/"+row.Reason).ToArray());
                     if(signature==lastSnapshot)return;
                     string selected=jobs.SelectedItems.Count>0?(string)jobs.SelectedItems[0].Tag:"";
                     jobs.BeginUpdate();
@@ -158,7 +158,9 @@ namespace ReflexCore.Control
                                 ?created.ToLocalTime().ToString("dd.MM HH:mm:ss"):"—";
                             string task=row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":"Local task";
                             string state=row.State=="pending"?"Pending":row.State=="running"?"Running":
-                                row.State=="completed"?"Completed":row.State=="cancelled"?"Cancelled":row.State=="interrupted"?"Interrupted":"Failed";
+                                row.State=="stopping"?"Stopping":row.State=="completed"?(row.Verification=="verified"?"Verified":"Finished without verification"):
+                                row.State=="cancelled"?(row.Verification=="unknown"?"Cancelled · effect unknown":"Cancelled"):
+                                row.State=="interrupted"?"Interrupted":row.Reason=="focus_lost"?"Failed · focus lost":"Failed";
                             var entry=new ListViewItem(new[]{hour,task,state});entry.Tag=row.Id;jobs.Items.Add(entry);
                             if(row.Id==selected)entry.Selected=true;
                         }

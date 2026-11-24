@@ -877,7 +877,26 @@ namespace ReflexCore.Practice
             catch(InvalidDataException) {}
             var report=Decode<PracticeReport>("{\"schema\":\"reflexcore.cs16.practice.result.v1\",\"verified_plant\":true}",4096);
             if(!report.verified_plant)throw new Exception("Practice result parser regression.");
-            Console.WriteLine("[ReflexCore] CS 1.6 practice panel compiled and parser self-test passed.");
+            string project=Path.Combine(Path.GetTempPath(),"ReflexCore-PracticeStop-"+Guid.NewGuid().ToString("N"));
+            string signal=Path.Combine(project,"data","bridge","global-stop.signal");
+            Directory.CreateDirectory(Path.GetDirectoryName(signal));
+            try {
+                using(var panel=new PracticePanel(project,false,false)){
+                    panel.waiting=true;
+                    panel.runStartedUtc=DateTime.UtcNow.AddSeconds(-1);
+                    File.WriteAllText(signal,"test");
+                    panel.UpdateRun();
+                    if(panel.waiting || !panel.start.Enabled || panel.status.Text!="Practice stopped")
+                        throw new InvalidOperationException("Emergency signal did not abort before spawning the controller.");
+                    panel.timer.Dispose();
+                }
+            } finally {
+                File.Delete(signal);
+                Directory.Delete(Path.GetDirectoryName(signal));
+                Directory.Delete(Path.Combine(project,"data"));
+                Directory.Delete(project);
+            }
+            Console.WriteLine("[ReflexCore] CS 1.6 practice parser and emergency stop before server launch passed.");
         }
     }
 }

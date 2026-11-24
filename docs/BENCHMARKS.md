@@ -1,5 +1,16 @@
 # Windows acceptance measurements
 
+## Supervised task stop and receipts
+
+Windows synthetic comparison with eight runs per revision, using the same queued PowerShell worker and the same legacy stop-all command. The worker polls a cancellation marker and acknowledges it before returning. The harness measures the command handler on the WinForms thread and polls for the terminal queue entry every 20 ms.
+
+| Revision | Terminal p50 / p95 | Handler p95 | Cooperative acknowledgements |
+| --- | ---: | ---: | ---: |
+| 3ec8e09 | 206.41 / 1158.29 ms | 1154.50 ms | 0/8 |
+| Correlated receipts and cooperative stop | 160.88 / 342.79 ms | 30.00 ms | 8/8 |
+
+The harness observed a WinForms timer tick before the terminal entry in all eight runs per revision. This measures progress in a controlled UI event loop. Handler latency separately measures where the baseline could block that loop. Candidate poll p95 was 69.69 ms. These measurements are synthetic and do not estimate cancellation latency for real UIA providers or model unloads. Reproduce with `tasks/Measure-TaskStop.ps1 -Runs 8`, passing the baseline checkout to `-SourceRoot` for the comparison.
+
 ## CS 1.6 automatic plant routing
 
 Tested on the owned localhost GoldSrc server with a stationary CT fixture. These trials start from the actual actor spawn and use auto-discovered bombsites. The pass criterion is a fresh C4-plant acknowledgement from the engine.

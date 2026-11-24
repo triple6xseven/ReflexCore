@@ -9,7 +9,7 @@ try {
     $script=Join-Path $fixture 'tools/Submit-ReflexJob.ps1'
     Copy-Item -LiteralPath (Join-Path $root 'tools/Submit-ReflexJob.ps1') -Destination $script
     [IO.File]::WriteAllText((Join-Path $fixture 'tasks/agent-demo.ps1'),'')
-    Add-Type -Path (Join-Path $root 'tools/ReflexCore-Queue.cs') -ReferencedAssemblies System.Core.dll
+    Add-Type -Path (Join-Path $root 'tools/ReflexCore-Queue.cs') -ReferencedAssemblies System.Core.dll,System.Web.Extensions.dll
     $store=[ReflexCore.Bridge.QueueStore]::new($fixture)
     $samples=@{legacy=@();studio=@()}
     # Compilation has already happened when the real Studio UI accepts input.

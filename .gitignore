@@ -42,3 +42,4 @@
 !/tasks/notepad-visual.ps1
 !/tasks/Test-Queue.ps1
 !/tasks/Measure-Queue.ps1
+!/tasks/Measure-TaskStop.ps1
