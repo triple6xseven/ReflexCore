@@ -20,6 +20,7 @@ new bool:g_warned_slow;
 new bool:g_spawn_view_pending;
 new g_passive_ct, g_passive_userid;
 new bool:g_match, bool:g_bot_defeated, bool:g_bot_visible, bool:g_round_live;
+new g_round_generation;
 new Float:g_bomb_position[3], Float:g_target_yaw, Float:g_target_pitch;
 new Float:g_last_shot;
 new g_map[49], g_directory[192], g_command[224], g_state[224], g_staging[224];
@@ -105,6 +106,7 @@ bool:c4_equipped()
 
 public new_round()
 {
+    g_round_generation++;
     g_planted = false;
     g_t_won = false;
     g_bot_defeated = false;
@@ -519,9 +521,11 @@ publish_state()
     new file = fopen(g_staging, "wt");
     if (!file)
         return;
+    new Float:snapshot_tick = get_gametime();
     fprintf(file, "%s %s %d %.6f %d %d %d %.6f %.6f %.6f %.6f %d %d %d %d %d %d %s^n",
-        RC_SCHEMA, g_map, g_sequence, get_gametime(), userid, alive, team, point[0], point[1], point[2],
+        RC_SCHEMA, g_map, g_sequence, snapshot_tick, userid, alive, team, point[0], point[1], point[2],
         angles[1], c4, zone, armed, g_planted, g_t_won, ct_bots, g_status);
+    publish_round_state(snapshot_tick);
     if (g_match)
     {
         // Companion file keeps the v1 route/debug consumers compatible.
@@ -540,4 +544,19 @@ publish_state()
     if (file_exists(g_state) && !delete_file(g_state))
         return;
     rename_file(g_staging, g_state, 1);
+}
+
+publish_round_state(Float:snapshot_tick)
+{
+    new path[224], staging[224];
+    formatex(path, charsmax(path), "%s/round-state.txt", g_directory);
+    formatex(staging, charsmax(staging), "%s/round-staging.txt", g_directory);
+    new file = fopen(staging, "wt");
+    if (!file)
+        return;
+    fprintf(file, "reflexcore_cs16_round_v1 %d %d %d %.6f^n", g_sequence, g_round_generation, g_round_live, snapshot_tick);
+    fclose(file);
+    if (file_exists(path) && !delete_file(path))
+        return;
+    rename_file(staging, path, 1);
 }

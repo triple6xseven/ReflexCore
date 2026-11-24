@@ -179,7 +179,11 @@ class Bsp:
         return True
 
 
-def find_path(bsp, start, model_indices, spacing, deadline):
+class NoWalkablePath(ValueError):
+    pass
+
+
+def find_path(bsp, start, model_indices, spacing, deadline, blocked_heading=None):
     targets = [(index, tuple(zip(bsp.models[index][:3], bsp.models[index][3:6])))
                for index in model_indices]
 
@@ -222,12 +226,16 @@ def find_path(bsp, start, model_indices, spacing, deadline):
                 continue
             neighbor = (i, j, round(result[2]))
             next_cost = distance + math.dist(point, result)
+            if key == start_key and blocked_heading is not None:
+                angle = math.degrees(math.atan2(dy, dx))
+                if abs((angle - blocked_heading + 180) % 360 - 180) < 46:
+                    continue
             if next_cost + 1e-6 < cost.get(neighbor, math.inf):
                 points[neighbor] = result
                 cost[neighbor] = next_cost
                 parents[neighbor] = key
                 heapq.heappush(queue, (next_cost + estimate(result), next_cost, neighbor))
-    raise ValueError("no ordinary standing walk found within the search budget")
+    raise NoWalkablePath("no ordinary standing walk found within the search budget")
 
 
 def walk_segment(bsp, start, end, spacing):
@@ -241,15 +249,34 @@ def walk_segment(bsp, start, end, spacing):
     return abs(current[2] - end[2]) <= 2.0
 
 
-def simplify(bsp, points, spacing):
-    last = 0
-    result = [points[0]]
+def has_side_clearance(bsp, start, end, spacing):
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return False
+    for sign in (-1, 1):
+        offset = (-dy * sign * 7 / length, dx * sign * 7 / length)
+        shifted = []
+        for x, y, z in (start, end):
+            point = bsp.floor((x + offset[0], y + offset[1], z + 2), 8)
+            if point is None or abs(point[2] - z) > 6:
+                return False
+            shifted.append(point)
+        if not walk_segment(bsp, *shifted, spacing):
+            return False
+    return True
+
+
+def simplify(bsp, points, spacing, preserve_first=False, require_clearance=False):
+    last = int(preserve_first and len(points) > 1)
+    result = points[:last + 1]
     while last < len(points) - 1:
         end = last + 1
         for candidate in range(end + 1, len(points)):
             if math.dist(points[last], points[candidate]) > MAX_ROUTE_HOP:
                 break
-            if walk_segment(bsp, points[last], points[candidate], spacing):
+            if (walk_segment(bsp, points[last], points[candidate], spacing)
+                    and (not require_clearance or has_side_clearance(bsp, points[last], points[candidate], spacing))):
                 end = candidate
         result.append(points[end])
         last = end
@@ -261,12 +288,16 @@ def main():
     parser.add_argument("bsp", type=Path)
     parser.add_argument("--start", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
     parser.add_argument("--auto", action="store_true", help="Discover and search all brush bomb targets")
+    parser.add_argument("--blocked-heading", type=float,
+                        help="Exclude the failed direction on the first recovery hop")
     parser.add_argument("--resume", action="store_true", help="Replan from a verified live actor position")
     parser.add_argument("--avoid-site", choices=("A", "B"), help="Prefer the other brush group during recovery")
     parser.add_argument("--site", choices=("A", "B"), help="Display label for a manual route")
     parser.add_argument("--target-model", type=int, help="Brush model index for a manual route")
     parser.add_argument("--spacing", choices=(16, 24, 32), type=int, default=24)
     args = parser.parse_args()
+    if args.blocked_heading is not None and (not args.resume or not math.isfinite(args.blocked_heading)):
+        parser.error("--blocked-heading needs --resume and a finite angle")
     if args.avoid_site is not None and not args.resume:
         parser.error("--avoid-site needs --resume")
     if args.resume and not args.auto:
@@ -298,8 +329,13 @@ def main():
         eligible = targets if args.auto else [args.target_model]
         if args.avoid_site is not None and len(targets) > 1:
             eligible = targets[1:] if args.avoid_site == "A" else targets[:1]
-        path, target = find_path(bsp, anchor, eligible, args.spacing, deadline)
-        route = simplify(bsp, path, args.spacing)
+        try:
+            path, target = find_path(bsp, anchor, eligible, args.spacing, deadline, args.blocked_heading)
+        except NoWalkablePath:
+            if args.avoid_site is None or eligible == targets:
+                raise
+            path, target = find_path(bsp, anchor, targets, args.spacing, deadline, args.blocked_heading)
+        route = simplify(bsp, path, args.spacing, args.blocked_heading is not None, args.auto)
         if not 2 <= len(route) <= 128:
             raise ValueError("route exceeds waypoint limit")
         if not bsp.goal(target, route[-1]):
@@ -315,7 +351,7 @@ def main():
         "map": name,
         "site": args.site or ("A" if target == targets[0] else "B"),
         "waypoints": [
-            {"x": x, "y": y, "z": z, "radius": 12}
+            {"x": x, "y": y, "z": z, "radius": 8 if args.auto else 12}
             for x, y, z in route
         ],
     }, indent=2))

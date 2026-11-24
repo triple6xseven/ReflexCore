@@ -37,7 +37,7 @@ function Wait-Verified($id){
     } 'Queued fixture did not complete'
 }
 try {
-    Add-Type -Path @((Join-Path $root 'tools/ReflexCore-Queue.cs'),(Join-Path $root 'tools/ReflexCore-Tray.cs'),(Join-Path $root 'tools/ReflexCore-Companion.cs'),(Join-Path $root 'tools/ReflexCore-CompanionHost.cs')) -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll,System.Management.dll,System.Web.Extensions.dll
+    Add-Type -Path @((Join-Path $root 'tools/ReflexCore-Queue.cs'),(Join-Path $root 'tools/ReflexCore-Tray.cs'),(Join-Path $root 'tools/ReflexCore-Companion.cs'),(Join-Path $root 'tools/ReflexCore-CompanionHost.cs'),(Join-Path $root 'tools/ReflexCore-MenuStyle.cs')) -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll,System.Management.dll,System.Web.Extensions.dll
     Copy-Item -LiteralPath (Join-Path $root 'tools/ReflexCore-QueuedWorker.ps1') -Destination (Join-Path $fixture 'tools')
     Put-Task 'short' '[IO.File]::AppendAllText((Join-Path (Split-Path $PSScriptRoot -Parent) "trace"),"s")'
     Put-Task 'bad' 'exit 7'
@@ -124,6 +124,8 @@ Start-Sleep -Seconds 30
     }
     Assert-Queue ((Get-ChildItem -LiteralPath (Join-Path $bridge 'queue-history') -File).Count -eq 101) 'History retention exceeded bound or touched unrelated file'
     Assert-Queue (Test-Path -LiteralPath $sentinel) 'Non-receipt removed'
+    Assert-Queue (@($store.Snapshot() | Where-Object State -eq 'cancelled').Count -le 100) 'History exceeded display limit'
+    Assert-Queue ($store.Snapshot().Count -eq 100) 'Unrelated file consumed a history slot'
     Write-Output 'Queue passed restart recovery, approval, single worker, active and pending cancellation, failure, stop-all and history retention.'
     if($UiaFixture){
         $binaryDir=[IO.Directory]::CreateDirectory((Join-Path $fixture 'target/release'))

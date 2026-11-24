@@ -188,7 +188,8 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		_leave_cloud(size)
 	cloud_alpha=move_toward(cloud_alpha,1.0 if (cloud_since>=0 and now-cloud_since>0.57 or now<cloud_collision_until) else 0.0,dt*3.8)
 	if held:
-		position=position.clamp(Vector2(min_x,top),Vector2(max_x,bottom))
+		position.x=clampf(position.x,min_x,max_x)
+		position.y=minf(position.y,bottom)
 		if absf(position.x+size.x*0.5-cloud_x)>size.x*0.55:
 			cloud_collision_until=0
 		return "dragged"
@@ -203,6 +204,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		elif now-support_at>0.15:
 			support_speed=0.0
 		var can_follow := updated.has_area() and _fits(updated,desk,size) \
+			and (seated or updated.position.y-foot>=top) \
 			and moved_center>=updated.position.x+22 and moved_center<=updated.end.x-22 \
 			and position.x+change.x>=min_x and position.x+change.x<=max_x
 		if not can_follow or (real_physics and (change.length()>95 or support_speed>820 and change.length()>19)):
@@ -452,7 +454,8 @@ func _fall_step(dt: float, now: float, desk: Rect2i, size: Vector2i, windows: Ar
 	angular_speed*=exp(-2.6*dt)
 	angle=clampf(angle+angular_speed*dt,-0.74,0.74)
 	var hit_side := position.x<min_x or position.x>max_x
-	var hit_top := position.y<top
+	# A release from above the ceiling re-enters naturally instead of snapping down.
+	var hit_top := old.y>=top and position.y<top
 	if hit_side or hit_top:
 		var horizontal := "left" if position.x<min_x else "right"
 		var recent := now-impact_at<=0.12
@@ -574,7 +577,7 @@ func _climb_target(windows: Array[Rect2i], identities: Dictionary) -> Rect2i:
 
 func _fits(edge: Rect2i, desk: Rect2i, size: Vector2i) -> bool:
 	return desk.intersection(edge).size.x>=94 and edge.size.y>0 \
-		and edge.position.y>=desk.position.y+size.y*.46+5 \
+		and edge.position.y>=desk.position.y+size.y*.35+5 \
 		and edge.position.y<=desk.end.y-size.y*.31
 
 func _ferry_goal(edge: Rect2i, desk: Rect2i, size: Vector2i) -> Vector2:
@@ -613,7 +616,7 @@ func _reachable(windows: Array[Rect2i], foreground: Rect2i, desk: Rect2i, size: 
 
 func _drop_perch(windows: Array[Rect2i], desk: Rect2i, size: Vector2i, seat: float, magnet: float) -> Rect2i:
 	var best := Rect2i()
-	var nearest := size.y*.14*magnet
+	var nearest := size.y*.18*magnet
 	var center := position.x+size.x*.5
 	for edge in windows:
 		if not _fits(edge,desk,size) or center<edge.position.x+24 or center>edge.end.x-24:

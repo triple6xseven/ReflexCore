@@ -13,6 +13,26 @@ using System.Windows.Forms;
 
 namespace ReflexCore.Control
 {
+    internal sealed class ThemedModelPicker : ComboBox
+    {
+        protected override void WndProc(ref Message message)
+        {
+            base.WndProc(ref message);
+            if (message.Msg != 0x000F || !Enabled || ClientSize.Width < 24) return;
+            using (var graphics = Graphics.FromHwnd(Handle))
+            using (var background = new SolidBrush(BackColor))
+            using (var foreground = new SolidBrush(ForeColor))
+            {
+                int width = SystemInformation.VerticalScrollBarWidth;
+                int x = ClientSize.Width - width - 1;
+                int middle = ClientSize.Height / 2;
+                graphics.FillRectangle(background, x, 1, width, ClientSize.Height - 2);
+                x += width / 2;
+                graphics.FillPolygon(foreground, new[] { new Point(x-4,middle-2), new Point(x+4,middle-2), new Point(x,middle+2) });
+            }
+        }
+    }
+
     public sealed class ModelPanel : UserControl
     {
         readonly string root, tool, settings;
@@ -43,7 +63,7 @@ namespace ReflexCore.Control
             var commands=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=true,BackColor=panel,Padding=new Padding(8,7,8,5)};
             outer.Controls.Add(commands,0,1);
             commands.Controls.Add(new Label{Text="Model",ForeColor=fg,Width=65,Height=30,TextAlign=ContentAlignment.MiddleLeft});
-            models=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,DrawMode=DrawMode.OwnerDrawFixed,
+            models=new ThemedModelPicker{DropDownStyle=ComboBoxStyle.DropDownList,DrawMode=DrawMode.OwnerDrawFixed,
                 FlatStyle=FlatStyle.Flat,Width=240,Height=31,BackColor=panel,ForeColor=fg};
             models.DrawItem+=(sender,args)=>{
                 bool selected=(args.State&DrawItemState.Selected)!=0 && (args.State&DrawItemState.ComboBoxEdit)==0;

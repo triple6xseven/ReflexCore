@@ -82,6 +82,7 @@ var metrics: Array[String] = []
 var show_metrics := false
 var paused := false
 var passthrough := false
+var right_click_ready := false
 var avatar_state := "idle"
 var last_reported_pose := ""
 var transition_fps_until := 0.0
@@ -257,7 +258,7 @@ func _build_scene() -> void:
 	for i in MODE_NAMES.size():
 		_add_menu_button(rows,i,false)
 	rows.add_child(HSeparator.new())
-	for id in [10,11,12]:
+	for id in [10,11,12,13,14]:
 		_add_menu_button(rows,id,true)
 	rows.add_child(HSeparator.new())
 	_add_menu_button(rows,20,false)
@@ -279,6 +280,11 @@ func _show_menu(anchor: Vector2) -> void:
 		var button: CheckButton=menu_buttons[entry[0]]
 		button.text=entry[1]
 		button.set_pressed_no_signal(entry[2])
+	var classic := _read_json(bridge.path_join("host-status.json"), 4096)
+	menu_buttons[13].text="Classic telemetry widget"
+	menu_buttons[13].set_pressed_no_signal(classic.get("classic_visible", false)==true)
+	menu_buttons[14].text="Left-click through"
+	menu_buttons[14].set_pressed_no_signal(bool(options.clickthrough))
 	menu_buttons[20].text="Close ReflexCompanion"
 	menu.reset_size()
 	var limit := Vector2(get_window().size)-menu.get_combined_minimum_size()
@@ -520,6 +526,8 @@ func _restore_position(reset := false) -> void:
 	initial=false
 
 func _poll() -> void:
+	var host_status := _read_json(bridge.path_join("host-status.json"),4096)
+	right_click_ready=host_status.get("right_click_ready",false)==true
 	if FileAccess.file_exists(bridge.path_join("stop.flag")):
 		_shutdown()
 		return
@@ -547,6 +555,7 @@ func _poll() -> void:
 			stage="idle"
 			message=""
 			metrics.clear()
+			show_metrics=false
 			pending=0
 			paused=false
 		return
@@ -909,7 +918,7 @@ func _bubble_message() -> String:
 		return "Ã¢Å“Â¦"
 	if stage=="idle" and pending==0:
 		return ""
-	if stage=="success" and pending==0 and now-stage_at>4.2:
+	if stage in ["success","warning"] and pending==0 and now-stage_at>4.2:
 		return ""
 	var slot := int(now/5)%3
 	if slot==2 and show_metrics and not metrics.is_empty():
@@ -965,19 +974,20 @@ func _pointer_on_character(local: Vector2, pointer_distance: float) -> bool:
 func _track_input(local: Vector2, desktop_pointer: Vector2, pointer_distance: float) -> void:
 	# Leave the rendered pixels intact while letting clicks outside projected hit
 	# zones reach the desktop. No polling of other applications' input.
+	var left_through := bool(options.clickthrough) and right_click_ready
 	if menu.visible:
 		var over_menu := menu.get_rect().has_point(local)
 		if over_menu:
 			outside_menu_since=-1
 		elif outside_menu_since<0:
 			outside_menu_since=now
-		if bool(options.clickthrough) or (outside_menu_since>=0 and now-outside_menu_since>0.20):
+		if outside_menu_since>=0 and now-outside_menu_since>0.20:
 			_hide_menu()
-		_set_cursor_passthrough(bool(options.clickthrough) or not (over_menu or _pointer_on_character(local,pointer_distance)))
+		_set_cursor_passthrough(not over_menu and (left_through or not _pointer_on_character(local,pointer_distance)))
 		return
 	var can_click := _pointer_on_character(local,pointer_distance)
 	if can_click:can_click_until=now+0.14
-	_set_cursor_passthrough(bool(options.clickthrough) or not (pressed or can_click or now<can_click_until))
+	_set_cursor_passthrough(left_through or not (pressed or can_click or now<can_click_until))
 	if pressed:
 		_sample_throw(desktop_pointer)
 		_maybe_grab(desktop_pointer)
@@ -1097,15 +1107,13 @@ func _input(event: InputEvent) -> void:
 	if mouse.button_index==MOUSE_BUTTON_LEFT and not mouse.pressed and pressed:
 		_release()
 		return
-	if bool(options.clickthrough):
-		return
 	if mouse.button_index==MOUSE_BUTTON_RIGHT and mouse.pressed and (_pointer_on_character(mouse.position,_model_distance(mouse.position)) or now<can_click_until):
 		preview_until=0.0
 		if pressed:_release(false)
 		motion.interrupt(now,bool(options.physics))
 		_show_menu(mouse.position)
 		return
-	if mouse.button_index!=MOUSE_BUTTON_LEFT:
+	if bool(options.clickthrough) or mouse.button_index!=MOUSE_BUTTON_LEFT:
 		return
 	if mouse.pressed and (_pointer_on_character(mouse.position,_model_distance(mouse.position)) or pressed or now<can_click_until):
 		# A fresh press supersedes a stale capture even if the prior mouse-up was lost.
@@ -1194,6 +1202,9 @@ func _menu_action(id: int) -> void:
 	if id==20:
 		_shutdown()
 		return
+	if id==13:
+		_write_json("classic-visibility-request.json",{"pid":OS.get_process_id(),"visible":menu_buttons[13].button_pressed})
+		return
 	var values := _read_json(bridge.path_join("settings.json"),16384)
 	if id>=0 and id<MODE_VALUES.size():
 		values.mode=MODE_VALUES[id]
@@ -1204,6 +1215,8 @@ func _menu_action(id: int) -> void:
 		values[key]=not options[key]
 	elif id==12:
 		values.magic=not options.magic
+	elif id==14:
+		values.clickthrough=menu_buttons[14].button_pressed
 	if _write_json("settings.json",values):
 		poll_clock=0.0
 

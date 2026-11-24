@@ -38,7 +38,7 @@ public sealed partial class StudioWindow
         var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
         page.Children.Add(toolbar);
         var panels = new[] { new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel(), new StackPanel() };
-        var names = new[] { "Character", "Editor", "Movement", "Classic", "Advanced", "Dev" };
+        var names = new[] { "Character", "Editor", "Behavior", "Classic", "Window & performance", "Animation preview" };
         var tabs = new List<Button>();
         Action reloadWardrobe = null;
         void Select(int index)
@@ -104,8 +104,10 @@ public sealed partial class StudioWindow
             ("Hide Classic", () => SendWidgetCommand("hide-classic", false)),
             ("Reset position", () => SendWidgetCommand("reset-classic-position", false)));
         WidgetNumber(classic, "Opacity", "classic_opacity", 40, 100, "%", 100);
+        WidgetToggle(classic, "Click through Classic widget", "classic_clickthrough");
         WidgetToggle(classic, "CPU & system memory", "classic_host");
         WidgetToggle(classic, "GPU & video memory", "classic_gpu");
+        WidgetToggle(classic, "Show graphics card names", "classic_gpu_names");
         WidgetToggle(classic, "Ollama throughput", "classic_ollama");
 
         var companionHost = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
@@ -156,9 +158,8 @@ public sealed partial class StudioWindow
         }
         modelRow.Children.Add(modelLabel);
         var appearanceGroup = Section(panels[0], "Model and outfit");
-        var movement = Section(panels[2], "Behavior and animation");
-        var desktop = Section(panels[4], "Window and performance");
-        desktop.Children.Add(modelRow);
+        var movement = Section(panels[2], "Movement");
+        var desktop = Section(panels[4], "Desktop overlay");
         var edition = WidgetChoice(appearanceGroup, "Edition", "edition",
             new[] { "Midnight Nocturne", "Lunar Temptation", "Velvet Enchantress", "Velvet Bloom", "ZXC", "Midnight Edition", "Original", "Custom character" },
             new object[] { "nocturne", "lunar", "velvet", "velvet_bloom", "zxc", "midnight", "original", "custom" });
@@ -185,22 +186,22 @@ public sealed partial class StudioWindow
         updateModelControls = DisplayLegwear;
         edition.SelectionChanged += (_, _) => DisplayLegwear();
         DisplayLegwear();
-        WidgetChoice(movement, "Sitting style", "sit_style", new[] { "Still", "Leg swing", "Relaxed stretch" }, new object[] { "still", "swing", "relaxed" });
-        WidgetNumber(movement, "Sitting motion intensity", "intensity", 0, 100, "%", 100);
-        WidgetToggle(movement, "Animations", "animate");
-        WidgetToggle(movement, "Hair motion", "hair");
-        WidgetToggle(appearanceGroup, "Keep companion above other windows", "top");
-        WidgetToggle(appearanceGroup, "Show companion over fullscreen apps", "fullscreen_overlay");
-        WidgetToggle(appearanceGroup, "Thought bubble", "bubble");
-        WidgetChoice(appearanceGroup, "Bubble style", "bubble_style", new[] { "Glass", "Minimal" }, new object[] { "glass", "minimal" });
-        WidgetNumber(desktop, "Status refresh", "poll_ms", 200, 2500, "ms");
+        var animation = Section(panels[2], "Animation");
+        WidgetChoice(animation, "Sitting style", "sit_style", new[] { "Still", "Leg swing", "Relaxed stretch" }, new object[] { "still", "swing", "relaxed" });
+        WidgetNumber(animation, "Sitting motion intensity", "intensity", 0, 100, "%", 100);
+        WidgetToggle(animation, "Animations", "animate");
+        WidgetToggle(animation, "Hair motion", "hair");
+        WidgetToggle(desktop, "Keep companion above other windows", "top");
+        WidgetToggle(desktop, "Show companion over fullscreen apps", "fullscreen_overlay");
+        WidgetToggle(desktop, "Thought bubble", "bubble");
+        WidgetChoice(desktop, "Bubble style", "bubble_style", new[] { "Glass", "Minimal" }, new object[] { "glass", "minimal" });
 
         var behavior = movement;
         WidgetChoice(behavior, "Mode", "mode", new[] { "Taskbar", "Window edges", "Free roam", "Stationary", "Follow cursor", "Hover" },
             new object[] { "taskbar", "windows", "roam", "stationary", "follow", "hover" });
         WidgetToggle(behavior, "Physics", "physics");
         WidgetToggle(behavior, "Magic Platforms", "magic");
-        var magnet = Section(behavior, "Window magnet");
+        var magnet = Section(panels[2], "Window magnet");
         WidgetToggle(magnet, "Attract companion to window edges", "window_magnet_enabled");
         WidgetNumber(magnet, "Magnet strength", "window_magnet", 50, 200, "%", 100);
         WidgetButtons(magnet, ("Reset window magnet", () =>
@@ -219,8 +220,11 @@ public sealed partial class StudioWindow
             SendWidgetCommand("reset-3d-position");
         }));
 
-        WidgetToggle(desktop, "Click-through", "clickthrough");
+        WidgetToggle(desktop, "Left-click through", "clickthrough");
         WidgetToggle(desktop, "Start with ReflexCore", "app_start");
+        desktop = Section(panels[4], "Rendering and refresh");
+        WidgetNumber(desktop, "Status refresh", "poll_ms", 200, 2500, "ms");
+        desktop.Children.Add(modelRow);
         var notifications = Section(panels[4], "Notifications");
         WidgetToggle(notifications, "Windows activity notifications", "windows_notifications");
         notifications.Children.Add(WidgetHint("These notifications appear in Windows under Windows PowerShell 5.1."));

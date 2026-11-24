@@ -188,6 +188,15 @@ namespace ReflexCore.Bridge
         static bool Terminal(string state){
             return state=="completed" || state=="cancelled" || state=="failed" || state=="interrupted";
         }
+        public bool DeleteHistory(string id,string state)
+        {
+            if(!ValidId(id) || !Terminal(state))return false;
+            var path=Path.Combine(history,id+"."+state);
+            if(!File.Exists(path))return false;
+            File.Delete(path);
+            terminalKinds.Remove(id);
+            return true;
+        }
         public List<QueueEntry> Snapshot()
         {
             var result=new List<QueueEntry>();
@@ -198,7 +207,8 @@ namespace ReflexCore.Bridge
                 string dir=ended?history:Path.Combine(bridge,state);
                 var paths=Files(dir,ended?"*":"*.job");
                 paths=ended?paths.OrderByDescending(x=>x,StringComparer.Ordinal):paths.OrderBy(x=>x,StringComparer.Ordinal);
-                foreach(string path in paths.Take(100)){
+                int shown=0;
+                foreach(string path in paths){
                     string id=IdOf(path);
                     if(!ValidId(id))continue;
                     string label=ended?Path.GetExtension(path).TrimStart('.'):state;
@@ -217,6 +227,7 @@ namespace ReflexCore.Bridge
                     } catch(IOException) { }
                     result.Add(new QueueEntry{Id=id,Task=kind,State=label,Verification=receipt==null?"not_confirmed":receipt.verification,
                         Reason=receipt==null?"":receipt.reason});
+                    if(++shown==100)break;
                 }
             }
             foreach(string id in terminalKinds.Keys.Where(key=>!retained.Contains(key)).ToArray()){

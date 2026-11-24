@@ -8,6 +8,100 @@ using System.Windows.Forms;
 
 namespace ReflexCore.Bridge
 {
+    // Windows makes a transparent window transparent to every mouse button.
+    // Route only physical right clicks inside the renderer's current window region.
+    internal sealed class RightClickRouter : IDisposable
+    {
+        private delegate IntPtr MouseHook(int code,IntPtr message,IntPtr data);
+        [StructLayout(LayoutKind.Sequential)] private struct Point { public int X,Y; }
+        [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left,Top,Right,Bottom; }
+        [DllImport("user32.dll")] private static extern IntPtr SetWindowsHookEx(int id,MouseHook callback,IntPtr module,uint thread);
+        [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string name);
+        [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hook);
+        [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook,int code,IntPtr message,IntPtr data);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr window,int index);
+        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window,out Rect rect);
+        [DllImport("user32.dll")] private static extern int GetWindowRgn(IntPtr window,IntPtr region);
+        [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window,uint flags);
+        [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window,uint direction);
+        [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int left,int top,int right,int bottom);
+        [DllImport("gdi32.dll")] private static extern bool PtInRegion(IntPtr region,int x,int y);
+        [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr handle);
+        [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr window,ref Point point);
+        [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
+
+        private readonly MouseHook callback;
+        private readonly bool rectangularWidget;
+        private IntPtr hook, pressedTarget;
+        private bool attempted;
+        internal IntPtr Target;
+        internal bool Ready {get{return hook!=IntPtr.Zero && Target!=IntPtr.Zero;}}
+        internal RightClickRouter(bool rectangularWidget=false){this.rectangularWidget=rectangularWidget;callback=Handle;}
+        internal void Start()
+        {
+            if(attempted)return;
+            attempted=true;
+            hook=SetWindowsHookEx(14,callback,GetModuleHandle(null),0);
+        }
+
+        private IntPtr Handle(int code,IntPtr message,IntPtr data)
+        {
+            const int down=0x204,up=0x205;
+            if(code>=0 && (message.ToInt64()==down || message.ToInt64()==up))
+            {
+                // MSLLHOOKSTRUCT starts with POINT and has flags after mouseData.
+                if((Marshal.ReadInt32(data,12)&1)==0)
+                {
+                    var point=new Point{X=Marshal.ReadInt32(data),Y=Marshal.ReadInt32(data,4)};
+                    if(message.ToInt64()==up && pressedTarget!=IntPtr.Zero)
+                    {
+                        if(rectangularWidget)
+                            PostMessage(pressedTarget,0x7b,pressedTarget,new IntPtr((point.X&0xffff)|(point.Y<<16)));
+                        else Send(pressedTarget,up,point);
+                        pressedTarget=IntPtr.Zero;
+                        return new IntPtr(1);
+                    }
+                    if(message.ToInt64()==down && Ready && HitTarget(Target,point) && (rectangularWidget || Send(Target,down,point)))
+                    {
+                        pressedTarget=Target;
+                        return new IntPtr(1);
+                    }
+                }
+            }
+            return CallNextHookEx(hook,code,message,data);
+        }
+
+        private bool HitTarget(IntPtr window,Point point)
+        {
+            Rect rect;
+            if(!IsWindowVisible(window) || (rectangularWidget && (GetWindowLong(window,-20)&0x20)==0) ||
+                !GetWindowRect(window,out rect) || point.X<rect.Left || point.X>=rect.Right ||
+                point.Y<rect.Top || point.Y>=rect.Bottom)return false;
+            var foregroundHit=GetAncestor(WindowFromPoint(point),2);
+            for(var above=GetWindow(window,3);above!=IntPtr.Zero;above=GetWindow(above,3))
+                if(above==foregroundHit)return false;
+            if(rectangularWidget)return true;
+            var region=CreateRectRgn(0,0,0,0);
+            if(region==IntPtr.Zero)return false;
+            try{return GetWindowRgn(window,region)>1 && PtInRegion(region,point.X-rect.Left,point.Y-rect.Top);}
+            finally{DeleteObject(region);}
+        }
+
+        private static bool Send(IntPtr window,uint message,Point point)
+        {
+            if(!ScreenToClient(window,ref point))return false;
+            int position=(point.X&0xffff)|(point.Y<<16);
+            return PostMessage(window,message,new IntPtr(message==0x204?2:0),new IntPtr(position));
+        }
+
+        public void Dispose()
+        {
+            if(hook!=IntPtr.Zero){UnhookWindowsHookEx(hook);hook=IntPtr.Zero;}
+        }
+    }
+
     internal sealed class CompanionHost : IDisposable
     {
         internal static readonly string DirectoryPath=Environment.GetEnvironmentVariable("REFLEXCORE_COMPANION_DIRECTORY") ?? Path.Combine(
@@ -30,6 +124,10 @@ namespace ReflexCore.Bridge
         private string mode="taskbar";
         private bool physics=true;
         private bool fullscreenOverlay;
+        private bool leftClickThrough;
+        private readonly RightClickRouter rightClickRouter=new RightClickRouter();
+        private readonly RightClickRouter classicRightClickRouter=new RightClickRouter(true);
+        internal bool CompanionRequested {get{return companionPreferred;}}
         internal bool Running {get{return child!=null && !child.HasExited;}}
 
         internal void Show3D()
@@ -104,6 +202,7 @@ namespace ReflexCore.Bridge
             if(!file.Exists || file.Length>16384)
             {
                 WindowsNotificationsEnabled=false;
+                leftClickThrough=false;
                 settingsLength=-1;
                 return;
             }
@@ -122,8 +221,11 @@ namespace ReflexCore.Bridge
             if(settings.TryGetValue("mode",out behavior) && behavior is string)mode=(string)behavior;
             physics=Boolean(settings,"physics",true);
             fullscreenOverlay=Boolean(settings,"top",true) && Boolean(settings,"fullscreen_overlay",false);
+            leftClickThrough=Boolean(settings,"clickthrough",false);
+            hud.SetClassicClickThrough(Boolean(settings,"classic_clickthrough",hud.ClassicClickThrough));
             hud.ConfigureClassic(opacity,Boolean(settings,"classic_host",true),
-                Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true));
+                Boolean(settings,"classic_gpu",true),Boolean(settings,"classic_ollama",true),
+                Boolean(settings,"classic_gpu_names",true));
             bool revised=Boolean(settings,"app_start",false);
             if(revised!=appStart){appStart=revised;RememberCompanion(appStart);}
         }
@@ -152,6 +254,16 @@ namespace ReflexCore.Bridge
                     if(restart){restart=false;Start();}
                 }
                 ReadCommand(classicVisibility);
+                ReadClassicRequest(classicVisibility);
+                classicRightClickRouter.Target=hud.Visible && hud.ClassicClickThrough?hud.Handle:IntPtr.Zero;
+                if(classicRightClickRouter.Target!=IntPtr.Zero)classicRightClickRouter.Start();
+                rightClickRouter.Target=IntPtr.Zero;
+                if(Running && leftClickThrough)
+                {
+                    child.Refresh();
+                    rightClickRouter.Target=child.MainWindowHandle;
+                    rightClickRouter.Start();
+                }
                 long now=Stopwatch.GetTimestamp();
                 if(Running && stopDeadline!=0 && now>=stopDeadline)
                 {
@@ -165,7 +277,7 @@ namespace ReflexCore.Bridge
                 var classic=hud.ClassicVisible;
                 string status=json.Serialize(new {
                     schema="reflexcore.companion.host.v1",classic_visible=classic,running=Running,
-                    message=message
+                    message=message,right_click_ready=rightClickRouter.Ready
                 });
                 if(status!=statusSnapshot || !File.Exists(InBridge("host-status.json")))
                 {
@@ -219,11 +331,47 @@ namespace ReflexCore.Bridge
             else Start();
         }
 
+        private void ReadClassicRequest(Action<bool> classicVisibility)
+        {
+            const string name="classic-visibility-request.json";
+            if(!Running || !File.Exists(InBridge(name)))return;
+            var request=ReadSettings(name);
+            if(request.Count==0)return;
+            File.Delete(InBridge(name));
+            object pid,visible;
+            if(request.TryGetValue("pid",out pid) && pid is int && (int)pid==child.Id &&
+                request.TryGetValue("visible",out visible) && visible is bool)
+                classicVisibility((bool)visible);
+        }
+
         internal bool MouseInteractionEnabled()
         {
             return !Boolean(ReadSettings("settings.json"),"clickthrough",false);
         }
         internal bool ToggleMouseInteraction()
+        {
+            return !SetWidgetSetting("clickthrough",null);
+        }
+
+        internal void SetClassicClickThrough(bool enabled)
+        {
+            try
+            {
+                SetWidgetSetting("classic_clickthrough",enabled);
+                hud.SetClassicClickThrough(enabled);
+            }
+            catch(IOException){message="Could not save Classic widget settings.";}
+            catch(UnauthorizedAccessException){message="Could not save Classic widget settings.";}
+        }
+
+        internal void SetClassicGpuNames(bool enabled)
+        {
+            try {SetWidgetSetting("classic_gpu_names",enabled);}
+            catch(IOException){message="Could not save Classic widget settings.";}
+            catch(UnauthorizedAccessException){message="Could not save Classic widget settings.";}
+        }
+
+        private bool SetWidgetSetting(string key,bool? enabled)
         {
             var settings=new Dictionary<string,object>();
             var file=new FileInfo(InBridge("settings.json"));
@@ -235,10 +383,10 @@ namespace ReflexCore.Bridge
                 catch(InvalidOperationException error){throw new IOException("Companion settings are invalid.",error);}
                 if(settings==null)throw new IOException("Companion settings are invalid.");
             }
-            bool enabled=Boolean(settings,"clickthrough",false);
-            settings["clickthrough"]=!enabled;
+            bool next=enabled ?? !Boolean(settings,key,false);
+            settings[key]=next;
             WriteText("settings.json",json.Serialize(settings));
-            return enabled;
+            return next;
         }
 
         private static void PreferHighPerformanceGpu(string executable)
@@ -338,6 +486,8 @@ namespace ReflexCore.Bridge
 
         public void Dispose()
         {
+            rightClickRouter.Dispose();
+            classicRightClickRouter.Dispose();
             if(surfaces!=null){surfaces.Dispose();surfaces=null;}
             try
             {

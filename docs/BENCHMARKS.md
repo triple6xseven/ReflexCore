@@ -13,6 +13,23 @@ The harness observed a WinForms timer tick before the terminal entry in all eigh
 
 ## CS 1.6 automatic plant routing
 
+### Fresh-round and recovery validation
+
+The earlier Inferno failure reproduced on the isolated server: one movement command was followed by `PoseDiscontinuity` and no plant. The controller now waits for a changed, live round generation and pairs it with the exact observation tick. Automatic steering and path simplification use stricter geometry checks. The engine's confirmed plant-zone flag can complete navigation early when the pose is valid. This fixed the Aztec case in which the player had entered the valid zone while the next planned waypoint still appeared unreachable.
+
+The test uses a stationary CT fixture on loopback. `Test-CS16AutoRoute.ps1` additionally checks the fresh GoldSrc log for a plant by the same owned actor. `de_train` was selected before tuning the candidate and was held out from route/steering tuning. Count match wins separately. The four controller runs below use one observed spawn per map and do not establish arbitrary-map or arbitrary-spawn reliability.
+
+| Map | Engine-confirmed zone and independently verified plant | Total wall time | Recovery attempts | Spawn to plant from game log |
+| --- | --- | ---: | ---: | ---: |
+| de_inferno | Yes | 46.84 s | 0 | 44 s |
+| de_train (held out) | Yes | 39.75 s | 1 | 38 s |
+| de_dust2 | Yes | 42.80 s | 1 | 41 s |
+| de_aztec | Yes | 48.81 s | 1 | 46 s |
+
+A separate Studio-panel run with Record replay enabled verified the Train plant again (40.2 s, one recovery) and saved a 389,117-byte HLTV demo. The plant was independently verified for the actual actor ID in the GoldSrc log.
+
+The earlier Dust II and Aztec totals below were shorter. The candidate uses smaller steering corrections and preserves more waypoints in narrow areas. These are single-run comparisons and do not isolate the cost of each change.
+
 Tested on the owned localhost GoldSrc server with a stationary CT fixture. These trials start from the actual actor spawn and use auto-discovered bombsites. The pass criterion is a fresh C4-plant acknowledgement from the engine.
 
 | Map | Verified C4 | Navigation | Total | Movement commands |
@@ -54,6 +71,17 @@ The isolated `de_reflex_lab` match in the `2a61c29` implementation was independe
 
 Private artifacts under `data/private/cs16-baseline-v1` retain the route, map, anonymized one-round evidence, JSON metrics and demo. Map SHA-256 `6f125d6509ffc60d635a804abe64275b11a90e950abf66f51f591e3c86285163`. Demo SHA-256 `19f1cfe2218a50156365c6fb26fe1fc93eae1583296f104c92fbdb20037f2651`. Route SHA-256 `5cf4bd76b80327f1c30e38b59ec4ec4af0991be6430898ff834acace66e139a1`.
 
+
+## ReflexVision capture maintenance
+
+Windows visible fixture, 100 measured frames per run with eight warmups. Two pairs per capture mode, interleaved baseline `b19e4a8` and candidate. Each direct run reported 100 frames with tracks. Each CPU-scale run reported 85. Frame p95 includes capture, detection, tracking and painting.
+
+| Path | p95 before, ms | p95 after, ms | CPU % of one logical core before → after |
+| --- | --- | --- | --- |
+| Direct | 14.57, 11.18 | 14.43, 19.60 | 18.44 → 18.16, 19.99 → 21.24 |
+| CPU scale | 15.07, 13.82 | 15.21, 12.95 | 18.65 → 17.87, 21.73 → 19.90 |
+
+The full pipeline did not show a consistent latency improvement. The isolated CPU resampling loop, scaling 800×600 to 480×360 after 40 warmups with 50 batches of 20 calls, changed p50 from 0.8399 ms to 0.1469 ms and p95 from 0.8979 ms to 0.1656 ms. The sampled-pixel checksum was identical. The microbenchmark used the same C# compiler switches on both versions and excludes capture, painting and target eligibility. Live CS 1.6 gameplay was outside this comparison.
 
 ## ReflexVision v0.1
 

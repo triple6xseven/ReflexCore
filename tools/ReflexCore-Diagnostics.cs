@@ -95,9 +95,11 @@ namespace ReflexCore.Diagnostics
 
         private static void SelectSection(Panel[] screens,List<Button> buttons,int selected)
         {
+            screens[selected].BringToFront();
+            screens[selected].Show();
             for(int i=0;i<screens.Length;i++){
-                screens[i].Visible=i==selected;
-                buttons[i].FlatAppearance.BorderSize=i==selected?2:1;
+                if(i!=selected) screens[i].Hide();
+                buttons[i].FlatAppearance.BorderColor=i==selected?buttons[i].ForeColor:buttons[i].BackColor;
             }
         }
 
@@ -111,7 +113,7 @@ namespace ReflexCore.Diagnostics
             var outer=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,BackColor=bg};
             outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
             outer.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
-            outer.RowStyles.Add(new RowStyle(SizeType.Absolute,27));
+            outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             outer.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             Controls.Add(outer);
             var header=new Panel{Dock=DockStyle.Fill,BackColor=panel};outer.Controls.Add(header,0,0);
@@ -129,7 +131,8 @@ namespace ReflexCore.Diagnostics
             headerGrid.Controls.Add(tools,1,0);headerGrid.SetRowSpan(tools,2);
             var launch=new Button{Text="RUN VERIFIED BENCHMARK",FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(31,76,47),ForeColor=fg,Width=220,Height=33};
             launch.Click+=OnBenchmark;tools.Controls.Add(launch);
-            n=new NumericUpDown{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=53,Height=28};tools.Controls.Add(n);
+            n=new ThemedBenchmarkCount{Minimum=1,Maximum=50,Value=5,BackColor=panel,ForeColor=fg,Width=62,Margin=new Padding(3,8,3,3),
+                AccessibleName="Benchmark runs"};tools.Controls.Add(n);
             var open=new Button{Text="OPEN REPORTS",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg,Width=135,Height=33};
             open.Click+=delegate{Directory.CreateDirectory(dir);Process.Start("explorer.exe","\""+dir+"\"");};tools.Controls.Add(open);
             var sectionLayout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=new Padding(0)};
@@ -138,7 +141,7 @@ namespace ReflexCore.Diagnostics
             outer.Controls.Add(sectionLayout,0,2);
             var sectionBar=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,AutoScroll=true};
             sectionLayout.Controls.Add(sectionBar,0,0);
-            var content=new Panel{Dock=DockStyle.Fill,Margin=new Padding(0)};
+            var content=new BufferedSectionHost{Dock=DockStyle.Fill,Margin=new Padding(0)};
             sectionLayout.Controls.Add(content,0,1);
             var overview=new Panel{Dock=DockStyle.Fill};
             summary=MakeLabel("No benchmark results recorded.",new Font("Consolas",11),accent);
@@ -178,8 +181,10 @@ namespace ReflexCore.Diagnostics
             var toolbar=new Panel{Dock=DockStyle.Fill};modelLayout.Controls.Add(toolbar,0,0);
             var inspect=new Button{Text="REFRESH QWEN REVIEW",FlatStyle=FlatStyle.Flat,BackColor=panel,ForeColor=fg};inspect.SetBounds(20,8,240,32);toolbar.Controls.Add(inspect);
             inspect.Click+=delegate{LaunchKnownScript("Review-ReflexPerformance.ps1","");};
-            help=MakeLabel("Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",new Font("Segoe UI",9),Color.Gray);
-            help.Dock=DockStyle.Fill;help.AutoEllipsis=true;outer.Controls.Add(help,0,1);
+            help=new Label{Text="Local-only. No prompts, screenshots, window titles or user text are read. CPU excludes short-lived child UIA processes.",
+                AutoSize=true,Margin=new Padding(12,3,12,8),ForeColor=fg};
+            outer.SizeChanged+=delegate{help.MaximumSize=new Size(Math.Max(1,outer.ClientSize.Width-6),0);};
+            outer.Controls.Add(help,0,1);
             var screens=new[]{overview,details,resourcePage,modelPage};
             var sectionNames=new[]{"Benchmark / history","Evidence / decisions","Live resources","Qwen / bottlenecks"};
             var sectionButtons=new List<Button>();
@@ -190,11 +195,59 @@ namespace ReflexCore.Diagnostics
                 button.Click+=delegate{SelectSection(screens,sectionButtons,selected);};
                 sectionButtons.Add(button);
                 sectionBar.Controls.Add(button);
+                screens[index].Visible=false;
                 content.Controls.Add(screens[index]);
             }
             SelectSection(screens,sectionButtons,0);
             timer=new System.Windows.Forms.Timer{Interval=800};timer.Tick+=delegate{RefreshAll();};
             VisibleChanged+=delegate{timer.Enabled=Visible;if(Visible)RefreshAll();};
+        }
+        sealed class BufferedSectionHost : Panel
+        {
+            public BufferedSectionHost(){DoubleBuffered=true;}
+            protected override CreateParams CreateParams
+            {
+                get {
+                    var parameters=base.CreateParams;
+                    parameters.ExStyle|=0x02000000; // WS_EX_COMPOSITED buffers child controls as well.
+                    return parameters;
+                }
+            }
+        }
+        sealed class ThemedBenchmarkCount : NumericUpDown
+        {
+            public ThemedBenchmarkCount()
+            {
+                foreach(System.Windows.Forms.Control child in Controls)
+                    if(!(child is TextBox))new ArrowPainter(this,child);
+            }
+            sealed class ArrowPainter : NativeWindow
+            {
+                private readonly ThemedBenchmarkCount owner;
+                private readonly System.Windows.Forms.Control buttons;
+                public ArrowPainter(ThemedBenchmarkCount owner,System.Windows.Forms.Control buttons)
+                {
+                    this.owner=owner;this.buttons=buttons;
+                    buttons.HandleCreated+=OnCreated;
+                    buttons.HandleDestroyed+=OnDestroyed;
+                    if(buttons.IsHandleCreated)AssignHandle(buttons.Handle);
+                }
+                private void OnCreated(object sender,EventArgs e){AssignHandle(buttons.Handle);}
+                private void OnDestroyed(object sender,EventArgs e){ReleaseHandle();}
+                protected override void WndProc(ref Message message)
+                {
+                    base.WndProc(ref message);
+                    if(message.Msg!=0x000f || Handle==IntPtr.Zero)return;
+                    using(var graphics=Graphics.FromHwnd(Handle))
+                    using(var brush=new SolidBrush(owner.ForeColor))
+                    {
+                        graphics.Clear(owner.BackColor);
+                        int x=buttons.Width/2,y=buttons.Height/2;
+                        graphics.FillPolygon(brush,new[]{new Point(x-3,y/2+1),new Point(x+3,y/2+1),new Point(x,y/2-2)});
+                        graphics.FillPolygon(brush,new[]{new Point(x-3,y+y/2-1),new Point(x+3,y+y/2-1),new Point(x,y+y/2+2)});
+                    }
+                }
+            }
         }
         static TableLayoutPanel Rows(params int[] fixedHeights)
         {

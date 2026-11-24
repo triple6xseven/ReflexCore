@@ -218,6 +218,17 @@ func _initialize() -> void:
 		if travel=="portal":
 			edges.clear()
 	_expect(not ferry.seated and ferry.portal_scale==1.0,"Invalid portal persisted")
+	var high_edge := Rect2i(-1190,DESK.position.y+185,560,360)
+	var high_edges: Array[Rect2i]=[high_edge]
+	var high_seat := Motion.new()
+	high_seat.place(Vector2(-980,high_edge.position.y-SIZE.y*Motion.SEAT_RATIO-52))
+	high_seat.grab()
+	high_seat.update(DT,1.0,DESK,SIZE,Vector2i.ZERO,options,high_edges)
+	_expect(high_seat.position.y<-100,"Dragging still clamps the model at the upper edge.")
+	high_seat.release(Vector2.ZERO,true,1.0,.22,true)
+	for tick in 65:
+		high_seat.update(DT,1.0+(tick+1)*DT,DESK,SIZE,Vector2i.ZERO,options,high_edges)
+	_expect(high_seat.seated and high_seat.support==high_edge,"High window rejected the seated footprint.")
 	# Recreate a high but usable window edge and test a gentle release near it.
 	var ledge := Rect2i(-1190,260,560,360)
 	var ledges: Array[Rect2i]=[ledge]

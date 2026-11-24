@@ -106,6 +106,22 @@ namespace ReflexCore.Vision
                 using (var independent = EventWaitHandle.OpenExisting(StopName + "_SelfTest")) independent.Set();
                 if (!stop.WaitOne(0)) throw new InvalidOperationException("Independent stop signal was not delivered.");
             }
+            if (!PreviewWindow.ShouldPublish("paused", "live", 0) ||
+                PreviewWindow.ShouldPublish("paused", "paused", 9999) ||
+                !PreviewWindow.ShouldPublish("live", "paused", 0) ||
+                PreviewWindow.ShouldPublish("live", "live", 124) ||
+                !PreviewWindow.ShouldPublish("live", "live", 125))
+                throw new InvalidOperationException("Capture state transition publication regressed.");
+            using (var source = new Surface(5, 3))
+            using (var scaled = new Surface(3, 2))
+            {
+                if (!source.IsBlack()) throw new InvalidOperationException("Blank DIB was not detected.");
+                Marshal.WriteInt32(source.Pixels, (5 + 3) * 4, 1);
+                if (source.IsBlack()) throw new InvalidOperationException("Sparse, dim frame was rejected.");
+                scaled.ScaleFrom(source);
+                if (Marshal.ReadInt32(scaled.Pixels, (3 + 2) * 4) != 1)
+                    throw new InvalidOperationException("CPU scale changed source-to-destination mapping.");
+            }
             var pixels = Enumerable.Repeat((byte)255, 100 * 100 * 4).ToArray();
             PlayerDetector.MaskOverlay(pixels, 100, 100);
             if (pixels[0] != 0 || pixels[(23 * 100 + 17) * 4] != 0 || pixels[92 * 100 * 4] != 0 ||
@@ -180,7 +196,8 @@ namespace ReflexCore.Vision
                 float x = target.X + bounds.X * scale, y = target.Y + bounds.Y * scale;
                 e.Graphics.DrawRectangle(border, x, y, bounds.Width * scale, bounds.Height * scale);
                 string kind = track.Object.Kind == "red_cue" ? "Scene cue" : track.Object.Kind.Replace("hud_", "HUD ");
-                string text = kind + " #" + track.Id + "  " + track.Object.Score.ToString("0.00");
+                string text = kind + " #" + track.Id;
+                if (!track.Object.Kind.StartsWith("hud_", StringComparison.Ordinal)) text += "  " + track.Object.Score.ToString("0.00");
                 SizeF size = e.Graphics.MeasureString(text, Font);
                 float labelX = Math.Max(target.Left, Math.Min(x, target.Right - size.Width));
                 float labelY = Math.Max(target.Top, y - size.Height);
@@ -307,7 +324,10 @@ namespace ReflexCore.Vision
         private double startedAt, finishedAt, startedCpu, finishedCpu;
         private long peakWorkingSet, workingSet;
         private int frames, framesWithTracks;
-        private long sequence, lastPublish, lastPlayerResult;
+        private long sequence, lastPublish, lastPlayerResult, lastStatusUpdate;
+        private string publishedMode;
+        private Size lastFrameSize;
+        private double frameCost;
         private bool finalized, hotkey;
         private Rectangle placed;
 
@@ -343,7 +363,7 @@ namespace ReflexCore.Vision
             overlay.Dock = DockStyle.Fill;
             Controls.Add(overlay);
             Controls.Add(footer);
-            PlaceNextToGame();
+            CaptureBounds();
             if (relay != null)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(relay));
@@ -377,10 +397,10 @@ namespace ReflexCore.Vision
         }
 
         // Keep the preview outside the capture rectangle. Only the foreground game is sampled.
-        private bool PlaceNextToGame()
+        private Rectangle CaptureBounds()
         {
             Rectangle game = capture.Bounds();
-            if (game.IsEmpty) return false;
+            if (game.IsEmpty) return Rectangle.Empty;
             if (placed != game || Bounds.IntersectsWith(game))
             {
                 Rectangle screen = Screen.FromRectangle(game).WorkingArea;
@@ -407,7 +427,7 @@ namespace ReflexCore.Vision
                 }
                 placed = game;
             }
-            return !Bounds.IntersectsWith(game);
+            return Bounds.IntersectsWith(game) ? Rectangle.Empty : game;
         }
 
         internal void CheckFrameForTest() { OnFrame(); }
@@ -421,21 +441,31 @@ namespace ReflexCore.Vision
                 if (fixture != null) fixture.Advance();
                 var frameStart = Stopwatch.GetTimestamp();
                 long frameUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                Surface surface = PlaceNextToGame() ? capture.Grab() : null;
+                Surface surface = capture.Grab(CaptureBounds());
                 if (surface == null)
                 {
-                    overlay.Frame = null;
-                    overlay.Visible.Clear();
-                    tracker.Clear();
-                    playerTracker.Clear(); playerTracks.Clear();
-                    if (players != null) players.Invalidate();
-                    overlay.Invalidate();
-                    status.Text = "Focus the windowed game";
+                    if (overlay.Frame != null)
+                    {
+                        overlay.Frame = null;
+                        overlay.Visible.Clear();
+                        ResetTracking();
+                        frameCost = 0;
+                        overlay.Invalidate();
+                    }
+                    if (status.Text != "Focus the windowed game") status.Text = "Focus the windowed game";
                     timer.Interval = 180;
-                    if (relay != null && clock.ElapsedMilliseconds - lastPublish >= 200) Publish("paused", null);
+                    if (relay != null && ShouldPublish("paused", publishedMode, clock.ElapsedMilliseconds - lastPublish))
+                        Publish("paused", null);
                     return;
                 }
 
+                var size = new Size(surface.Width, surface.Height);
+                if (size != lastFrameSize)
+                {
+                    ResetTracking();
+                    lastFrameSize = size;
+                    lastStatusUpdate = clock.ElapsedMilliseconds - 250;
+                }
                 detector.Detect(surface, detections);
                 tracker.Update(detections, clock.ElapsedMilliseconds, overlay.Visible);
                 if (players != null)
@@ -469,18 +499,39 @@ namespace ReflexCore.Vision
                         if (latency.Count >= samples) { finalized = true; Close(); return; }
                     }
                 }
-                else timer.Interval = (detections.Count > 0 || elapsed > 21) ? (elapsed > 21 ? 125 : 65) : 100;
-
-                if (relay != null && clock.ElapsedMilliseconds - lastPublish >= 125)
-                    Publish("live", surface, frameUnixMs);
-                if (!finalized)
+                else
                 {
+                    frameCost = frameCost == 0 ? elapsed : frameCost * .8 + elapsed * .2;
+                    bool throttled = timer.Interval == 125 ? frameCost >= 16 : frameCost > 24;
+                    timer.Interval = throttled ? 125 : detections.Count > 0 ? 65 : 100;
+                }
+
+                if (relay != null && ShouldPublish("live", publishedMode, clock.ElapsedMilliseconds - lastPublish))
+                    Publish("live", surface, frameUnixMs);
+                if (!finalized && clock.ElapsedMilliseconds - lastStatusUpdate >= 250)
+                {
+                    lastStatusUpdate = clock.ElapsedMilliseconds;
                     status.Text = (players == null ? "Color / HUD · player scene unverified" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
                         (hotkey ? " | Ctrl+Alt+F10" : "");
                 }
             }
             catch (InvalidOperationException) { Close(); }
             catch (System.ComponentModel.Win32Exception) { Close(); }
+        }
+
+        private void ResetTracking()
+        {
+            tracker.Clear();
+            playerTracker.Clear();
+            playerTracks.Clear();
+            lastFrameSize = Size.Empty;
+            lastPlayerResult = 0;
+            if (players != null) players.Invalidate();
+        }
+
+        internal static bool ShouldPublish(string next, string published, long elapsed)
+        {
+            return next != published || (next == "live" && elapsed >= 125);
         }
 
         private void Publish(string mode, Surface image, long captured = 0)
@@ -502,8 +553,10 @@ namespace ReflexCore.Vision
                 }));
                 if (File.Exists(relay)) File.Replace(temporary, relay, null);
                 else File.Move(temporary, relay);
+                publishedMode = mode;
             }
             catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             finally { lastPublish = clock.ElapsedMilliseconds; }
         }
 

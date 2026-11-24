@@ -4,6 +4,37 @@
 - Carry verified, unverified, interrupted and cancelled outcomes into the task queue. Exclude unsuitable attempts from skill reliability updates.
 - Cooperatively stop queued work before an asynchronous owned-worker fallback. Claim legacy control commands atomically.
 
+## Studio and tray interface
+
+- Theme the task queue, Diagnostics run count, Studio sliders and tray menus.
+- Preserve the task queue's scroll position on refresh and allow deletion of selected terminal history entries.
+- Group Appearance and Companion settings by purpose.
+
+## Classic Live Status
+
+- Add a setting to replace graphics card names with numbered GPU labels while retaining utilization and memory readings.
+
+## Companion controls
+
+- Keep the companion menu available with left-click through enabled, and control Classic Live Status from that menu.
+- Expire stale Citadel activity in the companion bubble.
+
+## ReflexVision capture and evaluation
+
+- Invalidate tracks on focus loss or resize, publish capture state changes immediately and slow down status text updates.
+- Reuse CPU scaling offsets, avoid redundant copies and keep sparse dark frames with nonzero pixels.
+- Stream detector evaluation and separate false positives outside a match from empty frames during a match.
+
+## Local CS 1.6 experiment coach
+
+- Combine verified GoldSrc results, optional ReflexVision scoring and SQLite skill statistics in bounded local Ollama advice after an offline drill.
+
+## Automatic CS 1.6 practice route recovery
+
+- Wait for a new engine round and a matching spawn observation before automatic routing.
+- Preserve narrow standing paths, use precise steering for automatic routes and replan away from a blocked heading after a confirmed stall.
+- Report destination, engine-confirmed zone entry, recovery and C4 verification separately. Add an isolated run, independent log check and optional HLTV recording for verified automatic drills.
+
 ## Emergency stop and ReflexVision validation
 
 - Extend Ctrl+Alt+F10 to cancel supervised jobs, Shared Control, preview and managed practice runs.

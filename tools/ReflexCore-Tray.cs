@@ -39,6 +39,10 @@ namespace ReflexCore.Bridge
                TrayWindow.TokensPerSecond("{\"last_tps\":10e2}")!=0)
                 throw new Exception("Tray throughput numeric regression");
             DateTime at=new DateTime(2026,1,1,0,0,3,DateTimeKind.Utc);
+            if(!TrayWindow.ActivityVisible("citadel_rust",at,at.AddSeconds(5)) ||
+               TrayWindow.ActivityVisible("citadel_rust",at,at.AddSeconds(7)) ||
+               !TrayWindow.ActivityVisible("vision_loop",at,at.AddSeconds(7)))
+                throw new Exception("Activity display expiry regression");
             bool precise;
             DateTime legacy=TrayWindow.ModelSampleTime("{}",at,out precise);
             if(legacy!=at || precise || !ActivityHud.ThroughputText(31.2,legacy,at,false).Contains("activity 0s ago"))
@@ -452,6 +456,7 @@ namespace ReflexCore.Bridge
         private long nextHostSample, nextGpuSample;
         private bool gpuBusy, releasing;
         private bool hostMetric=true,gpuMetric=true,ollamaMetric=true;
+        private bool gpuNames=true;
         private volatile TimestampedGpu gpuSample;
         private TimestampedGpu displayedGpuSample;
 
@@ -478,10 +483,35 @@ namespace ReflexCore.Bridge
             stageLabel=new Label { Text="Idle", Left=12, Top=29, Width=344, Height=23, AutoEllipsis=true,
                 ForeColor=Color.FromArgb(224,241,228), Font=new Font("Segoe UI",10,FontStyle.Regular) };
             hostLabel=Metric("CPU —    RAM —",55);
-            gpuLabel=Metric("GPU —    VRAM —",79);
+            gpuLabel=new GpuColumnsLabel { Text="GPU —  |  VRAM —  |  Shared —", Left=12, Top=79,
+                Width=344, Height=22, ForeColor=hostLabel.ForeColor, Font=hostLabel.Font };
             speedLabel=Metric("Ollama — tok/s  \u00b7  no recent sample",103);
             Controls.AddRange(new System.Windows.Forms.Control[] {header,stageLabel,hostLabel,gpuLabel,speedLabel});
             Reposition();
+        }
+
+        private sealed class GpuColumnsLabel : Label
+        {
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                int firstDivider=ClientSize.Width*43/100;
+                int secondDivider=ClientSize.Width*73/100;
+                int gap=Math.Max(6,Font.Height/2);
+                var flags=TextFormatFlags.NoPadding|TextFormatFlags.SingleLine|
+                    TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix;
+                int y=0;
+                foreach(string row in Text.Split(new[]{Environment.NewLine},StringSplitOptions.None))
+                {
+                    var fields=row.Split(new[]{"  |  "},3,StringSplitOptions.None);
+                    if(fields.Length!=3)continue;
+                    TextRenderer.DrawText(e.Graphics,fields[0],Font,new Rectangle(0,y,Math.Max(0,firstDivider-gap),Font.Height),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,"|",Font,new Point(firstDivider,y),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,fields[1],Font,new Rectangle(firstDivider+gap,y,Math.Max(0,secondDivider-firstDivider-2*gap),Font.Height),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,"|",Font,new Point(secondDivider,y),ForeColor,flags);
+                    TextRenderer.DrawText(e.Graphics,fields[2],Font,new Rectangle(secondDivider+gap,y,Math.Max(0,ClientSize.Width-secondDivider-gap),Font.Height),ForeColor,flags);
+                    y+=Font.Height;
+                }
+            }
         }
 
         private static Label Metric(string value,int top)
@@ -540,22 +570,28 @@ namespace ReflexCore.Bridge
             if(current!=null && now-current.Ticks>12*Stopwatch.Frequency) current=null;
             if(current==displayedGpuSample) return;
             displayedGpuSample=current;
+            RenderGpuSample();
+        }
+
+        private void RenderGpuSample()
+        {
             var rows=new List<string>();
-            if(current!=null)
-                foreach(var gpu in current.Readings) rows.Add(GpuText(gpu));
-            if(rows.Count==0) rows.Add("GPU —    VRAM —");
+            if(displayedGpuSample!=null)
+                foreach(var gpu in displayedGpuSample.Readings)
+                    rows.Add(GpuText(gpu,gpuNames?gpu.Name:"GPU "+(rows.Count+1).ToString(CultureInfo.InvariantCulture)));
+            if(rows.Count==0) rows.Add("GPU —  |  VRAM —  |  Shared —");
             gpuLabel.Text=String.Join(Environment.NewLine,rows.ToArray());
             gpuLabel.Height=22+20*(rows.Count-1);
             LayoutClassic();
         }
 
-        private static string GpuText(ResourceCounters.GpuReading gpu)
+        private static string GpuText(ResourceCounters.GpuReading gpu,string name)
         {
             string load=gpu.UtilizationPercent.HasValue?gpu.UtilizationPercent.Value.ToString(CultureInfo.InvariantCulture)+"%":"—";
             string vram=gpu.UsedBytes.HasValue && gpu.TotalBytes.HasValue
                 ?String.Format(CultureInfo.InvariantCulture,"{0}/{1} MiB",gpu.UsedBytes.Value>>20,gpu.TotalBytes.Value>>20):"—";
             string shared=gpu.SharedBytes.HasValue?(gpu.SharedBytes.Value>>20).ToString(CultureInfo.InvariantCulture)+" MiB":"—";
-            return gpu.Name+" "+load+"  |  VRAM "+vram+"  |  Shared "+shared;
+            return name+" "+load+"  |  VRAM "+vram+"  |  Shared "+shared;
         }
 
         private static string FormatGib(ulong used,ulong total)
@@ -688,12 +724,13 @@ namespace ReflexCore.Bridge
 
             toast = new SilentToast();
             hud = new ActivityHud();
-            menu = new ContextMenuStrip();
+            var menuRenderer=ReflexCore.Presentation.DarkMenuRenderer.ForTray();
+            menu = new ContextMenuStrip{Renderer=menuRenderer};
             statusMenu = new ToolStripMenuItem("Status: ready");
             statusMenu.Enabled = false;
             activityMenu = new ToolStripMenuItem("Activity: idle");
             activityMenu.Enabled = false;
-            hudMenu=new ToolStripMenuItem("Hide corner status widget");
+            hudMenu=new ToolStripMenuItem("Hide Classic widget");
             hudMenu.Click += delegate { ToggleHud(); };
             menu.Items.Add(hudMenu);
             menu.Items.Add("Open Studio", null, delegate(object s, EventArgs e) {
@@ -705,17 +742,36 @@ namespace ReflexCore.Bridge
             {
                 hud.ConfigureClassicWidget();
                 companionHost=new CompanionHost(root,bridge,hud);
+                var companionMenu=new ToolStripMenuItem("Show ReflexCompanion 3D");
+                companionMenu.Click+=delegate {
+                    if(companionHost.CompanionRequested)companionHost.Hide3D();
+                    else companionHost.Show3D();
+                };
+                menu.Opening+=delegate {
+                    companionMenu.Text=companionHost.CompanionRequested?"Hide ReflexCompanion 3D":"Show ReflexCompanion 3D";
+                };
+                menu.Items.Insert(1,companionMenu);
+                var classicMenu=new ContextMenuStrip{Renderer=menuRenderer};
+                var gpuNamesOption=new ToolStripMenuItem("Show graphics card names");
+                gpuNamesOption.Click+=delegate{companionHost.SetClassicGpuNames(!hud.ClassicGpuNames);};
+                var clickOption=new ToolStripMenuItem("Click through");
+                clickOption.Click+=delegate{companionHost.SetClassicClickThrough(!hud.ClassicClickThrough);};
+                classicMenu.Items.AddRange(new ToolStripItem[]{gpuNamesOption,clickOption,new ToolStripSeparator(),
+                    new ToolStripMenuItem("Hide Classic widget",null,(s,e)=>SetHudVisible(false))});
+                classicMenu.Opening+=delegate{
+                    gpuNamesOption.Checked=hud.ClassicGpuNames;
+                    clickOption.Checked=hud.ClassicClickThrough;
+                };
+                hud.ContextMenuStrip=classicMenu;
+                hud.Disposed+=delegate{classicMenu.Dispose();};
                 var widgetOptions=new ToolStripMenuItem("Widget");
+                widgetOptions.DropDown.Renderer=menuRenderer;
                 widgetOptions.DropDownOpening+=delegate {
                     while(widgetOptions.DropDownItems.Count>0)widgetOptions.DropDownItems[0].Dispose();
                     var entries=widgetOptions.DropDownItems;
-                    entries.Add("Show Classic",null,(s,e)=>SetHudVisible(true));
-                    entries.Add("Show ReflexCompanion 3D",null,(s,e)=>companionHost.Show3D());
-                    entries.Add("Show Both",null,(s,e)=>{SetHudVisible(true);companionHost.Show3D();});
                     if(companionHost.Running)
                     {
                         entries.Add("Restart 3D",null,(s,e)=>companionHost.Restart3D());
-                        entries.Add("Stop 3D",null,(s,e)=>companionHost.Hide3D());
                     }
                     var input=new ToolStripMenuItem("3D mouse interaction"){Checked=companionHost.MouseInteractionEnabled()};
                     input.Click+=(s,e)=>{
@@ -729,7 +785,8 @@ namespace ReflexCore.Bridge
                     };
                     entries.Add(input);
                     var classic=new ToolStripMenuItem("Classic options");
-                    hud.AddClassicActions(classic.DropDownItems);
+                    classic.DropDown.Renderer=menuRenderer;
+                    hud.AddClassicActions(classic.DropDownItems,companionHost.SetClassicClickThrough);
                     entries.Add(classic);
                 };
                 widgetOptions.DropDownItems.Add("Settings");
@@ -737,6 +794,7 @@ namespace ReflexCore.Bridge
             }
             menu.Items.Add("Stop task · Ctrl+Alt+P", null, delegate(object s, EventArgs e) { StopJob(); });
             var toolsMenu=new ToolStripMenuItem("More");
+            toolsMenu.DropDown.Renderer=menuRenderer;
             toolsMenu.DropDownItems.Add("Run next pending job", null, delegate(object s, EventArgs e) { StartPending(true); });
             toolsMenu.DropDownItems.Add("Stop all · Reflex + Ollama", null, delegate(object s, EventArgs e) {
                 // Immediate local signal for Shared Control, then async unload local Ollama models.
@@ -833,7 +891,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         {
             if(companionHost!=null && companionHost.ClassicPreferred!=visible)companionHost.RememberClassic(visible);
             hudEnabled=visible;
-            hudMenu.Text=hudEnabled?"Hide corner status widget":"Show corner status widget";
+            hudMenu.Text=hudEnabled?"Hide Classic widget":"Show Classic widget";
             if(hudEnabled)hud.Show();else hud.Hide();
         }
 
@@ -914,6 +972,12 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             return age>=-10 && age<=65;
         }
 
+        internal static bool ActivityVisible(string source,DateTime measuredUtc,DateTime now)
+        {
+            return Fresh(measuredUtc,now) &&
+                (source!="citadel_rust" || now-measuredUtc<=TimeSpan.FromSeconds(6));
+        }
+
         private static DateTime ActivityTime(string json,string field)
         {
             Match stamp=Regex.Match(json,"\""+field+"\"\\s*:\\s*\"(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,7})?(?:Z|\\+00:00))\"");
@@ -942,7 +1006,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             if(capturing || !hudEnabled) { if(hud.Visible) hud.Hide(); }
             else if(!hud.Visible){ hud.Reposition(); hud.Show(); }
             hud.RefreshResources();
-            if(!Fresh(activeStageUtc,now) && lastActivityStage!="")
+            if(!ActivityVisible(lastActivitySource,activeStageUtc,now) && lastActivityStage!="")
             {
                 lastActivityStage="";lastActivitySource="";
                 activityMenu.Text="Activity: idle";
@@ -972,8 +1036,8 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         {
             if(json.Length>2048||Value(json,"schema")!="reflexcore.activity.v1")return false;
             DateTime at=ActivityTime(json,"at_utc");
-            if(!Fresh(at,now))return at!=DateTime.MinValue;
             string source=Value(json,"source");
+            if(!ActivityVisible(source,at,now))return at!=DateTime.MinValue;
             if(source!="citadel_rust"&&source!="shared_control"&&source!="vision_loop")return false;
             string stage=Value(json,"stage");
             string label=StageText(stage);
