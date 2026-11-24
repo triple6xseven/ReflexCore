@@ -4,7 +4,7 @@ The ReflexCore MCP server uses stdio. It reuses the local skill catalog, SQLite 
 
 ## Start
 
-1. In the Studio sidebar, open **MCP settings** and add the existing project folders for handoff checks.
+1. In the Studio sidebar, open **MCP settings** to view connected projects and their full paths. Choose **Add project** to connect an existing folder, **Change folder** to update the selected project, or **Disconnect** to remove its MCP mapping.
 2. Switch **MCP On**. A new installation starts off.
 3. Register the server once using an absolute launcher path. Open a new client session after changing its configuration.
 
