@@ -21,7 +21,7 @@ Screenshots from the [3D companion development branch](https://github.com/triple
 
 ![ReflexCore Studio Agent dashboard, desktop companion and live hardware widget](docs/screenshots/studio-agent-and-companion.png)
 
-![Local model settings and the companion seated on a cloud](docs/screenshots/studio-models-and-cloud.png)
+![Companion & Widgets settings and ZXC seated on a cloud](docs/screenshots/studio-zxc-and-cloud.png)
 
 ![The 3D companion seated on the Studio window edge](docs/screenshots/companion-window-seat.png)
 
