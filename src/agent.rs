@@ -16,7 +16,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Component, Path},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::Instant,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -224,12 +224,6 @@ struct Event {
     elapsed_ms: u128,
 }
 
-fn now_ns() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos())
-}
-
 fn log_event(run_id: &str, event: &Event, number: usize) -> Result<()> {
     fs::create_dir_all(EVENT_DIR)?;
     let filename = format!("{run_id}-{number:05}.json");
@@ -249,7 +243,7 @@ fn print_status() -> Result<()> {
     let last = fs::read_dir(directory)?
         .filter_map(|item| item.ok())
         .filter(|entry| entry.path().extension().is_some_and(|s| s == "json"))
-        .max_by_key(|entry| entry.file_name());
+        .max_by_key(|entry| (entry.metadata().and_then(|metadata| metadata.modified()).ok(), entry.file_name()));
     if let Some(last) = last {
         println!("{}", fs::read_to_string(last.path())?);
     } else {
@@ -258,20 +252,19 @@ fn print_status() -> Result<()> {
     Ok(())
 }
 
-fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memory>) -> Result<()> {
+fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memory>, run_id: &str) -> Result<()> {
     let started = Instant::now();
-    let run_id = format!("{:020}-{}", now_ns(), std::process::id());
     let total = planned.len();
     let mut completed = 0;
     let initial = Event {
         schema: "reflexcore.agent.event.v1",
-        run_id: run_id.clone(),
-        phase: if total == 0 { "verified" } else { "running" },
+        run_id: run_id.to_owned(),
+        phase: if total == 0 { "unverified" } else { "running" },
         completed_skills: completed,
         total_skills: total,
         elapsed_ms: 0,
     };
-    log_event(&run_id, &initial, 0)?;
+    log_event(run_id, &initial, 0)?;
 
     for (step, &index) in planned.iter().enumerate() {
         let skill = &goal.skills[index];
@@ -283,8 +276,11 @@ fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memor
         };
         let version = memory.as_ref().and_then(|_| memory::Memory::fingerprint(&skill.flow));
         let outcome = crate::flow::run(&args);
+        let fault = outcome.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
+            .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));
         if let (Some(db), Some(version)) = (memory.as_deref_mut(), version) {
             if memory::Memory::fingerprint(&skill.flow).as_ref() == Some(&version)
+                && matches!(fault, None | Some(crate::task_integrity::Fault::VerificationFailed))
                 && db.record(index, &version, outcome.is_ok()).is_err() {
                 eprintln!("[ReflexCore] Could not persist skill outcome.");
             }
@@ -292,27 +288,32 @@ fn execute(goal: &Goal, planned: &[usize], mut memory: Option<&mut memory::Memor
         if outcome.is_err() {
             let event = Event {
                 schema: "reflexcore.agent.event.v1",
-                run_id: run_id.clone(),
-                phase: "failed",
+                run_id: run_id.to_owned(),
+                phase: match fault {
+                    Some(crate::task_integrity::Fault::Cancelled | crate::task_integrity::Fault::CancelledUnknown) => "cancelled",
+                    Some(crate::task_integrity::Fault::EffectUnknown) => "unverified",
+                    _ => "failed",
+                },
                 completed_skills: completed,
                 total_skills: total,
                 elapsed_ms: started.elapsed().as_millis(),
             };
-            log_event(&run_id, &event, step + 1)?;
-            return Err(format!("Agent stopped: skill {} failed verification", step + 1).into());
+            log_event(run_id, &event, step + 1)?;
+            return outcome;
         }
         completed += 1;
         let event = Event {
             schema: "reflexcore.agent.event.v1",
-            run_id: run_id.clone(),
+            run_id: run_id.to_owned(),
             phase: if completed == total { "verified" } else { "running" },
             completed_skills: completed,
             total_skills: total,
             elapsed_ms: started.elapsed().as_millis(),
         };
-        log_event(&run_id, &event, step + 1)?;
+        log_event(run_id, &event, step + 1)?;
     }
 
+    if total == 0 { return Err(crate::task_integrity::Fault::EffectUnknown.into()); }
     println!("[ReflexCore] GOAL VERIFIED: {completed}/{total} skills, {} ms", started.elapsed().as_millis());
     Ok(())
 }
@@ -376,7 +377,12 @@ pub fn run(args: &[String]) -> Result<()> {
         println!("[ReflexCore] Preview only. Append --execute to run the verified skills.");
         return Ok(());
     }
-    execute(&goal, &planned, memory.as_mut())
+    let run_id = crate::task_integrity::run_id();
+    let result = execute(&goal, &planned, memory.as_mut(), &run_id);
+    let fault = result.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
+        .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));
+    crate::task_integrity::write_receipt(&run_id, fault, result.is_ok())?;
+    result
 }
 
 // Small, verified CS16 skill policy used by Unified Coordinator.

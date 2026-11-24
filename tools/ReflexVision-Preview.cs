@@ -111,7 +111,27 @@ namespace ReflexCore.Vision
             if (pixels[0] != 0 || pixels[(23 * 100 + 17) * 4] != 0 || pixels[92 * 100 * 4] != 0 ||
                 pixels[(23 * 100 + 18) * 4] != 255 || pixels[91 * 100 * 4] != 255)
                 throw new InvalidOperationException("Player radar/HUD mask changed the active scene.");
-            return "ReflexVision self-test passed: bounds, tracker, radar/HUD mask and independent stop.";
+            string root=Path.Combine(Path.GetTempPath(),"ReflexVision-Stop-"+Guid.NewGuid().ToString("N"));
+            string bridge=Path.Combine(root,"data","bridge");
+            string relay=Path.Combine(bridge,"reflexvision.json");
+            string signal=Path.Combine(bridge,"global-stop.signal");
+            Directory.CreateDirectory(bridge);
+            try {
+                using(var stop=new EventWaitHandle(false,EventResetMode.ManualReset)){
+                    using(var form=new PreviewWindow(0,IntPtr.Zero,320,false,0,stop,relay,null,root)){
+                        IntPtr handle=form.Handle;
+                        File.WriteAllText(signal,"test");
+                        form.CheckFrameForTest();
+                        var report=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(relay));
+                        if(!Object.Equals(report["status"],"stopped"))
+                            throw new InvalidOperationException("Emergency signal did not publish a stopped relay.");
+                    }
+                }
+            } finally {
+                File.Delete(signal);File.Delete(relay);File.Delete(relay+".next");
+                Directory.Delete(bridge);Directory.Delete(Path.Combine(root,"data"));Directory.Delete(root);
+            }
+            return "ReflexVision self-test passed: tracker, radar/HUD mask, independent stop and emergency relay.";
         }
     }
 
@@ -389,6 +409,8 @@ namespace ReflexCore.Vision
             }
             return !Bounds.IntersectsWith(game);
         }
+
+        internal void CheckFrameForTest() { OnFrame(); }
 
         private void OnFrame()
         {

@@ -11,6 +11,8 @@ mod privacy;
 #[cfg(windows)]
 mod flow;
 #[cfg(windows)]
+mod task_integrity;
+#[cfg(windows)]
 mod agent;
 #[cfg(windows)]
 mod learning;

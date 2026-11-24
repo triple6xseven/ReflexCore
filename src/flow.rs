@@ -4,7 +4,7 @@
 //! This module intentionally saves no UI labels, selectors, text, or values.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use crate::task_integrity::{self, Fault};
 use std::{
     error::Error,
     fs,
@@ -16,7 +16,6 @@ use std::{
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const REPORT: &str = "data/flow_last_run.json";
-const ACTION_REPORT: &str = "data/uia_last_action.json";
 const SCHEMA: &str = "reflexcore.flow.v1";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -175,22 +174,29 @@ impl FlowLock {
 }
 impl Drop for FlowLock {fn drop(&mut self){unsafe{CloseHandle(self.0);}}}
 
-fn execute_action(args: &[String]) -> Result<Value> {
-    if Path::new(ACTION_REPORT).exists() {
-        fs::remove_file(ACTION_REPORT)?;
+#[derive(PartialEq, Eq, Debug)]
+enum PendingEffect { None, Unknown, FixtureOutput }
+
+impl PendingEffect {
+    fn observe(&mut self, index: usize, action: &str, verification: &str, owned_fixture: bool) {
+        if owned_fixture && index == 3 && action == "assert-value" && verification == "verified" && *self == Self::FixtureOutput {
+            *self = Self::None;
+        } else if is_mutation(action) && verification != "verified" {
+            *self = if owned_fixture && index == 2 && action == "invoke" && *self == Self::None {
+                Self::FixtureOutput
+            } else { Self::Unknown };
+        }
     }
-    let exit = Command::new(std::env::current_exe()?)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    if !exit.success() {
-        return Err("UIA action subprocess returned a nonzero exit code".into());
+
+    fn preserve_uncertainty(&self, fault: Fault) -> Fault {
+        match (self, fault) {
+            (Self::None, _) => fault,
+            (_, Fault::Cancelled) => Fault::CancelledUnknown,
+            (_, Fault::Infrastructure | Fault::FocusLost) => Fault::EffectUnknown,
+            (Self::Unknown, Fault::VerificationFailed) => Fault::EffectUnknown,
+            _ => fault,
+        }
     }
-    let bytes = fs::read(ACTION_REPORT)
-        .map_err(|_| "UIA action finished without a report")?;
-    Ok(serde_json::from_slice(&bytes)?)
 }
 
 fn save_report(report: &FlowReport) -> Result<()> {
@@ -206,7 +212,7 @@ pub(super) fn has_terminal_assertion(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
-fn execute_flow(flow: &Flow) -> Result<()> {
+fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>) -> Result<()> {
     validate(flow)?;
     let _lock = FlowLock::acquire()?;
     let started = Instant::now();
@@ -219,7 +225,10 @@ fn execute_flow(flow: &Flow) -> Result<()> {
         total_steps: flow.steps.len(),
         steps: Vec::new(),
     };
-    let mut unresolved_effect = false;
+    let run_id = task_integrity::run_id();
+    let mut action_id = 0;
+    let mut pending = PendingEffect::None;
+    let mut has_evidence = false;
     for (index, step) in flow.steps.iter().enumerate() {
         let per_step = Instant::now();
         let mut last_status = "worker_error".to_owned();
@@ -231,12 +240,22 @@ fn execute_flow(flow: &Flow) -> Result<()> {
         };
         let mut attempt_count = 0;
         let mut succeeded = false;
+        let mut action_fault = None;
+        let mut args = build_action_args(flow, step);
+        if let Some((hwnd, _)) = fixture {
+            args.remove(1);
+            args.insert(1, format!("--hwnd={hwnd}"));
+        }
         for attempt in 1..=attempts_allowed {
             attempt_count = attempt;
-            match execute_action(&build_action_args(flow, step)) {
+            action_id += 1;
+            match crate::uia_actions::execute(&args[1..], &run_id, action_id, fixture.map(|(_, pid)| pid)) {
                 Ok(response) => {
                     last_status = response["status"].as_str().unwrap_or("invalid_report").to_owned();
                     last_verification = response["verification"].as_str().unwrap_or("not_applicable").to_owned();
+                    if last_status == "action_error" { action_fault = Some(Fault::EffectUnknown); }
+                    if last_status == "focus_lost" { action_fault = Some(Fault::FocusLost); }
+                    if last_status == "cancelled" { action_fault = Some(Fault::Cancelled); }
                     succeeded = match step.action.as_str() {
                         "inspect" => last_status == "inspected",
                         "assert-name" | "assert-value" =>
@@ -244,22 +263,28 @@ fn execute_flow(flow: &Flow) -> Result<()> {
                         _ => last_status == "issued",
                     };
                 }
-                Err(_) => {
+                Err(error) => {
                     last_status = "worker_error".to_owned();
                     last_verification = "unknown".to_owned();
+                    action_fault = Some(error.downcast_ref::<Fault>().copied().unwrap_or(if is_mutation(&step.action) {
+                        Fault::EffectUnknown
+                    } else { Fault::Infrastructure }));
                 }
             }
-            if succeeded { break; }
+            if succeeded || action_fault.is_some() { break; }
             if attempt < attempts_allowed && last_status != "ambiguous" {
                 thread::sleep(Duration::from_millis(250));
             } else { break; }
         }
         if succeeded {
-            if is_assertion(&step.action) {
-                unresolved_effect = false;
-            } else if is_mutation(&step.action) && last_verification != "verified" {
-                unresolved_effect = true;
-            }
+            // The owned demo's Apply handler copies Input to the independent Output field.
+            let trusted_fixture_step = fixture.is_some() && match index {
+                2 => step.name.as_deref() == Some("Apply"),
+                3 => step.name.as_deref() == Some("ReflexCore Output") && step.value == flow.steps[0].value,
+                _ => false,
+            };
+            pending.observe(index, &step.action, &last_verification, trusted_fixture_step);
+            has_evidence |= last_verification == "verified";
         }
         final_report.steps.push(StepReport {
             index: index + 1,
@@ -273,16 +298,27 @@ fn execute_flow(flow: &Flow) -> Result<()> {
             index + 1, flow.steps.len(), step.action, last_status, last_verification, attempt_count);
         if !succeeded {
             final_report.duration_ms = started.elapsed().as_millis();
+            let fault = action_fault.unwrap_or(match (last_status.as_str(), &pending) {
+                ("assertion_failed", PendingEffect::FixtureOutput) if index == 3 => Fault::VerificationFailed,
+                ("assertion_failed", PendingEffect::None) => Fault::PreconditionFailed,
+                _ => Fault::Infrastructure,
+            });
+            let fault = pending.preserve_uncertainty(fault);
+            final_report.outcome = match fault {
+                Fault::Cancelled | Fault::CancelledUnknown => "cancelled",
+                Fault::EffectUnknown => "completed_unverified",
+                _ => "failed",
+            };
             save_report(&final_report)?;
-            return Err(format!("Flow stopped at step {} ({})", index + 1, last_status).into());
+            return Err(fault.into());
         }
         final_report.completed_steps += 1;
     }
     final_report.duration_ms = started.elapsed().as_millis();
-    if unresolved_effect {
+    if pending != PendingEffect::None || !has_evidence {
         final_report.outcome = "completed_unverified";
         save_report(&final_report)?;
-        return Err("Flow actions ran, but their final effect was not independently verified".into());
+        return Err(Fault::EffectUnknown.into());
     }
     final_report.outcome = "passed";
     save_report(&final_report)?;
@@ -291,11 +327,11 @@ fn execute_flow(flow: &Flow) -> Result<()> {
     Ok(())
 }
 
-fn fixture_visible() -> bool {
-    crate::observer::capture_value()
-        .ok()
-        .and_then(|v| v["windows"].as_array().cloned())
-        .is_some_and(|list| list.iter().any(|w| w["title"].as_str() == Some("ReflexCore Test Window")))
+fn fixture_window(pid: Option<u32>) -> Option<String> {
+    let value = crate::observer::capture_value().ok()?;
+    value["windows"].as_array()?.iter().find(|window| {
+        window["title"] == "ReflexCore Test Window" && pid.is_none_or(|pid| window["pid"] == pid)
+    })?["hwnd"].as_str().map(str::to_owned)
 }
 
 struct FixtureProcess(Child);
@@ -313,7 +349,8 @@ fn demo(execute: bool) -> Result<()> {
         println!("[ReflexCore] To run against a temporary test window: flow demo --execute");
         return Ok(());
     }
-    if fixture_visible() {
+    task_integrity::check_cancel()?;
+    if fixture_window(None).is_some() {
         return Err("A ReflexCore Test Window already exists; close it before demo".into());
     }
     let path = Path::new("tools/ReflexCore-Fixture.ps1");
@@ -329,7 +366,9 @@ fn demo(execute: bool) -> Result<()> {
         .spawn()?;
     let mut fixture = FixtureProcess(child);
     let started = Instant::now();
-    while !fixture_visible() {
+    let hwnd = loop {
+        task_integrity::check_cancel()?;
+        if let Some(hwnd) = fixture_window(Some(fixture.0.id())) { break hwnd; }
         if fixture.0.try_wait()?.is_some() {
             return Err("Windows Forms test fixture exited before opening".into());
         }
@@ -337,9 +376,9 @@ fn demo(execute: bool) -> Result<()> {
             return Err("Test fixture did not open within 10 seconds".into());
         }
         thread::sleep(Duration::from_millis(150));
-    }
+    };
     println!("[ReflexCore] Test fixture launched; running full UIA flow...");
-    execute_flow(&flow)
+    execute_flow(&flow, Some((&hwnd, fixture.0.id())))
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -369,7 +408,7 @@ pub fn run(args: &[String]) -> Result<()> {
                 println!("[ReflexCore] Preview only. To perform actions: flow run <file> --execute");
                 return Ok(());
             }
-            execute_flow(&flow)
+            execute_flow(&flow, None)
         }
         _ => Err("Unknown flow command".into()),
     }
@@ -378,6 +417,26 @@ pub fn run(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unrelated_assertions_cannot_confirm_an_effect() {
+        let mut pending = PendingEffect::None;
+        pending.observe(2, "invoke", "not_verified", false);
+        pending.observe(3, "assert-name", "verified", false);
+        pending.observe(4, "set-value", "verified", false);
+        assert_eq!(pending, PendingEffect::Unknown);
+        assert!(matches!(pending.preserve_uncertainty(Fault::Infrastructure), Fault::EffectUnknown));
+        assert!(matches!(pending.preserve_uncertainty(Fault::Cancelled), Fault::CancelledUnknown));
+        let mut fixture = PendingEffect::None;
+        fixture.observe(2, "invoke", "not_verified", true);
+        fixture.observe(3, "assert-value", "failed", true);
+        assert_eq!(fixture, PendingEffect::FixtureOutput);
+        fixture.observe(3, "assert-value", "verified", true);
+        assert_eq!(fixture, PendingEffect::None);
+        let mut confirmed = PendingEffect::None;
+        confirmed.observe(0, "set-value", "verified", false);
+        assert_eq!(confirmed, PendingEffect::None);
+    }
 
     fn fixture() -> Flow { parse_flow(include_str!("../examples/smoke_flow.json")).unwrap() }
 

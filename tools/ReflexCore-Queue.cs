@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Web.Script.Serialization;
 
 namespace ReflexCore.Bridge
 {
@@ -12,11 +13,24 @@ namespace ReflexCore.Bridge
         public string Id { get; set; }
         public string Task { get; set; }
         public string State { get; set; }
+        public string Verification { get; set; }
+        public string Reason { get; set; }
+    }
+    public sealed class TaskReceipt
+    {
+        public string schema { get; set; }
+        public string task_id { get; set; }
+        public string run_id { get; set; }
+        public string stage { get; set; }
+        public string outcome { get; set; }
+        public string verification { get; set; }
+        public string reason { get; set; }
     }
     public sealed class QueueStore
     {
         readonly string bridge, history, requests, tasks;
         readonly Dictionary<string,string> terminalKinds=new Dictionary<string,string>(StringComparer.Ordinal);
+        readonly Dictionary<string,TaskReceipt> terminalReceipts=new Dictionary<string,TaskReceipt>(StringComparer.Ordinal);
         static readonly Regex IdPattern=new Regex(@"\A[0-9]{17}-[0-9a-f]{32}\z");
         const int HistoryLimit=100;
         public QueueStore(string project)
@@ -48,9 +62,9 @@ namespace ReflexCore.Bridge
         {
             try{
                 var info=new FileInfo(path);
-                if((info.Attributes&FileAttributes.ReparsePoint)!=0 || info.Length>256)return "local";
+                if((info.Attributes&FileAttributes.ReparsePoint)!=0 || info.Length>2048)return "local";
                 string[] lines=File.ReadAllLines(path);
-                if(lines.Length==2)switch(lines[1]){
+                if(lines.Length==2 || lines.Length==3)switch(lines[1]){
                     case "agent-demo.ps1":return "uia";
                     case "notepad-save.ps1":return "notepad";
                     case "notepad-visual.ps1":return "visual";
@@ -84,7 +98,38 @@ namespace ReflexCore.Bridge
         public bool Requested(string path,string command){
             string id=IdOf(path);return ValidId(id)&&File.Exists(Marker(id,command));
         }
-        public void Finish(string path,string state)
+        static TaskReceipt ParseReceipt(string json,string id)
+        {
+            try {
+                var value=new JavaScriptSerializer { MaxJsonLength=1024,RecursionLimit=4 }.Deserialize<TaskReceipt>(json);
+                if(value==null || value.schema!="reflexcore.task.receipt.v1" || value.task_id!=id ||
+                    (value.run_id!=id && !Regex.IsMatch(value.run_id??"",@"\A(?:[a-f0-9]{32}|[a-f0-9]{56})\z")) ||
+                    !new[]{"goal","notepad","queue"}.Contains(value.stage) ||
+                    !new[]{"verified","unverified","failed","cancelled","interrupted"}.Contains(value.outcome) ||
+                    !new[]{"verified","failed","unknown","not_confirmed"}.Contains(value.verification) ||
+                    !new[]{"verified_goal","disk_readback","verification_failed","precondition_failed","focus_lost","infrastructure_error","operator_cancelled",
+                        "cancelled_effect_unknown","effect_unknown","no_effect_evidence","process_exited","process_failed","cleanup_unconfirmed","interrupted"}.Contains(value.reason))return null;
+                return value;
+            } catch(ArgumentException) { return null; }
+              catch(InvalidOperationException) { return null; }
+        }
+        internal TaskReceipt ReadWorkerReceipt(string claim)
+        {
+            string kind=ReadKind(claim);
+            if(kind=="local")return null;
+            string path=Path.ChangeExtension(claim,"receipt.json");
+            try {
+                var file=new FileInfo(path);
+                if(!file.Exists || file.Length>1024 || (file.Attributes&FileAttributes.ReparsePoint)!=0)return null;
+                var value=ParseReceipt(File.ReadAllText(path),IdOf(claim));
+                if(value==null)return null;
+                if(kind=="uia" && value.stage=="goal")return value;
+                if((kind=="notepad" || kind=="visual") && value.stage=="notepad" && value.reason=="disk_readback")return value;
+            } catch(IOException) { }
+            return null;
+        }
+        public void Finish(string path,string state) { Finish(path,state,null); }
+        internal void Finish(string path,string state,TaskReceipt receipt)
         {
             if(!File.Exists(path))return;
             if(state!="completed" && state!="failed" && state!="cancelled" && state!="interrupted")
@@ -93,7 +138,23 @@ namespace ReflexCore.Bridge
             string id=IdOf(path);
             // Render only known valid IDs in Studio. Preserve older manifests in the local history.
             string dest=Path.Combine(history,Path.GetFileNameWithoutExtension(path)+"."+state);
+            if(ValidId(id)){
+                if(receipt==null)receipt=new TaskReceipt {
+                    schema="reflexcore.task.receipt.v1",task_id=id,run_id=id,stage="queue",
+                    outcome=state=="completed"?"unverified":state,verification=state=="interrupted"?"unknown":"not_confirmed",
+                    reason=state=="completed"?"process_exited":state=="cancelled"?"operator_cancelled":state=="interrupted"?"interrupted":"process_failed"
+                };
+                string[] manifest=File.ReadAllLines(path);
+                if(manifest.Length>=2){
+                    string staging=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+                    try {
+                        File.WriteAllLines(staging,new[]{manifest[0],manifest[1],new JavaScriptSerializer().Serialize(receipt)});
+                        File.Replace(staging,path,null);
+                    } finally { File.Delete(staging); }
+                }
+            }
             File.Move(path,dest);
+            DeleteMarker(Path.ChangeExtension(path,"receipt.json"));
             if(ValidId(id) && Directory.Exists(requests)){
                 DeleteMarker(Marker(id,"cancel")); DeleteMarker(Marker(id,"approve"));
             }
@@ -145,10 +206,23 @@ namespace ReflexCore.Bridge
                     string kind;
                     if(!ended || !terminalKinds.TryGetValue(id,out kind))kind=ReadKind(path);
                     if(ended){retained.Add(id);terminalKinds[id]=kind;}
-                    result.Add(new QueueEntry{Id=id,Task=kind,State=label});
+                    if(label=="running" && Requested(path,"cancel"))label="stopping";
+                    TaskReceipt receipt=null;
+                    if(ended && !terminalReceipts.TryGetValue(id,out receipt))try {
+                        if(new FileInfo(path).Length<=2048){
+                            var lines=File.ReadAllLines(path);
+                            if(lines.Length==3)receipt=ParseReceipt(lines[2],id);
+                        }
+                        terminalReceipts[id]=receipt;
+                    } catch(IOException) { }
+                    result.Add(new QueueEntry{Id=id,Task=kind,State=label,Verification=receipt==null?"not_confirmed":receipt.verification,
+                        Reason=receipt==null?"":receipt.reason});
                 }
             }
-            foreach(string id in terminalKinds.Keys.Where(key=>!retained.Contains(key)).ToArray())terminalKinds.Remove(id);
+            foreach(string id in terminalKinds.Keys.Where(key=>!retained.Contains(key)).ToArray()){
+                terminalKinds.Remove(id);
+                terminalReceipts.Remove(id);
+            }
             return result;
         }
     }

@@ -113,7 +113,7 @@ fn scan_windows() -> Result<Observation> {
     let start = Instant::now();
     let mut context = ScanContext {
         windows: Vec::with_capacity(64),
-        foreground: unsafe { GetForegroundWindow() },
+        foreground: foreground_window(),
     };
 
     let success = unsafe {
@@ -179,4 +179,12 @@ mod tests {
 pub fn capture_value() -> Result<serde_json::Value> {
     let observation = scan_windows()?;
     Ok(serde_json::to_value(observation)?)
+}
+
+pub(crate) fn foreground_window() -> Hwnd { unsafe { GetForegroundWindow() } }
+
+pub(crate) fn window_process(hwnd: Hwnd) -> u32 {
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid); }
+    pid
 }

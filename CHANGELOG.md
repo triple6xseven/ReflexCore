@@ -1,3 +1,9 @@
+## Task verification and cancellation
+
+- Correlate private UIA worker replies with their requesting run and action. Bind verification to a supported effect contract.
+- Carry verified, unverified, interrupted and cancelled outcomes into the task queue. Exclude unsuitable attempts from skill reliability updates.
+- Cooperatively stop queued work before an asynchronous owned-worker fallback. Claim legacy control commands atomically.
+
 ## Emergency stop and ReflexVision validation
 
 - Extend Ctrl+Alt+F10 to cancel supervised jobs, Shared Control, preview and managed practice runs.

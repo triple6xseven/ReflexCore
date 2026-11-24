@@ -645,9 +645,11 @@ namespace ReflexCore.Bridge
         private string activeJob;
         private readonly QueueStore queue;
         private bool notepadActive;
-        private bool cancelled;
+        private bool cancelled, forceStopStarted, stopTimedOut;
+        private DateTime stopDeadline;
+        private Process stopHelper;
         private bool hotkeyRegistered, emergencyHotkeyRegistered;
-        private bool exiting;
+        private bool exiting, exitAfterWorker;
         private DateTime shutdownUntil, lastEmergencyStopUtc;
         private bool shutdownRestart;
         internal bool RestartRequested {get;private set;}
@@ -1046,6 +1048,8 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     File.Move(path, moved);
                     activeJob = moved;
                     cancelled = false;
+                    forceStopStarted = false;
+                    stopTimedOut = false;
                     notepadActive=name=="notepad-save.ps1" || name=="notepad-visual.ps1";
                     ProcessStartInfo psi = new ProcessStartInfo();
                     psi.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -1099,37 +1103,32 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 return;
             }
             if(active.HasExited)return;
+            if(cancelled)return;
+            queue.Request(QueueStore.IdOf(activeJob),"cancel");
             cancelled = true;
-            if(notepadActive){
-                // Never tree-kill an editor that can share processes with personal tabs.
-                queue.Request(QueueStore.IdOf(activeJob),"cancel");
-                SetState("stopping",-1,"Waiting for guarded Notepad task to stop");
-                return;
+            // Notepad can share a Windows process with private tabs. Its worker stops cooperatively.
+            stopDeadline = DateTime.UtcNow.AddMilliseconds(notepadActive ? 30000 : 900);
+            SetState("stopping", -1, "Stop requested; waiting for worker cleanup");
+        }
+
+        private void PollStop()
+        {
+            if(!cancelled || stopTimedOut || DateTime.UtcNow<stopDeadline || active.HasExited)return;
+            if(!notepadActive && !forceStopStarted){
+                forceStopStarted=true;
+                stopDeadline=DateTime.UtcNow.AddSeconds(3);
+                try {
+                    stopHelper=Process.Start(new ProcessStartInfo {
+                        FileName=Path.Combine(Environment.SystemDirectory,"taskkill.exe"),
+                        Arguments="/PID "+active.Id.ToString()+" /T /F",
+                        CreateNoWindow=true,UseShellExecute=false,WindowStyle=ProcessWindowStyle.Hidden
+                    });
+                    return;
+                } catch(System.ComponentModel.Win32Exception) { }
             }
-            try
-            {
-                if (!active.HasExited)
-                {
-                    ProcessStartInfo psi = new ProcessStartInfo();
-                    psi.FileName = "taskkill.exe";
-                    psi.Arguments = "/PID " + active.Id.ToString() + " /T /F";
-                    psi.CreateNoWindow = true;
-                    psi.UseShellExecute = false;
-                    psi.WindowStyle = ProcessWindowStyle.Hidden;
-                    using (Process killer = Process.Start(psi))
-                    {
-                        if (!killer.WaitForExit(3000)) throw new Exception("taskkill timed out");
-                        if (killer.ExitCode != 0 && !active.HasExited)
-                            throw new Exception("taskkill failed");
-                    }
-                }
-            }
-            catch (Exception)
-            {
-                SetState("error", -1, "Stop failed; check job process");
-                return;
-            }
-            SetState("stopping", -1, "Stop requested; terminating job tree");
+            stopTimedOut=true;
+            exitAfterWorker=false;
+            SetState("error",-1,"Stop cleanup timed out; the queue is held while the worker is active");
         }
 
         private void EmergencyStopAgents()
@@ -1164,8 +1163,12 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             queue.CancelPending();
             if (File.Exists(controlPath))
             {
-                string action = File.ReadAllText(controlPath).Trim().ToLowerInvariant();
-                File.Delete(controlPath);
+                string claimed=controlPath+"."+Guid.NewGuid().ToString("N")+".claimed";
+                try { File.Move(controlPath,claimed); }
+                catch(IOException) { return; }
+                string action;
+                try { action=File.ReadAllText(claimed).Trim().ToLowerInvariant(); }
+                finally { File.Delete(claimed); }
                 if (action == "stop") StopJob();
                 if (action == "stop-all") StopAllJobs();
                 if (action == "exit") { RequestShutdown(false); return; }
@@ -1174,19 +1177,38 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             if (active != null)
             {
                 if(!active.HasExited && !cancelled && queue.Requested(activeJob,"cancel"))StopJob();
+                PollStop();
                 if (active.HasExited)
                 {
                     int code = active.ExitCode;
+                    if(stopHelper!=null){stopHelper.Dispose();stopHelper=null;}
                     active.Dispose();
                     active = null;
+                    bool verified=false;
+                    string terminal=code==0?"completed":"failed";
                     if(activeJob!=null){
+                        TaskReceipt receipt=queue.ReadWorkerReceipt(activeJob);
+                        verified=code==0 && receipt!=null && receipt.outcome=="verified" && receipt.verification=="verified";
                         cancelled=cancelled || (code!=0 && queue.Requested(activeJob,"cancel"));
-                        queue.Finish(activeJob,cancelled ? "cancelled" : code==0 ? "completed" : "failed");
+                        terminal=verified?"completed":cancelled?"cancelled":code==0?"completed":"failed";
+                        if(!verified && cancelled && (receipt==null || receipt.outcome!="cancelled")){
+                            string id=QueueStore.IdOf(activeJob);
+                            receipt=new TaskReceipt {
+                                schema="reflexcore.task.receipt.v1",task_id=id,run_id=id,stage="queue",outcome="cancelled",
+                                verification=code==2&&!forceStopStarted?"not_confirmed":"unknown",
+                                reason=forceStopStarted||stopTimedOut?"cleanup_unconfirmed":code==2?"operator_cancelled":"cancelled_effect_unknown"
+                            };
+                        } else if(!verified && !cancelled && receipt!=null) {
+                            if(receipt.outcome=="unverified")terminal="completed";
+                            else if(receipt.outcome=="verified" || receipt.outcome=="cancelled")receipt=null;
+                        }
+                        queue.Finish(activeJob,terminal,receipt);
                     }
                     activeJob = null;
-                    if (cancelled) SetState("stopped", -1, "Agent stopped");
-                    else if (code == 0) SetState("completed", 0, "Agent finished successfully");
+                    if (terminal=="cancelled") SetState("stopped", -1, "Agent stopped; see the task receipt");
+                    else if (terminal=="completed") SetState("completed", code, verified?"Agent result verified":"Agent finished without verification");
                     else SetState("failed", code, "Agent failed (exit code " + code.ToString() + ")");
+                    if(exitAfterWorker)ExitTray();
                 }
                 return;
             }
@@ -1228,6 +1250,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             if(!StudioRunning())
             {
                 RestartRequested=shutdownRestart;
+                shutdownUntil=default(DateTime);
                 ExitTray();
             }
             else if(DateTime.UtcNow>=shutdownUntil)
@@ -1242,9 +1265,14 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
         private void ExitTray()
         {
             if (exiting) return;
+            if (active != null) {
+                exitAfterWorker=true;
+                StopJob();
+                return;
+            }
             exiting = true;
             tick.Stop();
-            if (active != null) StopJob();
+            if (stopHelper != null) stopHelper.Dispose();
             if (hotkeyRegistered) UnregisterHotKey(Handle, HotkeyId);
             if(emergencyHotkeyRegistered)UnregisterHotKey(Handle,7815);
             if(!isolated)UnregisterHotKey(Handle,7814);
