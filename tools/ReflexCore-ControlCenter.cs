@@ -163,6 +163,10 @@ namespace ReflexCore.Control
             executionMode.FlatAppearance.BorderColor=accent;
             executionMode.FlatAppearance.CheckedBackColor=Color.FromArgb(55,62,82);
             agent.Controls.Add(executionMode);
+            var backgroundHelp=Info("Run supported tasks without taking over your mouse or keyboard.",290,50,477);
+            backgroundHelp.Height=18;
+            backgroundHelp.TextAlign=ContentAlignment.MiddleRight;
+            agent.Controls.Add(backgroundHelp);
             string modePath=Path.Combine(root,"data","settings","agent-execution-mode.txt");
             executionMode.Checked=testQueue==null && LoadBackgroundMode(modePath);
             AddButton(agent,"RUN AGENT DEMO",18,68,222,38,
