@@ -51,7 +51,7 @@ public sample_human_route() {
     if (g_anchor_valid && team==g_anchor_team) {
         new Float:dx=pos[0]-g_anchor[0], Float:dy=pos[1]-g_anchor[1];
         new Float:d2=dx*dx+dy*dy;
-        if (d2<48.0*48.0) return;
+        if (d2<48.0*48.0 && floatabs(pos[2]-g_anchor[2])<=24.0) return;
         if (d2<=120.0*120.0 && floatabs(pos[2]-g_anchor[2])<=24.0) {
             new row[RouteSample];
             for (new k=0;k<3;k++) row[k]=floatround(g_anchor[k]/96.0,floatround_floor);
@@ -63,6 +63,18 @@ public sample_human_route() {
     g_anchor=pos;
     g_anchor_team=team;
     g_anchor_valid=true;
+}
+
+route_hints(const Float:pos[3],team) {
+    new cell[3], hints;
+    for (new k=0;k<3;k++) cell[k]=floatround(pos[k]/96.0,floatround_floor);
+    for (new i=0;i<g_sample_count;i++) {
+        if (g_samples[i][Rounds]<3 || g_samples[i][Team]!=team) continue;
+        if (g_samples[i][CellX]==cell[0] && g_samples[i][CellY]==cell[1] && g_samples[i][CellZ]==cell[2]
+            && g_samples[i][Heading]>=0 && g_samples[i][Heading]<8)
+            hints |= 1<<g_samples[i][Heading];
+    }
+    return hints;
 }
 
 remember_sample(row[RouteSample]) {
@@ -106,10 +118,10 @@ public learning_choice(id,m,item) {
         g_teacher_uid=g_teacher_uid ? 0 : get_user_userid(id);
         g_anchor_valid=false;
         save_human_routes();
-        client_print(id,print_chat,g_teacher_uid ? "[ReflexCore] Recording manual routes. F9 pauses observation. Standard play stays active." : "[ReflexCore] Standard mode. Recording stopped.");
+        client_print(id,print_chat,g_teacher_uid ? "[ReflexCore] Recording manual routes. Repeated directions can guide detours. F9 pauses recording." : "[ReflexCore] Standard mode. Recording stopped.");
     } else {
         new page[1400],len,shown[8],count;
-        len=formatex(page,charsmax(page),"Observed directions on this map: %d / 128^nRepeated routes are candidates for review. Automatic activation is off.^n^n",g_sample_count);
+        len=formatex(page,charsmax(page),"Observed directions on this map: %d / 128^nExperimental detours may use clear directions seen in 3 rounds.^n^n",g_sample_count);
         while (count<sizeof(shown) && count<g_sample_count) {
             new best=-1;
             for (new i=0;i<g_sample_count;i++) {

@@ -286,6 +286,9 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
     static const Float:turns[] = {0.0,45.0,-45.0,90.0,-90.0,135.0,-135.0,180.0};
     new trace=create_tr2();
     new Float:best=-1000.0, Float:choice=yaw;
+    new hints;
+    if (g_teacher_uid && get_gametime()<g_detour_until[g_lane])
+        hints=route_hints(origin,get_user_team(g_actor));
     for(new i=0;i<sizeof(turns);i++){
         new Float:heading=yaw+turns[i], Float:end[3], Float:fraction;
         end[0]=origin[0]+floatcos(heading,degrees)*150.0;
@@ -296,7 +299,10 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
         if(fraction<0.3) continue;
         for(new k=0;k<2;k++) end[k]=origin[k]+(end[k]-origin[k])*fraction;
         new Float:score=fraction*4.0-floatmin(float(visits(end)),3.0)-floatabs(turns[i])/360.0;
-        score -= float(stall_record(origin, heading, 0));
+        new stalls=stall_record(origin, heading, 0);
+        score -= float(stalls);
+        new sector=((floatround(heading/45.0)%8)+8)%8;
+        if (!stalls && fraction>=0.9 && (hints & (1<<sector))) score+=0.5;
         if(score>best){best=score;choice=heading;}
     }
     free_tr2(trace);
