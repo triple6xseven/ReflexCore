@@ -202,6 +202,7 @@ function Execute-One([int]$iteration,[bool]$warmup){
         schema=$schema;task=$task;session=$script:session;run_id=$runId;iteration=$iteration;warmup=$warmup
         started_utc=$startUtc.ToString('o');success=[bool]$verified;reason_code=$reason
         total_ms=$duration;flow_ms=$flowMs;non_flow_ms=$overhead
+        fixture_ready_us=if($null -ne $flowData -and $flowData.PSObject.Properties['fixture_ready_us']){[long]$flowData.fixture_ready_us}else{$null}
         process_cpu_ms=[Math]::Round($cpuMs,2);peak_private_mb=$peakPrivate;peak_working_mb=$peakWorking
         exit_code=$exitCode;fixture_sha256=$fixtureHash;rust_sha256=$binaryHash
         steps=$details;resource_samples=@($samples.ToArray())

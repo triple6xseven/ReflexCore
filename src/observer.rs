@@ -181,6 +181,12 @@ pub fn capture_value() -> Result<serde_json::Value> {
     Ok(serde_json::to_value(observation)?)
 }
 
+pub(crate) fn find_window_handle(title: &str, pid: Option<u32>) -> Option<String> {
+    scan_windows().ok()?.windows.into_iter()
+        .find(|window| window.title == title && pid.is_none_or(|pid| window.pid == pid))
+        .map(|window| window.hwnd)
+}
+
 pub(crate) fn foreground_window() -> Hwnd { unsafe { GetForegroundWindow() } }
 
 pub(crate) fn window_process(hwnd: Hwnd) -> u32 {

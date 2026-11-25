@@ -13,8 +13,13 @@ verification. The telemetry adds no process, model request or background timer.
 
 ### Development roadmap
 
-Measure fixture startup and worker startup separately before considering worker
-reuse. Compare identical fixtures in alternating sessions. A future persistent
+The benchmark now reports `fixture_ready_us` from the start of fixture
+setup until the PID-owned window is found. The value includes process launch
+and polling. Studio displays it for the correlated run. Typed window lookup
+avoids converting a desktop observation to JSON on each readiness probe.
+
+Measure UIA worker startup separately from execution and response handling
+before considering worker reuse. Compare identical fixtures in alternating sessions. A future persistent
 worker must pass the existing stale-reply, permission, cancellation and recovery
 checks. Keep Focused and Deep routing and learned cost estimates experimental
 until held-out comparisons justify them. The present UIA workflow uses the

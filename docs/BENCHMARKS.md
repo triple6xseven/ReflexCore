@@ -1,5 +1,27 @@
 # Windows acceptance measurements
 
+## Fixture readiness breakdown
+
+Windows 11 Pro, Ryzen 5 4600H, 8 GB installed. The same CPU-only fixture and
+verification gate were used throughout. Each session had one warmup, five
+measured launches, five verified results and zero model calls. Nearest-rank
+p95 is the maximum at this sample size.
+
+| Session | Total p50 / p95 ms | Mean ms | Flow p50 ms |
+| --- | --- | --- | --- |
+| Baseline at `3e48482` (`cff323b9736b4483`) | 1154.68 / 1248.64 | 1168.73 | 519 |
+| 50 ms readiness polling trial (`95e5615d5f934666`) | 1195.02 / 1742.02 | 1360.19 | 598 |
+| Typed lookup and readiness timing (`ced43fd6e29c4e6f`) | 1084.51 / 1091.39 | 1076.60 | 498 |
+
+Final fixture readiness p50/p95 was 465.48/466.47 ms and sampled root Rust
+peak private memory was 1.42 MiB. Readiness includes launch and polling.
+Baseline readiness is unavailable. The 50 ms trial showed no end-to-end
+gain and the 150 ms interval was restored. The final median was 70.17 ms
+lower than the baseline in these sequential sessions. Uncontrolled desktop
+load and sample size prevent attributing the difference to typed lookup.
+Run the same build and interactive benchmark commands shown below at each
+revision. Inspect Fixture ready in Studio Diagnostics under Evidence / decisions.
+
 ## UIA adapter timing on the reference laptop
 
 Windows, Ryzen 5 4600H, 8 GB installed. The owned four-action Windows Forms

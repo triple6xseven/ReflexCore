@@ -65,6 +65,8 @@ struct StepReport {
 
 #[derive(Debug, Serialize)]
 struct FlowReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fixture_ready_us: Option<u128>,
     schema: &'static str,
     started_ms: u128,
     duration_ms: u128,
@@ -231,15 +233,16 @@ pub(super) fn has_terminal_assertion(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
-fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>) -> Result<()> {
+fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>, fixture_ready_us: Option<u128>) -> Result<()> {
     let _lock = FlowLock::acquire()?;
-    execute_scoped_flow(flow, fixture, fixture.is_some())
+    execute_scoped_flow(flow, fixture, fixture.is_some(), fixture_ready_us)
 }
 
-fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture: bool) -> Result<()> {
+fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture: bool, fixture_ready_us: Option<u128>) -> Result<()> {
     validate(flow)?;
     let started = Instant::now();
     let mut final_report = FlowReport {
+        fixture_ready_us,
         schema: "reflexcore.flow.execution.v1",
         started_ms: now_ms(),
         duration_ms: 0,
@@ -362,10 +365,7 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
 }
 
 fn fixture_window(pid: Option<u32>) -> Option<String> {
-    let value = crate::observer::capture_value().ok()?;
-    value["windows"].as_array()?.iter().find(|window| {
-        window["title"] == "ReflexCore Test Window" && pid.is_none_or(|pid| window["pid"] == pid)
-    })?["hwnd"].as_str().map(str::to_owned)
+    crate::observer::find_window_handle("ReflexCore Test Window", pid)
 }
 
 struct FixtureProcess(Child);
@@ -383,8 +383,9 @@ fn demo(execute: bool) -> Result<()> {
         println!("[ReflexCore] To run against a temporary test window: flow demo --execute");
         return Ok(());
     }
+    let started = Instant::now();
     let (fixture, hwnd) = start_fixture(None, false)?;
-    execute_flow(&flow, Some((&hwnd, fixture.0.id())))
+    execute_flow(&flow, Some((&hwnd, fixture.0.id())), Some(started.elapsed().as_micros()))
 }
 
 fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixtureProcess, String)> {
@@ -622,7 +623,7 @@ impl GoalWindow {
         if flow.window != self.title || flow.steps.iter().any(|step| step.window.is_some() || step.path.is_some()) {
             return Err("Guarded flows require one window and named selectors".into());
         }
-        execute_scoped_flow(&flow, Some((&self.hwnd, self.pid)), false)
+        execute_scoped_flow(&flow, Some((&self.hwnd, self.pid)), false, None)
     }
 }
 
@@ -653,7 +654,7 @@ pub fn run(args: &[String]) -> Result<()> {
                 println!("[ReflexCore] Preview only. To perform actions: flow run <file> --execute");
                 return Ok(());
             }
-            execute_flow(&flow, None)
+            execute_flow(&flow, None, None)
         }
         _ => Err("Unknown flow command".into()),
     }
@@ -688,6 +689,7 @@ mod tests {
     fn overlapping_benchmark_reports_keep_their_run_identity() {
         let artifact = FixtureArtifact::new().unwrap();
         let report = FlowReport {
+            fixture_ready_us: None,
             schema: "reflexcore.flow.execution.v1", started_ms: 0, duration_ms: 1,
             outcome: "passed", completed_steps: 0, total_steps: 0, steps: vec![],
         };
@@ -775,6 +777,7 @@ mod tests {
     #[test]
     fn no_sensitive_selectors_in_execution_record() {
         let report = FlowReport {
+            fixture_ready_us: None,
             schema: "test", started_ms: 1, duration_ms: 2,
             outcome: "passed", completed_steps: 1, total_steps: 1,
             steps: vec![StepReport {

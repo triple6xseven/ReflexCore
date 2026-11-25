@@ -394,7 +394,7 @@ namespace ReflexCore.Diagnostics
             evidence.Text="Task: fixed Goal Agent -> controlled WinForms input -> Apply -> verified output\r\n"+
                 "Outcome="+Read.Str(row,"reason_code")+"; duration="+Read.Str(row,"total_ms")+"ms; flow="+Read.Str(row,"flow_ms")+"ms\r\n"+
                 "Root Rust CPU="+Read.Str(row,"process_cpu_ms")+"ms; peak private="+Read.Str(row,"peak_private_mb")+"MB; peak working="+Read.Str(row,"peak_working_mb")+"MB\r\n"+
-                "Non-flow time includes Rust startup, planning, fixture startup and other overhead; not pure reasoning.\r\n"+
+                "Fixture ready: "+(Read.Str(row,"fixture_ready_us")==""?"unavailable":Read.Str(row,"fixture_ready_us")+" us")+"\r\n"+
                 "Decision policy: Dijkstra minimum cost over declared skill flows. Evidence = UIA assertions, not model thoughts.";
             foreach(var part in Read.Array(row,"steps")){
                 var x=Read.Map(part);if(x==null)continue;
