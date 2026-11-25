@@ -6,6 +6,7 @@ param(
     [ValidateRange(1,50)][int]$Runs=5,
     [ValidateRange(0,5)][int]$Warmups=1,
     [ValidateRange(15,180)][int]$TimeoutSeconds=90,
+    [ValidateSet(1,4,20,100)][int]$Actions=4,
     [switch]$AllowVisibleUI,
     [switch]$SelfTest
 )
@@ -79,6 +80,10 @@ if($null -eq $flow -or $flow.schema -ne 'reflexcore.flow.v1' -or $flow.steps.Cou
 }
 $fixtureKey=('{0}:{1}:{2}' -f (Get-Hash $fixture),(Get-Hash $flowFixture),(Get-Hash $goalFixture))
 $fixtureHashBytes=[Text.Encoding]::UTF8.GetBytes($fixtureKey)
+if($Actions -ne 4){
+    $task="windows-uia-fixture-$Actions-actions-v1"
+    $fixtureHashBytes=[Text.Encoding]::UTF8.GetBytes("$fixtureKey/$Actions")
+}
 $sha=[Security.Cryptography.SHA256]::Create()
 try {$fixtureHash=([BitConverter]::ToString($sha.ComputeHash($fixtureHashBytes))).Replace('-','')}
 finally {$sha.Dispose()}
@@ -114,6 +119,7 @@ function Execute-One([int]$iteration,[bool]$warmup){
     $info=New-Object Diagnostics.ProcessStartInfo
     $info.FileName=$binary
     $info.Arguments='agent demo --execute'
+    if($Actions -ne 4){$info.Arguments="flow measure-fixture --execute $Actions"}
     $info.WorkingDirectory=$root
     $info.EnvironmentVariables["REFLEXCORE_BENCHMARK_RUN_ID"]=$runId
     $info.UseShellExecute=$false
@@ -168,8 +174,8 @@ function Execute-One([int]$iteration,[bool]$warmup){
         $flowData=Read-RunReport $flowReport $runId
         $matched=$null -ne $flowData
         $verified=(-not $stopped -and -not $timedOut -and $matched -and $null -ne $exitCode -and $exitCode -eq 0 -and
-            $flowData.outcome -eq 'passed' -and [int]$flowData.completed_steps -eq 4 -and
-            [int]$flowData.total_steps -eq 4 -and $flowData.steps.Count -eq 4)
+            $flowData.outcome -eq 'passed' -and [int]$flowData.completed_steps -eq $Actions -and
+            [int]$flowData.total_steps -eq $Actions -and $flowData.steps.Count -eq $Actions)
         $reason=if($stopped){'USER_STOP'}elseif($timedOut){'TIMEOUT'}elseif($null -eq $exitCode){'PROCESS_NO_EXIT'}elseif($exitCode -ne 0){'AGENT_PROCESS_FAILED'}elseif(-not $matched){'FLOW_REPORT_MISSING_OR_UNMATCHED'}elseif(-not $verified){'FLOW_GOAL_UNVERIFIED'}else{'UIA_GOAL_VERIFIED'}
     }catch{
         $reason='BENCHMARK_PROCESS_ERROR'
@@ -186,6 +192,7 @@ function Execute-One([int]$iteration,[bool]$warmup){
             $details+=,[ordered]@{
                 index=[int]$step.index;action=$act;attempts=[int]$step.attempts
                 adapter_us=if($step.PSObject.Properties['adapter_us']){[long]$step.adapter_us}else{$null}
+                phases=if($step.PSObject.Properties['phases']){@($step.phases)}else{$null}
                 duration_ms=[double]$step.duration_ms;status=([string]$step.status -replace '[^a-z_]','')
                 verification=$ver
                 evidence=if($act -like 'assert-*' -and $ver -eq 'verified'){'ASSERTION_READBACK_VERIFIED'}
@@ -233,7 +240,7 @@ $owns=$false
 try{
     $owns=$mutex.WaitOne(0)
     if(-not $owns){throw 'Another Measurement Lab benchmark is running.'}
-    Write-Host '[ReflexCore] BENCHMARK TASK: Goal Agent -> WinForms fixture -> 4 real UIA operations -> verified output.'
+    Write-Host "[ReflexCore] WinForms fixture: $Actions UIA operations with independent readback."
     Write-Host ('[ReflexCore] Warmups='+$Warmups+'; measured runs='+$Runs+'; per-run timeout='+$TimeoutSeconds+' sec; no Qwen requests.')
     for($w=1;$w -le $Warmups;$w++){
         if(New-GlobalStop){throw 'Benchmark cancelled by global stop'}

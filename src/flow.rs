@@ -54,6 +54,7 @@ struct Step {
 
 #[derive(Debug, Serialize)]
 struct StepReport {
+    phases: Vec<serde_json::Value>,
     adapter_us: u128,
     index: usize,
     action: String,
@@ -258,6 +259,7 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
     for (index, step) in flow.steps.iter().enumerate() {
         let per_step = Instant::now();
         let mut adapter_us = 0;
+        let mut phases = Vec::new();
         let mut last_status = "worker_error".to_owned();
         let mut last_verification = "not_applicable".to_owned();
         let attempts_allowed = if retry_safe(&step.action) {
@@ -282,6 +284,7 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
             adapter_us += dispatch.elapsed().as_micros();
             match response {
                 Ok(response) => {
+                    if let Some(sample) = response.get("phases") { phases.push(sample.clone()); }
                     last_status = response["status"].as_str().unwrap_or("invalid_report").to_owned();
                     last_verification = response["verification"].as_str().unwrap_or("not_applicable").to_owned();
                     if last_status == "action_error" { action_fault = Some(Fault::EffectUnknown); }
@@ -318,6 +321,7 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
             has_evidence |= last_verification == "verified";
         }
         final_report.steps.push(StepReport {
+            phases,
             adapter_us,
             index: index + 1,
             action: step.action.clone(),
@@ -376,8 +380,17 @@ impl Drop for FixtureProcess {
     }
 }
 
-fn demo(execute: bool) -> Result<()> {
-    let flow = parse_flow(include_str!("../examples/smoke_flow.json"))?;
+fn demo(execute: bool, count: usize) -> Result<()> {
+    let mut flow = parse_flow(include_str!("../examples/smoke_flow.json"))?;
+    match count {
+        1 => {
+            let mut check = flow.steps[1].clone();
+            check.value = Some(String::new());
+            flow.steps = vec![check];
+        }
+        4 | 20 | 100 => flow.steps.resize(count, flow.steps[3].clone()),
+        _ => return Err("Fixture length must be 1, 4, 20 or 100".into()),
+    }
     if !execute {
         println!("[ReflexCore] Demo has {} steps; no changes made.", flow.steps.len());
         println!("[ReflexCore] To run against a temporary test window: flow demo --execute");
@@ -637,8 +650,9 @@ pub fn run(args: &[String]) -> Result<()> {
             if args.len() > (if execute { 2 } else { 1 }) {
                 return Err("Usage: flow demo [--execute]".into());
             }
-            demo(execute)
+            demo(execute, 4)
         }
+        "measure-fixture" if args.len() == 3 && args[1] == "--execute" => demo(true, args[2].parse()?),
         "validate" | "run" => {
             let path = args.get(1).ok_or("Expected a JSON flow path")?;
             let execute = args.get(2).is_some_and(|s| s == "--execute");
@@ -782,7 +796,7 @@ mod tests {
             outcome: "passed", completed_steps: 1, total_steps: 1,
             steps: vec![StepReport {
                 index: 1, action: "set-value".into(), attempts: 1,
-                status: "issued".into(), verification: "verified".into(), duration_ms: 1, adapter_us: 1000,
+                status: "issued".into(), verification: "verified".into(), duration_ms: 1, adapter_us: 1000, phases: Vec::new(),
             }],
         };
         let data = serde_json::to_string(&report).unwrap();

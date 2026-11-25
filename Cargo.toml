@@ -6,7 +6,7 @@ license = "MIT"
 description = "Experimental native cognitive runtime"
 
 [dependencies]
-windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_UI_Accessibility", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_Console"] }
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_UI_Accessibility", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Performance", "Win32_System_Threading", "Win32_System_Console"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

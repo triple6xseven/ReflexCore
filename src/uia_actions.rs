@@ -2,6 +2,8 @@
 //! The parent supervises a disposable COM worker; mutations require --execute.
 //! No broad credential capture, no raw keyboard injection, no arbitrary shell execution.
 
+mod metrics;
+use metrics::clock_us;
 use serde_json::{json, Value};
 use std::{
     error::Error,
@@ -189,9 +191,12 @@ pub(crate) fn execute(args: &[String], run_id: &str, action_id: usize, fixture_o
 }
 
 pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, owner: Option<u32>, foreground: bool) -> Result<Value> {
+    let entry = clock_us();
     crate::task_integrity::check_cancel()?;
     let req = parse(args)?;
+    let resolve = clock_us();
     let (hwnd, window_title) = resolve_window(&req).map_err(|_| crate::task_integrity::Fault::Infrastructure)?;
+    let resolved = clock_us();
     let request = crate::task_integrity::ActionExchange::new(run_id, action_id)?;
     let temp = request.path();
     crate::task_integrity::check_cancel()?;
@@ -200,7 +205,8 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
     wire["require_foreground"] = json!(foreground);
     use std::os::windows::process::CommandExt;
     use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-    let mut child = Command::new(std::env::current_exe()?)
+    let mut command = Command::new(std::env::current_exe()?);
+    command
         .creation_flags(CREATE_NO_WINDOW.0)
         .arg("uia-act-worker")
         .arg(hwnd.to_string())
@@ -208,13 +214,17 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
         .arg(request.encode(wire)?)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    let spawning = clock_us();
+    let mut child = command.spawn()?;
+    let spawned = clock_us();
 
     let started = Instant::now();
     let limit = Duration::from_millis(req.timeout_ms.saturating_add(1_500));
+    let mut concurrent = None;
     let status = loop {
         if let Some(s) = child.try_wait()? { break s; }
+        metrics::sample_pair(&child, &mut concurrent);
         let stopped = crate::task_integrity::cancelled();
         if stopped || started.elapsed() >= limit {
             let _ = child.kill();
@@ -246,7 +256,23 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
         return Err(format!("UIA action worker failed: {status}. {}", err.trim()).into());
     }
 
+    let exited = clock_us();
     let mut report = request.read()?;
+    let validated = clock_us();
+    drop(request);
+    drop(child);
+    let m = &mut report["phases"];
+    m["request_us"] = json!(resolve-entry + spawning-resolved);
+    m["resolve_us"] = json!(resolved-resolve);
+    m["spawn_us"] = json!(spawned-spawning);
+    m["startup_from_spawn_us"] = json!(m["entry_us"].as_u64().map(|v| v.saturating_sub(spawning)));
+    m["publish_to_exit_us"] = json!(m["publishing_us"].as_u64().map(|v| exited.saturating_sub(v)));
+    m["validate_us"] = json!(validated-exited);
+    m["cleanup_us"] = json!(clock_us()-validated);
+    m["root_private_bytes"] = json!(metrics::private_bytes());
+    m["root_cpu_us"] = json!(metrics::cpu_us());
+    m["concurrent_private_bytes"] = json!(concurrent);
+    m["action_id"] = json!(action_id);
     report["window_title"] = json!(window_title);
     report["window_hwnd"] = json!(format!("0x{hwnd:X}"));
     crate::privacy::sanitize_uia_report(&mut report);
@@ -375,7 +401,7 @@ fn verify_assertion(element: &IUIAutomationElement, request: &Value) -> Result<b
     }
 }
 
-fn apply(element: &IUIAutomationElement, request: &Value) -> Result<&'static str> {
+fn apply(element: &IUIAutomationElement, request: &Value, readback: &mut Option<u64>) -> Result<&'static str> {
     let action = request["action"].as_str().ok_or("Missing action")?;
     let is_password = unsafe { element.CurrentIsPassword() }
         .ok().is_some_and(|v| v.as_bool());
@@ -389,6 +415,7 @@ fn apply(element: &IUIAutomationElement, request: &Value) -> Result<&'static str
     match action {
         "focus" => {
             unsafe { element.SetFocus()?; }
+            *readback = Some(clock_us());
             Ok(if unsafe { element.CurrentHasKeyboardFocus() }.ok().is_some_and(|v| v.as_bool()) {
                 "verified" } else { "not_verified" })
         }
@@ -401,12 +428,14 @@ fn apply(element: &IUIAutomationElement, request: &Value) -> Result<&'static str
             let p: IUIAutomationTogglePattern = unsafe { element.GetCurrentPatternAs(UIA_TogglePatternId)? };
             let before = unsafe { p.CurrentToggleState() }.ok();
             unsafe { p.Toggle()?; }
+            *readback = Some(clock_us());
             let after = unsafe { p.CurrentToggleState() }.ok();
             Ok(if before.is_some() && after.is_some() && before != after { "verified" } else { "not_verified" })
         }
         "select" => {
             let p: IUIAutomationSelectionItemPattern = unsafe { element.GetCurrentPatternAs(UIA_SelectionItemPatternId)? };
             unsafe { p.Select()?; }
+            *readback = Some(clock_us());
             Ok(if unsafe { p.CurrentIsSelected() }.ok().is_some_and(|v| v.as_bool()) {
                 "verified" } else { "not_verified" })
         }
@@ -417,6 +446,7 @@ fn apply(element: &IUIAutomationElement, request: &Value) -> Result<&'static str
                 return Err("Target value is read-only".into());
             }
             unsafe { p.SetValue(&BSTR::from(value))?; }
+            *readback = Some(clock_us());
             Ok(if unsafe { p.CurrentValue() }.ok().is_some_and(|v| v.to_string() == value) {
                 "verified" } else { "not_verified" })
         }
@@ -425,6 +455,7 @@ fn apply(element: &IUIAutomationElement, request: &Value) -> Result<&'static str
 }
 
 pub fn run_worker(args: &[String]) -> Result<()> {
+    let entry = clock_us();
     if args.len() != 3 { return Err("Invalid action worker arguments".into()); }
     let hwnd: usize = args[0].parse()?;
     let output = PathBuf::from(&args[1]);
@@ -438,10 +469,13 @@ pub fn run_worker(args: &[String]) -> Result<()> {
     let timeout_ms = req["timeout_ms"].as_u64().ok_or("Missing timeout")?;
     let max_nodes = req["max_nodes"].as_u64().ok_or("Missing max_nodes")? as usize;
     let started = Instant::now();
+    let init = clock_us();
     let _com = ComApartment::enter()?;
+    let com_ready = clock_us();
     let automation: IUIAutomation = unsafe {
         CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?
     };
+    let uia_ready = clock_us();
     let root = unsafe { automation.ElementFromHandle(HWND(hwnd as *mut c_void))? };
     let walker: IUIAutomationTreeWalker = unsafe { automation.RawViewWalker()? };
 
@@ -511,6 +545,8 @@ pub fn run_worker(args: &[String]) -> Result<()> {
         }
     }
 
+    let discovered = clock_us();
+    let mut readback = None;
     let mut result = json!({
         "schema": "reflexcore.uia.action.v1",
         "timestamp_ms": now_ms()?,
@@ -532,6 +568,7 @@ pub fn run_worker(args: &[String]) -> Result<()> {
         if req["action"].as_str() == Some("inspect") {
             result["status"] = json!("inspected");
         } else if matches!(req["action"].as_str(), Some("assert-value" | "assert-name")) {
+            readback = Some(clock_us());
             match verify_assertion(element, &req) {
                 Ok(true) => {
                     result["status"] = json!("assertion_passed");
@@ -557,7 +594,7 @@ pub fn run_worker(args: &[String]) -> Result<()> {
                     && crate::observer::foreground_window() != target_window) {
                 result["status"] = json!("focus_lost");
             } else {
-                match apply(element, req) {
+                match apply(element, req, &mut readback) {
                     Ok(verified) => {
                         result["status"] = json!("issued");
                         result["verification"] = json!(verified);
@@ -572,6 +609,13 @@ pub fn run_worker(args: &[String]) -> Result<()> {
     }
     result["duration_ms"] = json!(started.elapsed().as_millis());
     crate::privacy::sanitize_uia_report(&mut result);
+    result["phases"] = json!({
+        "entry_us":entry, "com_us":com_ready-init, "uia_us":uia_ready-com_ready,
+        "discovery_us":discovered-uia_ready, "operation_us":readback.unwrap_or_else(clock_us)-discovered,
+        "verification_us":readback.map(|t| clock_us()-t),
+        "child_private_bytes":metrics::private_bytes(), "child_cpu_us":metrics::cpu_us(),
+        "publishing_us":clock_us()
+    });
     request.payload = result;
     let staging = output.with_extension("tmp");
     fs::OpenOptions::new().write(true).create_new(true).open(&staging)
