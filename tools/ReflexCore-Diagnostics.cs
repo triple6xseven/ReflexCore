@@ -83,6 +83,7 @@ namespace ReflexCore.Diagnostics
         volatile bool gpuBusy=false;
         volatile string gpuSummary="GPU: not sampled (optional nvidia-smi)";
         string selectedRun="",lastHistorySignature="";
+        bool refreshingHistory;
         int pulse=0;
         static readonly Color bg=Color.FromArgb(11,19,16),fg=Color.FromArgb(194,233,205),accent=Color.FromArgb(89,231,143),panel=Color.FromArgb(20,32,26);
         private void ApplyChartTheme(Color surface,Color text,Color highlight)
@@ -339,7 +340,7 @@ namespace ReflexCore.Diagnostics
                 if(info.Length>2097152)return;
                 string sig=info.Length+"/"+info.LastWriteTimeUtc.Ticks;
                 if(sig==lastHistorySignature)return;
-                lastHistorySignature=sig;
+                string previousRun=selectedRun;
                 List<Dictionary<string,object>> list=new List<Dictionary<string,object>>();
                 string[] lines=File.ReadAllLines(path,Encoding.UTF8);
                 foreach(string line in lines.Skip(Math.Max(0,lines.Length-75))){
@@ -347,6 +348,7 @@ namespace ReflexCore.Diagnostics
                         if(Read.Str(x,"schema")=="reflexcore.benchmark.run.v1")list.Add(x);
                     }catch{}
                 }
+                refreshingHistory=true;
                 runs.Rows.Clear(); chart.Values.Clear();
                 foreach(var row in list){
                     DateTime local=HistoryLocalTime(Read.Str(row,"started_utc"));
@@ -364,26 +366,33 @@ namespace ReflexCore.Diagnostics
                 if(session!=null)summary.Text="VERIFIED " + Read.Str(session,"success")+"/"+Read.Str(session,"measured_runs")+
                     "   |   p50 " + Read.Str(session,"p50_ms")+" ms   |   p95 " + Read.Str(session,"p95_ms")+
                     " ms   |   MEAN " + Read.Str(session,"mean_ms")+" ms";
-                if(runs.Rows.Count>0){runs.ClearSelection();runs.Rows[0].Selected=true;ShowSelected();}
-            }catch{}
+                runs.ClearSelection();
+                var previous=runs.Rows.Cast<DataGridViewRow>().FirstOrDefault(r=>Convert.ToString(r.Cells[7].Value)==previousRun);
+                if(runs.Rows.Count>0)(previous??runs.Rows[0]).Selected=true;
+                refreshingHistory=false;
+                ShowSelected();
+                lastHistorySignature=sig;
+            }catch{}finally{refreshingHistory=false;}
         }
         void ShowSelected()
         {
-            if(runs.SelectedRows.Count==0)return;
-            var raw=runs.SelectedRows[0].Cells[7].Value;
-            if(raw==null)return;
-            string runId=Convert.ToString(raw);
-            if(runId==null || runId.Length!=32 || !System.Text.RegularExpressions.Regex.IsMatch(runId,"^[0-9a-f]{32}$"))return;
-            if(runId==selectedRun)return;
+            if(refreshingHistory)return;
+            string runId=runs.SelectedRows.Count==0?"":Convert.ToString(runs.SelectedRows[0].Cells[7].Value);
+            if(runId==selectedRun && selectedRun!="")return;
+            var row=System.Text.RegularExpressions.Regex.IsMatch(runId,@"\A[0-9a-f]{32}\z")
+                ?Read.Json(Path.Combine(dir,"runs",runId+".json")):null;
+            trace.Rows.Clear();
+            if(row==null || Read.Str(row,"run_id")!=runId){
+                selectedRun="";
+                evidence.Text=runs.SelectedRows.Count==0?"Select a benchmark run.":"Evidence is unavailable for this run.";
+                return;
+            }
             selectedRun=runId;
-            var row=Read.Json(Path.Combine(dir,"runs",runId+".json"));
-            if(row==null)return;
             evidence.Text="Task: fixed Goal Agent -> controlled WinForms input -> Apply -> verified output\r\n"+
                 "Outcome="+Read.Str(row,"reason_code")+"; duration="+Read.Str(row,"total_ms")+"ms; flow="+Read.Str(row,"flow_ms")+"ms\r\n"+
                 "Root Rust CPU="+Read.Str(row,"process_cpu_ms")+"ms; peak private="+Read.Str(row,"peak_private_mb")+"MB; peak working="+Read.Str(row,"peak_working_mb")+"MB\r\n"+
                 "Non-flow time includes Rust startup, planning, fixture startup and other overhead; not pure reasoning.\r\n"+
                 "Decision policy: Dijkstra minimum cost over declared skill flows. Evidence = UIA assertions, not model thoughts.";
-            trace.Rows.Clear();
             foreach(var part in Read.Array(row,"steps")){
                 var x=Read.Map(part);if(x==null)continue;
                 trace.Rows.Add(Read.Str(x,"index"),Read.Str(x,"action"),Read.Str(x,"attempts"),Read.Str(x,"status"),
