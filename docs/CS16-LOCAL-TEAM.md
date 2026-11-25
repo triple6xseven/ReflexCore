@@ -1,26 +1,32 @@
 # Local team play on Dust II
 
-In Studio, open **CS 1.6 & Control** and choose **Play with a teammate**. Start the local server. **Copy join command** gives you the console command for an already running game. **Open second game window** launches the private replay client on a different client port. On Windows the tested two-window setup uses an existing Sandboxie Plus DefaultBox. Its first launch may display a Sandboxie dialog. This uses the existing game folders.
+In Studio, open **CS 1.6 & Control → Play with a teammate → Start local server**. In the game, open **Find Servers → LAN → Refresh** and join **ReflexCore | Local team play**. LAN mode uses a free UDP port in 27015–27019 and allows other players on the local network to join. Clear **Show in LAN browser** before startup to use loopback port 27164. **Open second game window** joins directly with sound enabled. Two simultaneous clients use an existing Sandboxie Plus DefaultBox.
 
-Join T or CT. The first local player to choose a team gets a ReflexCore teammate and one YaPB opponent. Press **H** to change sides, remove bots, add a CT or restart the round. Stop the server from the lobby or close its window. The server runs only on 127.0.0.1:27164. Each client uses its own controls. Each client can connect to the same loopback address. Only the focused game receives normal keyboard input.
+Join T or CT. The first host player to choose a team gets a ReflexCore teammate and one YaPB opponent. Press **H** to switch sides, issue **Follow me** or **Hold position**, or toggle **Show visible player boxes**. The lobby draws violet boxes for teammates and pink-purple boxes for opponents when the server has a clear line to their center. These markings use engine team IDs. **Show ReflexVision** previews the foreground window alongside the game. A short-lived client-port heartbeat ties a dedicated lobby client to its local server. Lobby preview does not publish control inputs. Stop the server from the lobby or close its window.
 
 Reflex runs as a server-side fake client. Its policy follows a visible teammate, probes standing-player clearance to patrol when alone, and uses normal GoldSrc commands on visible opponents. Its team and visibility evidence comes from the game. Patrol favors clear directions leading to less recently visited cells. A 96-entry ring is reset on spawn. There is no saved route or global path planner. YaPB supplies a separate opponent using its bundled Dust II graph. We pin the [upstream Windows archive](https://github.com/yapb/yapb/releases/tag/4.4.957) and verify both archive and DLL. First launch needs access to GitHub and the AMX Mod X compiler from the configured practice lab. The launcher selects lobby-only Metamod and AMXX plugin lists.
 
 ## Keys
 
+The actor attempts a team rifle purchase in a buy zone and checks the inventory before reporting success. The lobby refills wallets to $16,000 once a second. The independent practice adapter does the same during authorized test runs. Follow uses up to 32 recent points from the teammate's path and checks player-sized clearance. Patrol also remembers up to 128 cell/heading pairs per map where commanded movement stalled. Successful movement reduces the penalty. The cache lives in the server's private `addons/reflex-lobby/patrol-v1-*.bin` files. It is independent of the vision model and skill database.
+
 **Install keys for my game** takes the selected hl.exe. The launcher places reflexcore-lobby.cfg beside the game config and appends one exec line to userconfig.cfg, backing up an existing userconfig before the first edit. To apply to a running game use **Copy join command**. To undo, restore the backup or remove the exec line and restore your preferred bindings from your previous config.
 
 - H opens the local team menu.
+- Insert toggles assisted jumping while Space is held. Gun binds also buy reserve ammunition.
 - Z buys a Desert Eagle, X buys an HE grenade, C buys armor and helmet, F buys an AWP, N buys a Scout, and V buys the team's AK-47 or M4A1.
 - Keypad 1 enables local server cheats, 2 toggles reserve ammunition refill, 3 toggles personal noclip, 4 disables team balancing and 5 removes the team limit.
 - Keypad 6 removes bots, 7 adds a CT bot, 8 sets a nine-minute round, and 9 restarts the round. Buy commands follow the game's normal purchase rules.
 
 ## Reproduce
 
+ReflexVision keeps image detections separate from engine evidence. The installed YOLOX model returns person boxes without a Counter-Strike team label. The lobby renders its optional boxes from engine visibility and team state. The architecture follows the separation between orchestration and application-specific execution in Microsoft UFO. Neither vision nor a language model participates in lobby movement or firing decisions. [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) · [Microsoft UFO](https://github.com/microsoft/UFO)
+
 Run these individually with the lab free. ProbeClient uses the operator's configured second client as the test client and closes the instance it creates. During that probe only, the lobby asks this client to join CT. The server log must show the human and Reflex on CT and YaPB on T. The probe opens the actual H menu through the registered command, then calls its selection handler for the opposite-team item. Physical key presses are outside this probe.
 
 ~~~powershell
 .\tools\ReflexCore-CS16Lobby.ps1 -ProbeClient
+.\tools\ReflexCore-CS16Lobby.ps1 -ProbeVision
 .\tools\ReflexCore-CS16Lobby.ps1 -ProbeRound
 .\tools\ReflexCore-CS16Lobby.ps1 -UiSmoke
 ~~~

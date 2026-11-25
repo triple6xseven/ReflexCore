@@ -7,6 +7,83 @@ new Float:g_spawn_origin[3];
 // Keep only recent occupied cells. Each entry is local to this actor's current life.
 new g_cells[96][3], g_cell_count, g_next_cell, g_cell_transitions;
 new g_visible_samples, g_clip_decrements;
+new bool:g_hold;
+new Float:g_trail[32][3], g_trail_count, g_trail_next, g_buy_attempts;
+new Float:g_next_buy;
+
+// A bounded map-local record of patrol headings that repeatedly stalled.
+new g_stalls[128][5], g_stall_count, g_stall_next;
+new bool:g_stalls_dirty, bool:g_patrolled, g_memory_path[112];
+
+setup_patrol_memory() {
+    new map[48], bsp[80];
+    get_mapname(map, charsmax(map));
+    formatex(bsp, charsmax(bsp), "maps/%s.bsp", map);
+    formatex(g_memory_path, charsmax(g_memory_path), "addons/reflex-lobby/patrol-v1-%s-%d.bin", map, file_size(bsp));
+    new file = fopen(g_memory_path, "rb");
+    if (!file) return;
+    while (g_stall_count < sizeof(g_stalls) && fread_blocks(file, g_stalls[g_stall_count], 5, BLOCK_INT) == 5)
+        g_stall_count++;
+    fclose(file);
+    g_stall_next = g_stall_count % sizeof(g_stalls);
+    server_print("Lobby restored %d patrol memory entries", g_stall_count);
+}
+
+public save_patrol_memory() {
+    if (!g_stalls_dirty || !lobby_is_local()) return;
+    new file = fopen(g_memory_path, "wb");
+    if (!file) return;
+    for (new i = 0; i < g_stall_count; i++)
+        fwrite_blocks(file, g_stalls[i], 5, BLOCK_INT);
+    fclose(file);
+    g_stalls_dirty = false;
+}
+
+stall_record(const Float:point[3], Float:yaw, change) {
+    new key[4];
+    for (new i = 0; i < 3; i++) key[i] = cell_coord(point[i]);
+    key[3] = ((floatround(yaw / 45.0) % 8) + 8) % 8;
+    for (new i = 0; i < g_stall_count; i++) {
+        if (g_stalls[i][0] != key[0] || g_stalls[i][1] != key[1] || g_stalls[i][2] != key[2] || g_stalls[i][3] != key[3]) continue;
+        new score = clamp(g_stalls[i][4] + change, 0, 4);
+        if (score != g_stalls[i][4]) { g_stalls[i][4] = score; g_stalls_dirty = true; }
+        return score;
+    }
+    if (change > 0) {
+        for (new i = 0; i < 4; i++) g_stalls[g_stall_next][i] = key[i];
+        g_stalls[g_stall_next][4] = change;
+        g_stall_next = (g_stall_next + 1) % sizeof(g_stalls);
+        if (g_stall_count < sizeof(g_stalls)) g_stall_count++;
+        g_stalls_dirty = true;
+    }
+    return 0;
+}
+
+remember_leader(const Float:origin[3]) {
+    new last = (g_trail_next + sizeof(g_trail) - 1) % sizeof(g_trail);
+    if (g_trail_count && get_distance_f(origin, g_trail[last]) < 48.0) return;
+    for (new i = 0; i < 3; i++) g_trail[g_trail_next][i] = origin[i];
+    g_trail_next = (g_trail_next + 1) % sizeof(g_trail);
+    if (g_trail_count < sizeof(g_trail)) g_trail_count++;
+}
+
+bool:follow_trail(const Float:origin[3], Float:angles[3]) {
+    new tr = create_tr2(), bool:found;
+    for (new n = 1; n <= g_trail_count; n++) {
+        new index = (g_trail_next + sizeof(g_trail) - n) % sizeof(g_trail);
+        if (get_distance_f(origin, g_trail[index]) < 32.0) break;
+        engfunc(EngFunc_TraceHull, origin, g_trail[index], IGNORE_MONSTERS, HULL_HUMAN, g_reflex, tr);
+        new Float:fraction;
+        get_tr2(tr, TR_flFraction, fraction);
+        if (fraction < 0.99 || get_tr2(tr, TR_StartSolid)) continue;
+        angles[1] = floatatan2(g_trail[index][1]-origin[1], g_trail[index][0]-origin[0], degrees);
+        angles[0] = 0.0;
+        found = true;
+        break;
+    }
+    free_tr2(tr);
+    return found;
+}
 
 cell_coord(Float:value) { return floatround(value / 96.0, floatround_floor); }
 
@@ -58,6 +135,9 @@ bool:join_reflex(team, leader)
     g_reflex = bot;
     g_reflex_userid = get_user_userid(bot);
     g_leader_userid = leader;
+    g_hold = false;
+    g_buy_attempts = g_trail_count = 0;
+    g_next_buy = 0.0;
     new Float:angles[3], value[2];
     num_to_str(team, value, charsmax(value));
     for (new i = 0; i < 4 && get_ent_data(bot,"CBasePlayer","m_iJoiningState") != 4; i++)
@@ -90,6 +170,7 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
         if(fraction<0.3) continue;
         for(new k=0;k<2;k++) end[k]=origin[k]+(end[k]-origin[k])*fraction;
         new Float:score=fraction*4.0-floatmin(float(visits(end)),3.0)-floatabs(turns[i])/360.0;
+        score -= float(stall_record(origin, heading, 0));
         if(score>best){best=score;choice=heading;}
     }
     free_tr2(trace);
@@ -101,6 +182,19 @@ public lobby_tick()
     if (!lobby_is_local() || !owned_reflex() || !is_user_alive(g_reflex)) return;
     new CsTeams:team = cs_get_user_team(g_reflex);
     if (team != CS_TEAM_CT && team != CS_TEAM_T) return;
+    if (g_buy_attempts < 4 && get_gametime() >= g_next_buy && cs_get_user_buyzone(g_reflex)) {
+        new rifle = team == CS_TEAM_T ? CSW_AK47 : CSW_M4A1;
+        if (!user_has_weapon(g_reflex, rifle)) {
+            amxclient_cmd(g_reflex, team == CS_TEAM_T ? "ak47" : "m4a1");
+            if (user_has_weapon(g_reflex, rifle)) {
+                amxclient_cmd(g_reflex, "primammo");
+                engclient_cmd(g_reflex, team == CS_TEAM_T ? "weapon_ak47" : "weapon_m4a1");
+                server_print("Lobby Reflex rifle purchase confirmed");
+            }
+            g_buy_attempts++;
+            g_next_buy = get_gametime() + 0.6;
+        }
+    }
     new Float:eye[3], Float:offset[3], Float:angles[3], Float:dest[3], Float:point[3];
     pev(g_reflex,pev_origin,eye);
     pev(g_reflex,pev_view_ofs,offset);
@@ -112,6 +206,8 @@ public lobby_tick()
         new CsTeams:other=cs_get_user_team(id);
         if(other!=CS_TEAM_CT && other!=CS_TEAM_T) continue;
         pev(id,pev_origin,point);
+        if (other == team && get_user_userid(id) == g_leader_userid && !g_hold && (pev(id, pev_flags) & FL_ONGROUND))
+            remember_leader(point);
         point[2]+=14.0;
         engfunc(EngFunc_TraceLine,eye,point,DONT_IGNORE_MONSTERS,g_reflex,trace);
         if(get_tr2(trace,TR_pHit)!=id) continue;
@@ -142,7 +238,8 @@ public lobby_tick()
             else if(clip>0) buttons=IN_ATTACK;
         }
     }
-    if(!focus){
+    if (focus || g_hold) g_patrolled = false;
+    if(!focus && !g_hold){
         new Float:origin[3]; pev(g_reflex,pev_origin,origin);
         if(get_gametime()>=g_check_at){
             record_cell(origin);
@@ -150,10 +247,15 @@ public lobby_tick()
                 g_patrol_yaw=angles[1];
                 for(new i=0;i<3;i++) g_spawn_origin[i]=origin[i];
                 g_travel_reported=false;
-            }else if(get_distance_f(origin,g_last_position)<10.0) g_patrol_yaw+=75.0;
+            }else if(g_patrolled){
+                new bool:stalled = get_distance_f(origin,g_last_position)<10.0;
+                stall_record(g_last_position, g_patrol_yaw, stalled ? 1 : -1);
+                if (stalled) g_patrol_yaw+=75.0;
+            }
             g_patrol_yaw=patrol_direction(origin,g_patrol_yaw);
             for(new i=0;i<3;i++) g_last_position[i]=origin[i];
             g_check_at=get_gametime()+0.3;
+            g_patrolled = true;
             if(!g_travel_reported && get_distance_f(origin,g_spawn_origin)>160.0){
                 g_travel_reported=true;
                 server_print("Lobby Reflex patrol displacement exceeded 160 units");
@@ -162,6 +264,28 @@ public lobby_tick()
         angles[0]=0.0; angles[1]=g_patrol_yaw;
         speed=165.0;
     }
+    if (!target && !g_hold && g_trail_count && (!leader || speed > 0.0)) {
+        new Float:origin[3];
+        pev(g_reflex, pev_origin, origin);
+        if (follow_trail(origin, angles)) { speed = 180.0; g_patrolled = false; }
+        else if (leader) angles[1] = patrol_direction(origin, angles[1]);
+    }
+    if (!target && !g_hold && speed > 0.0) {
+        new Float:end[3];
+        end[0] = eye[0] + 64.0 * floatcos(angles[1], degrees);
+        end[1] = eye[1] + 64.0 * floatsin(angles[1], degrees);
+        end[2] = eye[2];
+        new door_trace = create_tr2();
+        engfunc(EngFunc_TraceLine, eye, end, DONT_IGNORE_MONSTERS, g_reflex, door_trace);
+        new door = get_tr2(door_trace, TR_pHit);
+        free_tr2(door_trace);
+        if (door > get_maxplayers() && pev_valid(door)) {
+            new classname[32];
+            pev(door, pev_classname, classname, charsmax(classname));
+            if (equal(classname, "func_door") || equal(classname, "func_door_rotating")) buttons |= IN_USE;
+        }
+    }
+    if (g_hold) speed = 0.0;
     if(pev(g_reflex,pev_fixangle)==1) set_pev(g_reflex,pev_fixangle,0);
     engfunc(EngFunc_RunPlayerMove,g_reflex,angles,speed,0.0,0.0,0,0,5);
     new before,after,ammo;

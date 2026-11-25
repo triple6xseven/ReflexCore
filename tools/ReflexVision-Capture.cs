@@ -108,6 +108,7 @@ namespace ReflexCore.Vision
         [StructLayout(LayoutKind.Sequential)]
         private struct Point { internal int X, Y; }
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
         [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out ClientRect rect);
         [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref Point pt);
@@ -134,6 +135,14 @@ namespace ReflexCore.Vision
                 GetWindowThreadProcessId(hwnd, out owner) != 0 && owner == pid;
         }
 
+        internal string LastPause { get; private set; }
+        internal bool FocusGame()
+        {
+            uint owner;
+            return GetWindowThreadProcessId(hwnd, out owner) != 0 && owner == pid && SetForegroundWindow(hwnd);
+        }
+        private Surface Pause(string reason) { LastPause = reason; return null; }
+
         internal Rectangle Bounds()
         {
             ClientRect rect;
@@ -144,20 +153,21 @@ namespace ReflexCore.Vision
 
         internal Surface Grab(Rectangle bounds)
         {
-            if (bounds.Width < 160 || bounds.Height < 120 || !ForegroundOwned() ||
+            if (!ForegroundOwned()) return Pause("Focus the game to capture");
+            if (bounds.Width < 160 || bounds.Height < 120 ||
                 bounds.Width > 3840 || bounds.Height > 2160 ||
                 !System.Windows.Forms.SystemInformation.VirtualScreen.Contains(bounds))
-                return null;
+                return Pause("Make room beside the windowed game");
             int width = Math.Min(bounds.Width, maxWidth);
             int height = Math.Max(72, bounds.Height * width / bounds.Width);
-            if (height > 640) return null;
+            if (height > 640) return Pause("Unsupported game aspect ratio");
             Resize(ref output, width, height);
             bool needsScale = width != bounds.Width || height != bounds.Height;
             bool scaleOnCpu = cpuScale && needsScale;
             if (scaleOnCpu) Resize(ref fullFrame, bounds.Width, bounds.Height);
             var sourceWindow = fixture ? hwnd : IntPtr.Zero;
             var source = GetDC(sourceWindow);
-            if (source == IntPtr.Zero) return null;
+            if (source == IntPtr.Zero) return Pause("Game display unavailable");
             bool captured;
             try
             {
@@ -166,9 +176,12 @@ namespace ReflexCore.Vision
                 GdiFlush();
             }
             finally { ReleaseDC(sourceWindow, source); }
-            if (!captured) return null;
+            if (!captured) return Pause("Game frame unavailable");
             if (scaleOnCpu) output.ScaleFrom(fullFrame);
-            return output.IsBlack() || !ForegroundOwned() || Bounds() != bounds ? null : output;
+            if (output.IsBlack()) return Pause("Game frame is black");
+            if (!ForegroundOwned() || Bounds() != bounds) return Pause("Game window changed");
+            LastPause = null;
+            return output;
         }
 
         private static void Resize(ref Surface image, int width, int height)

@@ -281,6 +281,10 @@ The accepted cancellation probe produced zero attack requests and verified the e
 
 Separate regression runs confirmed a plant, kill, and win on the original saved route in de_reflex_lab, and a plant on Dust II Plant Drill. A fresh Codex CLI session called get_combat_run for a stationary baseline run and correctly diagnosed the active 730 ms player timer and zero discharges. MCP comparison agreed with the final stationary pair.
 
+## Dedicated teammate lobby smoke
+
+On the configured Windows Dust II lab, the LAN broadcast query returned the lobby hostname. A real local client joined the dedicated server. The probe selected Hold, Follow and visible boxes through the H menu handler, changed team, and confirmed the bot's team rifle in its inventory. With the game in the foreground, the preview collected 10 measured frames after eight warm-up frames. Processing p50/p95 was 26.72/34.17 ms, delivered rate was 15.88 FPS, and the preview host peaked at 143.12 MiB. An earlier foreground-gated attempt collected zero frames. The server observed the preview's outline subscription. Track counts include HUD cues and are unsuitable for estimating player detection recall. This check did not measure match strength, audibility, or doorway success. Reproduce with the lobby launcher's `-UiSmoke` and `-ProbeVision` switches.
+
 ## Spawn view and offline pixel observer
 
 The previous held-out moving AK fixture recorded one discharge and no damage. In two new runs of the same moving variant, the fake client consumed its outstanding spawn view before its first view command. Both fresh dedicated-server logs recorded a single AK attack for 140 damage and a kill. The first run still counted zero CSX damage events despite target health changing from 100 to -40. The second run used the post-damage game hook inside the owned shot and recorded one damage event and 100 HP lost. Its run ID is `1ffd267522d84519b53b75f872806a8b`. Server identity and line of sight supplied the target. These narrow runs do not estimate match win rate or visual target recognition.

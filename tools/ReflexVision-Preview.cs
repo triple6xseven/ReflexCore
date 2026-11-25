@@ -21,7 +21,7 @@ namespace ReflexCore.Vision
             catch (WaitHandleCannotBeOpenedException) { return false; }
         }
 
-        public static string Run(string project, int pid, long window, int width, bool cpu, int samples, bool fixture)
+        public static string Run(string project, int pid, long window, int width, bool cpu, int samples, bool fixture, string lobbyLease = null)
         {
             using (var mutex = new Mutex(false, @"Local\ReflexVisionPreview"))
             {
@@ -42,9 +42,10 @@ namespace ReflexCore.Vision
                             pid = Process.GetCurrentProcess().Id;
                             window = fixtureWindow.Handle.ToInt64();
                         }
-                        string relay = fixture ? null : Path.Combine(project, "data", "bridge", "reflexvision.json");
+                        string relay = fixture || !String.IsNullOrEmpty(lobbyLease) ? null : Path.Combine(project, "data", "bridge", "reflexvision.json");
                         using (var form = new PreviewWindow(pid, new IntPtr(window), width, cpu, samples, stop, relay, fixtureWindow, project))
                         {
+                            form.LobbyLease = lobbyLease;
                             Application.Run(form);
                             return form.Report();
                         }
@@ -330,6 +331,8 @@ namespace ReflexCore.Vision
         private double frameCost;
         private bool finalized, hotkey;
         private Rectangle placed;
+        internal string LobbyLease { get; set; }
+        private long nextLobbyHeartbeat;
 
         protected override bool ShowWithoutActivation { get { return true; } }
 
@@ -360,6 +363,11 @@ namespace ReflexCore.Vision
             cancel.Click += (sender, args) => Close();
             footer.Controls.Add(status);
             footer.Controls.Add(cancel);
+            if (synthetic == null) {
+                var focus = new Button { Text = "Focus game", Dock = DockStyle.Right, Width = 85, ForeColor = Color.Black };
+                focus.Click += (sender, args) => capture.FocusGame();
+                footer.Controls.Add(focus);
+            }
             overlay.Dock = DockStyle.Fill;
             Controls.Add(overlay);
             Controls.Add(footer);
@@ -372,6 +380,7 @@ namespace ReflexCore.Vision
             Shown += (sender, args) =>
             {
                 hotkey = RegisterHotKey(Handle, StopHotkey, 0x4003, 0x79);
+                if (samples > 0 && !String.IsNullOrEmpty(LobbyLease)) capture.FocusGame();
                 timer.Start();
             };
             timer.Tick += (sender, args) => OnFrame();
@@ -438,6 +447,14 @@ namespace ReflexCore.Vision
             try
             {
                 if (globalStop != null && File.GetLastWriteTimeUtc(globalStop) >= startedUtc) { Close(); return; }
+                if (!String.IsNullOrEmpty(LobbyLease) && File.GetLastWriteTimeUtc(LobbyLease) < DateTime.UtcNow.AddSeconds(-3)) { Close(); return; }
+                if (!String.IsNullOrEmpty(LobbyLease) && clock.ElapsedMilliseconds >= nextLobbyHeartbeat) {
+                    nextLobbyHeartbeat = clock.ElapsedMilliseconds + 1000;
+                    string expiry = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 3).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    try { File.WriteAllText(Path.ChangeExtension(LobbyLease, ".preview"), expiry); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
                 if (fixture != null) fixture.Advance();
                 var frameStart = Stopwatch.GetTimestamp();
                 long frameUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -452,7 +469,7 @@ namespace ReflexCore.Vision
                         frameCost = 0;
                         overlay.Invalidate();
                     }
-                    if (status.Text != "Focus the windowed game") status.Text = "Focus the windowed game";
+                    if (status.Text != capture.LastPause) status.Text = capture.LastPause;
                     timer.Interval = 180;
                     if (relay != null && ShouldPublish("paused", publishedMode, clock.ElapsedMilliseconds - lastPublish))
                         Publish("paused", null);
@@ -511,7 +528,7 @@ namespace ReflexCore.Vision
                 if (!finalized && clock.ElapsedMilliseconds - lastStatusUpdate >= 250)
                 {
                     lastStatusUpdate = clock.ElapsedMilliseconds;
-                    status.Text = (players == null ? "Color / HUD · player scene unverified" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
+                    status.Text = (!String.IsNullOrEmpty(LobbyLease) ? "Lobby · engine outlines" : players == null ? "Color / HUD · player scene unverified" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
                         (hotkey ? " | Ctrl+Alt+F10" : "");
                 }
             }
@@ -589,7 +606,7 @@ namespace ReflexCore.Vision
                 schema = "reflexcore.vision.benchmark.v1",
                 source = fixture != null ? "visible_fixture" : "cs16",
                 capture = cpu ? "gdi_copy_cpu_scale" : "gdi_scaled_blit",
-                completed = finalized, frames = latency.Count, frames_with_tracks = framesWithTracks,
+                completed = finalized, pause_reason = capture.LastPause, frames = latency.Count, frames_with_tracks = framesWithTracks,
                 fps = interval > 0 && latency.Count > 0 ? Math.Round(latency.Count * 1000 / interval, 2) : 0,
                 p50_ms = Percentile(latency, .5), p95_ms = Percentile(latency, .95),
                 process_cpu_core_pct = interval > 0 && latency.Count > 0 ? Math.Round((finishedCpu - startedCpu) * 100 / interval, 2) : 0,

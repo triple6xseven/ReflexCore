@@ -234,6 +234,13 @@ public practice_tick()
         return;
     }
 
+    static Float:next_wallet;
+    if (get_gametime() >= next_wallet) {
+        next_wallet = get_gametime() + 1.0;
+        for (new id = 1; id <= g_max_clients; id++)
+            if (is_user_alive(id) && cs_get_user_money(id) < 16000)
+                cs_set_user_money(id, 16000, 0);
+    }
     if (!g_initialized)
     {
         if (!dir_exists(g_directory) && mkdir(g_directory) != 0)

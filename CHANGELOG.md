@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Discover the teammate lobby in the LAN browser, buy rifles and ammunition, follow or hold through the H menu, remember stalled patrol headings and preview the local dedicated client. Insert toggles held-jump assistance.
+
 - Add a private Dust II team lobby, two-window client launch, H team menu and GoldSrc buy/practice keys.
 - Detect the stock console in offline replay frames before requesting model inference.
 - Add a paired offline AK-47 fixture with run-bound weapon evidence, cancellation checks, and read-only MCP comparison.
