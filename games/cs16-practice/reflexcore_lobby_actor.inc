@@ -312,6 +312,38 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
 new g_reload_weapon[2];
 new Float:g_reload_until[2], Float:g_cover[2][3];
 new bool:g_has_cover[2];
+new g_ak_burst_clip[2];
+new Float:g_ak_resume_at[2], Float:g_ak_last_request[2];
+
+fire_command(actor, lane, buttons, Float:angles[3]) {
+    if ((buttons & (IN_ATTACK | IN_DUCK)) != (IN_ATTACK | IN_DUCK)) return buttons;
+    new flags=pev(actor,pev_flags);
+    if ((flags & (FL_ONGROUND | FL_DUCKING)) != (FL_ONGROUND | FL_DUCKING))
+        return buttons & ~IN_ATTACK;
+    new clip, reserve;
+    if (get_user_weapon(actor,clip,reserve)!=CSW_AK47) return buttons;
+    if (clip<=0) return buttons & ~IN_ATTACK;
+
+    new Float:now=get_gametime();
+    if (now-g_ak_last_request[lane]>0.5 || clip>g_ak_burst_clip[lane]) {
+        g_ak_burst_clip[lane]=clip;
+        g_ak_resume_at[lane]=0.0;
+    }
+    g_ak_last_request[lane]=now;
+    if (now<g_ak_resume_at[lane]) return buttons & ~IN_ATTACK;
+    if (g_ak_burst_clip[lane]-clip>=3) {
+        g_ak_burst_clip[lane]=clip;
+        g_ak_resume_at[lane]=now+0.4;
+        return buttons & ~IN_ATTACK;
+    }
+
+    // GoldSrc adds the current punch angle before applying weapon spread.
+    new Float:punch[3];
+    pev(actor,pev_punchangle,punch);
+    angles[0]=floatclamp(angles[0]-punch[0],-89.0,89.0);
+    angles[1]-=punch[1];
+    return buttons;
+}
 
 bool:find_cover(actor, target, Float:result[3]) {
     new Float:start[3], Float:enemy[3], Float:offset[3];
@@ -432,7 +464,13 @@ drive_actor(actor) {
         if(target){
             g_visible_samples[g_lane]++;
             if(clip==0 && reserve>0) buttons=IN_RELOAD;
-            else if(clip>0) buttons=IN_ATTACK | IN_DUCK;
+            else if(clip>0) {
+                buttons=IN_DUCK;
+                // Aim from a fresh eye position after the engine enters the crouch.
+                new flags=pev(actor,pev_flags);
+                if ((flags & (FL_ONGROUND | FL_DUCKING)) == (FL_ONGROUND | FL_DUCKING))
+                    buttons|=IN_ATTACK;
+            }
         }
     }
     if (focus || g_hold[g_lane]) g_patrolled[g_lane] = false;
@@ -539,11 +577,14 @@ drive_actor(actor) {
     engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,planting ? buttons : (buttons & IN_DUCK),0,5);
     new before,after,ammo;
     new weapon=get_user_weapon(actor,before,ammo);
+    buttons=fire_command(actor,g_lane,buttons,angles);
     engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,buttons,0,95);
     if((buttons & IN_ATTACK) && get_user_weapon(actor,after,ammo)==weapon && before>after && after>=0)
         g_clip_decrements[g_lane]+=before-after;
 }
 reset_navigation() {
+    g_ak_burst_clip[g_lane]=0;
+    g_ak_last_request[g_lane]=g_ak_resume_at[g_lane]=0.0;
     g_reload_weapon[g_lane]=0;
     g_waypoint[g_lane]=-1;
     g_detour_until[g_lane]=0.0;
@@ -582,11 +623,14 @@ public pilot_command(id,cmd,seed) {
     if (!g_pilot || id!=g_pilot) return FMRES_IGNORED;
     if (!is_user_alive(id) || get_user_userid(id)!=g_pilot_userid) {release_pilot();return FMRES_IGNORED;}
     if (get_gametime()-g_pilot_at>0.25) return FMRES_IGNORED;
-    set_uc(cmd,UC_ViewAngles,g_pilot_angles);
+    new Float:angles[3];
+    angles=g_pilot_angles;
+    new buttons=fire_command(id,1,g_pilot_buttons,angles);
+    set_uc(cmd,UC_ViewAngles,angles);
     set_uc(cmd,UC_ForwardMove,g_pilot_speed);
     set_uc(cmd,UC_SideMove,0.0);
     set_uc(cmd,UC_UpMove,0.0);
-    set_uc(cmd,UC_Buttons,g_pilot_buttons);
+    set_uc(cmd,UC_Buttons,buttons);
     return FMRES_HANDLED;
 }
 

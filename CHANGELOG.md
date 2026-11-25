@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Wait for a grounded crouch before firing in the local lobby. Fire AK-47 bursts using server-reported magazine changes and compensate the current GoldSrc aim punch.
+
 - Show the F9 local-lobby control in Studio.
 
 - Keep the Windows companion drawing surface stable during dragging and pose changes. Pointer hit tests control click-through without reshaping the native window.
