@@ -63,12 +63,7 @@ func _verify() -> void:
 		var pixels := image.get_used_rect()
 		_expect(pixels.has_area() and root.get_visible_rect().grow(-10).encloses(Rect2(pixels)),
 			"An extreme tilt clipped the rendered model: "+str(pixels))
-		var outside := 0
-		for y in range(pixels.position.y,pixels.end.y,4):
-			for x in range(pixels.position.x,pixels.end.x,4):
-				if image.get_pixel(x,y).a>0.55 and not Geometry2D.is_point_in_polygon(Vector2(x,y),avatar.native_region):
-					outside+=1
-		_expect(outside==0,"The Windows input region cut into the silhouette: "+str(outside))
+		_expect(root.mouse_passthrough_polygon.is_empty(),"Tilt must not clip the native Windows overlay.")
 
 	for previous in ["fall","climb","cloud"]:
 		avatar.motion.falling=previous=="fall"

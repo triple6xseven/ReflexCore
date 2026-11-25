@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Keep the Windows companion drawing surface stable during dragging and pose changes. Pointer hit tests control click-through without reshaping the native window.
+
 - Experimental site-route recovery can favor a clear direction demonstrated in three rounds for the same team and map cell. Standard mode excludes these hints.
 
 - Open H > Auto-learning to record your manual movement in the experimental profile. Learning history shows the latest map-local direction samples and distinct round counts. F9 pauses recording for the controlled player. Switching back to Standard stops collection. Samples are stored separately and do not change the active bot policy.

@@ -6,7 +6,6 @@ const Wardrobe = preload("res://wardrobe.gd")
 const Cloud = preload("res://magic_cloud.gd")
 const BASE_SIZE := Vector2i(344, 500)
 const VIEW_MARGIN := Vector2i(80, 48)
-const REGION_ROLES := ["head","chest","hips","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand","leftLowerLeg","rightLowerLeg","leftFoot","rightFoot"]
 const PROJECTED_ROLES := ["head","chest","hips","leftUpperArm","rightUpperArm","leftLowerArm","rightLowerArm","leftHand","rightHand","leftUpperLeg","rightUpperLeg","leftLowerLeg","rightLowerLeg","leftFoot","rightFoot"]
 const STATUS_SCHEMA := "reflexcore.companion.runtime.v1"
 const DEFAULTS := {
@@ -38,9 +37,6 @@ var bubble_style: StyleBoxFlat
 var menu: PanelContainer
 var menu_buttons: Dictionary = {}
 var outside_menu_since := -1.0
-var region_landmarks := PackedVector2Array()
-var native_region := PackedVector2Array()
-var next_region_at := 0.0
 var rig: RefCounted
 var model_file := ""
 var model_error := ""
@@ -291,8 +287,6 @@ func _show_menu(anchor: Vector2) -> void:
 	menu.position=anchor.clamp(Vector2.ZERO,limit.max(Vector2.ZERO))
 	outside_menu_since=-1
 	menu.show()
-	next_region_at=0
-	_update_window_region()
 	_set_cursor_passthrough(false)
 	_publish()
 
@@ -300,8 +294,6 @@ func _hide_menu() -> void:
 	menu.hide()
 	outside_menu_since=-1
 	can_click_until=-1
-	next_region_at=0.0
-	_update_window_region()
 	_publish()
 
 func _read_json(path: String, limit: int) -> Dictionary:
@@ -794,7 +786,6 @@ func _process(delta: float) -> void:
 		window.position=actual
 	_update_bubble()
 	shown=true
-	_update_window_region()
 	pointer_distance=_model_distance(local)
 	_track_input(local,Vector2(pointer),pointer_distance)
 	var interactive := menu.visible or pressed or motion.falling or attentive_pointer or pointer_distance<25.0 \
@@ -972,8 +963,8 @@ func _pointer_on_character(local: Vector2, pointer_distance: float) -> bool:
 	return false
 
 func _track_input(local: Vector2, desktop_pointer: Vector2, pointer_distance: float) -> void:
-	# Leave the rendered pixels intact while letting clicks outside projected hit
-	# zones reach the desktop. No polling of other applications' input.
+	# Use pointer hit tests because animated native polygons also clip Windows rendering.
+	# Pass clicks outside projected hit zones through to the desktop.
 	var left_through := bool(options.clickthrough) and right_click_ready
 	if menu.visible:
 		var over_menu := menu.get_rect().has_point(local)
@@ -1016,70 +1007,6 @@ func _track_input(local: Vector2, desktop_pointer: Vector2, pointer_distance: fl
 			pet_at=now
 			click_at=-5.0
 			gesture_turns=0
-
-func _update_window_region() -> void:
-	if OS.get_name()!="Windows" or now<next_region_at or projected_bones.is_empty():
-		return
-	next_region_at=now+0.042
-	var zoom := float(options.zoom)
-	var centers := PackedVector2Array()
-	var radii := PackedVector2Array()
-	for role in REGION_ROLES:
-		if not projected_bones.has(role):
-			continue
-		var center: Vector2=projected_bones[role]
-		var radius := Vector2(68,73) if role=="head" else Vector2(89,74) if role=="hips" else Vector2(47,53) if role.ends_with("Foot") else Vector2(46,47)
-		centers.append(center)
-		radii.append(radius*zoom)
-	for ear in projected_ears:
-		centers.append(ear)
-		radii.append(Vector2.ONE*31*zoom)
-	var rects: Array[Rect2] = []
-	if bubble.visible:
-		rects.append(bubble.get_rect().grow(2))
-	if motion.portal_time>0:
-		var center: Vector2=projected_bones.get("chest",head)
-		var radius := Vector2(70,84)*zoom
-		rects.append(Rect2(center-radius,2*radius))
-	if cloud.visible:
-		var base := Vector2(motion.cloud_x,motion.position.y+body_size.y*DesktopMotion.SEAT_RATIO if motion.cloud_seated else motion.cloud_edge)-Vector2(get_window().position)
-		rects.append(Rect2(base-Vector2(106,35)*zoom,Vector2(212,94)*zoom))
-	if menu.visible:
-		rects.append(menu.get_rect().grow(1))
-
-	# Avoid replacing the native window region for subpixel idle motion. Compare
-	# against the last applied region so slow cumulative movement still updates.
-	var landmarks := centers.duplicate()
-	landmarks.append(Vector2(zoom*100,centers.size()))
-	for rect in rects:
-		landmarks.append(rect.position)
-		landmarks.append(rect.end)
-	var stable := landmarks.size()==region_landmarks.size()
-	var region_scale := maxf(1.0,zoom)
-	if stable:
-		var threshold_sq := 9.0*region_scale*region_scale
-		for i in landmarks.size():
-			if landmarks[i].distance_squared_to(region_landmarks[i])>threshold_sq:
-				stable=false
-				break
-	if stable:
-		return
-	region_landmarks=landmarks
-	var points := PackedVector2Array()
-	for n in centers.size():
-		for i in 8:
-			points.append(centers[n]+Vector2.from_angle(i*TAU/8)*(radii[n]+Vector2(4,4)*region_scale))
-	var outline := Geometry2D.convex_hull(points)
-	for rect in rects:
-		outline=_add_region_rect(outline,rect.grow(4*region_scale))
-	if outline!=native_region:
-		native_region=outline
-		get_window().mouse_passthrough_polygon=native_region
-
-func _add_region_rect(outline: PackedVector2Array, rect: Rect2) -> PackedVector2Array:
-	var corners := PackedVector2Array([rect.position,Vector2(rect.end.x,rect.position.y),rect.end,Vector2(rect.position.x,rect.end.y)])
-	var merged := Geometry2D.merge_polygons(outline,corners)
-	return merged[0] if merged.size()==1 else Geometry2D.convex_hull(outline+corners)
 
 func _set_cursor_passthrough(value: bool) -> void:
 	if value==passthrough:
