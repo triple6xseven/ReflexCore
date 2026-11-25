@@ -102,3 +102,5 @@ cargo build --release --locked
 The harness temporarily loads the explicitly supplied plugin and restores the previous binary. Use a dedicated owned server folder. The fixture checks the exact loopback process and holds the Rust mailbox lock during execution. MCP exposes redacted read-only trial summaries through list_combat_runs and get_combat_run. compare_combat_runs accepts only completed baseline and candidate trials from the same suite and scenario. The plugin documents these tools for Codex after a session reload. None of the tools exposes combat actions.
 
 -Remember records only corroborated discharge samples and correct friendly or occluded rejections in the existing SQLite database. The fixture uses a separate bounded table and honors Learning Off. Timeout, cancellation and no-discharge timer failures remain in benchmark data. No recorded sample activates a policy or trains weights.
+
+For interactive play with a human and an independent bot on Dust II, use the [local team lobby](CS16-LOCAL-TEAM.md).

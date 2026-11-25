@@ -431,9 +431,10 @@ namespace ReflexCore.Control
             game.Controls.Add(Info("Choose an agent mode and the 3D or 2D camera in the game, then start the agent. API calls require a separate action.",18,360,755));
 
             // DPI-aware API tab. Controls flow vertically and scroll; no absolute Y positions.
-            shared.Controls.Add(Header("SHARED CONTROL // CS 1.6 OFFLINE",18,23));
-            shared.Controls.Add(Info("Shared Control sends mouse and keyboard input to the local game. Physical input pauses the agent for three seconds. Use a private local server.",18,73,750));
-            AddButton(shared,"▶ OPEN CS 1.6 SHARED CONTROL LAB",18,160,746,54,()=>OpenSharedControl(),true);
+            shared.Controls.Add(Header("COUNTER-STRIKE 1.6 // LOCAL PLAY",18,23));
+            shared.Controls.Add(Info("Play on Dust II with ReflexCore. Join T or CT and Reflex joins your team automatically. Press H in game to switch sides.",18,73,750));
+            AddButton(shared,"▶ OPEN CS 1.6 SHARED CONTROL LAB",18,287,746,40,()=>OpenSharedControl(),true);
+            AddButton(shared,"PLAY WITH A TEAMMATE",18,160,746,54,()=>OpenOfflineTool("ReflexCore-CS16Lobby.ps1",""),true);
             AddButton(shared,"SHOW REFLEXVISION",18,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1",""),true);
             AddButton(shared,"CLOSE REFLEXVISION",268,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1","-Action Stop"),false);
             AddButton(shared,"OPEN OFFLINE PLANT DRILL",518,385,246,50,()=>OpenOfflineTool("ReflexCore-CS16Practice.ps1",""),false);
@@ -445,7 +446,7 @@ namespace ReflexCore.Control
                 Directory.CreateDirectory(folder);
                 Process.Start("explorer.exe","\""+folder+"\"");
             },false);
-            shared.Controls.Add(Info("Start a local CS 1.6 game, join the Terrorists and obtain C4. Use the Plant C4 drill at a bombsite or record a demonstration.",18,244,750));
+            shared.Controls.Add(Info("Use your existing game or launch a second window. Reflex plays on the server and leaves your mouse and keyboard free.",18,244,750));
             shared.Controls.Add(Info("Press F12 or Ctrl+Alt+P to stop. The controller uses public game signals and a limited set of inputs. Recordings capture local game controls.",18,336,750));
             var apiFlow=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,
                 WrapContents=false,BackColor=bg,Padding=new Padding(18,18,18,20)};

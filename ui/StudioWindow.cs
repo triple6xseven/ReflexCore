@@ -35,7 +35,7 @@ public sealed partial class StudioWindow : Window
     readonly List<TextBlock> navLabels = new();
     readonly List<int> history = new();
     readonly DispatcherTimer pulse = new() { Interval = TimeSpan.FromSeconds(1) };
-    readonly string[] names = { "Agent", "Models", "Diagnostics", "Shared Control", "Citadel Lab", "OpenAI API", "Appearance", "Companion & Widgets" };
+    readonly string[] names = { "Agent", "Models", "Diagnostics", "CS 1.6 & Control", "Citadel Lab", "OpenAI API", "Appearance", "Companion & Widgets" };
     readonly string[] glyphs = { "\uE80F", "\uE950", "\uE9D9", "\uE7FC", "\uE7FC", "\uE774", "\uE790", "\uE790" };
     readonly string projectRoot;
     Theme current;

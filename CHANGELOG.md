@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Add a private Dust II team lobby, two-window client launch, H team menu and GoldSrc buy/practice keys.
+- Detect the stock console in offline replay frames before requesting model inference.
 - Add a paired offline AK-47 fixture with run-bound weapon evidence, cancellation checks, and read-only MCP comparison.
 - Discover saved release checks in Codex, show approval context in Studio, and publish redacted offline lab outcomes through MCP.
 - Add a local MCP server for skill discovery and approved handoff checks, with scope and enable controls in the Studio sidebar.
