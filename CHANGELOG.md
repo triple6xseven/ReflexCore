@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Reset transient route, reload and burst state when the lobby actor respawns or rejoins. Skip lobby checks on unrelated players' AK shots.
+
 - Wait for a grounded crouch before firing in the local lobby. Fire AK-47 bursts using server-reported magazine changes and compensate the current GoldSrc aim punch.
 
 - Show the F9 local-lobby control in Studio.

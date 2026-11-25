@@ -261,12 +261,9 @@ public probe_lobby() {
 }
 
 public lobby_spawn(id) {
-    if(id != g_reflex) return;
-    g_waypoint[0]=-1;
-    g_trail_count[0] = g_buy_attempts[0] = 0;
-    g_next_buy[0] = 0.0;
-    g_check_at[0]=0.0;
-    g_next_cell[0]=g_cell_count[0]=g_cell_transitions[0]=g_visible_samples[0]=g_clip_decrements[0]=0;
+    if(id != g_reflex || !owned_reflex() || !is_user_alive(id)) return;
+    reset_navigation(0);
+    g_cell_transitions[0]=g_visible_samples[0]=g_clip_decrements[0]=0;
 }
 public lobby_round_end(){
     g_planted=false;

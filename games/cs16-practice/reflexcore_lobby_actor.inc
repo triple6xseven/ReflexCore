@@ -261,9 +261,7 @@ bool:join_reflex(team, leader)
     g_leader_userid = leader;
     g_hold[g_lane] = false;
     g_roam[g_lane] = false;
-    g_waypoint[g_lane] = -1;
-    g_buy_attempts[g_lane] = g_trail_count[g_lane] = 0;
-    g_next_buy[g_lane] = 0.0;
+    reset_navigation(0);
     new Float:angles[3], value[2];
     num_to_str(team, value, charsmax(value));
     for (new i = 0; i < 4 && get_ent_data(bot,"CBasePlayer","m_iJoiningState") != 4; i++)
@@ -344,7 +342,8 @@ new g_ak_active_weapon[33], Float:g_ak_original_view[33][3];
 
 public ak_before_attack(weapon) {
     new actor=pev(weapon,pev_owner);
-    if (actor<1 || actor>32 || !lobby_is_local()) return HAM_IGNORED;
+    if (actor<1 || actor>32 || (actor!=g_reflex && actor!=g_pilot)) return HAM_IGNORED;
+    if (!lobby_is_local()) return HAM_IGNORED;
     if (!(actor==g_reflex && owned_reflex()) && !(actor==g_pilot && get_user_userid(actor)==g_pilot_userid
         && get_gametime()-g_pilot_at<=0.25 && (g_pilot_buttons & IN_ATTACK))) return HAM_IGNORED;
     // Sample the engine's kick at weapon execution, after player movement.
@@ -606,15 +605,15 @@ drive_actor(actor) {
     if((buttons & IN_ATTACK) && get_user_weapon(actor,after,ammo)==weapon && before>after && after>=0)
         g_clip_decrements[g_lane]+=before-after;
 }
-reset_navigation() {
-    g_ak_burst_clip[g_lane]=0;
-    g_ak_last_request[g_lane]=g_ak_resume_at[g_lane]=0.0;
-    g_reload_weapon[g_lane]=0;
-    g_waypoint[g_lane]=-1;
-    g_detour_until[g_lane]=0.0;
-    g_check_at[g_lane]=g_next_buy[g_lane]=0.0;
-    g_buy_attempts[g_lane]=g_cell_count[g_lane]=g_next_cell[g_lane]=g_trail_count[g_lane]=0;
-    g_position_reached[g_lane]=false;
+reset_navigation(lane) {
+    g_ak_burst_clip[lane]=0;
+    g_ak_last_request[lane]=g_ak_resume_at[lane]=0.0;
+    g_reload_weapon[lane]=0;
+    g_waypoint[lane]=-1;
+    g_detour_until[lane]=0.0;
+    g_check_at[lane]=g_next_buy[lane]=0.0;
+    g_buy_attempts[lane]=g_cell_count[lane]=g_next_cell[lane]=g_trail_count[lane]=0;
+    g_position_reached[lane]=false;
 }
 
 release_pilot() {
@@ -630,11 +629,9 @@ public toggle_pilot(id) {
         release_pilot();
         client_print(id,print_chat,"[ReflexCore] Manual control.");
     } else if (!g_pilot && is_user_alive(id)) {
-        g_lane=1;
-        g_hold[g_lane]=false;
-        g_roam[g_lane]=true;
-        reset_navigation();
-        g_lane=0;
+        g_hold[1]=false;
+        g_roam[1]=true;
+        reset_navigation(1);
         g_pilot=id;
         g_pilot_userid=get_user_userid(id);
         g_pilot_at=-1.0;
@@ -647,10 +644,8 @@ public pilot_command(id,cmd,seed) {
     if (!g_pilot || id!=g_pilot) return FMRES_IGNORED;
     if (!is_user_alive(id) || get_user_userid(id)!=g_pilot_userid) {release_pilot();return FMRES_IGNORED;}
     if (get_gametime()-g_pilot_at>0.25) return FMRES_IGNORED;
-    new Float:angles[3];
-    angles=g_pilot_angles;
     new buttons=fire_command(id,1,g_pilot_buttons);
-    set_uc(cmd,UC_ViewAngles,angles);
+    set_uc(cmd,UC_ViewAngles,g_pilot_angles);
     set_uc(cmd,UC_ForwardMove,g_pilot_speed);
     set_uc(cmd,UC_SideMove,0.0);
     set_uc(cmd,UC_UpMove,0.0);
