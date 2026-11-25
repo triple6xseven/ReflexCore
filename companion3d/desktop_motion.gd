@@ -397,7 +397,7 @@ func update(dt: float, now: float, desk: Rect2i, size: Vector2i, pointer: Vector
 		cloud_was_seat=false
 		var bob := sin((age-0.93)*2.0)*3.0
 		var compression := sin(minf(age-0.93,0.62)*PI/0.62)*7.0
-		position.y=lerpf(position.y,cloud_edge+bob+compression-seat,1.0-exp(-14.0*dt))
+		position.y=move_toward(position.y,cloud_edge+bob+compression-seat,80*dt)
 		velocity=Vector2.ZERO
 		return "cloud_sit"
 	if cloud_since>=0:

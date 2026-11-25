@@ -2,7 +2,7 @@
 
 ## Unreleased — Verify a Handoff Folder
 
-- Show the F9 local-lobby control in Studio and smooth the companion's seated cloud motion.
+- Show the F9 local-lobby control in Studio. Keep the companion at the selected frame rate while seated on a cloud and align it to fractional screen coordinates.
 
 - Keep the Windows companion drawing surface stable during dragging and pose changes. Pointer hit tests control click-through without reshaping the native window.
 
