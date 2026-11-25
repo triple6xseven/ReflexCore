@@ -46,6 +46,7 @@ namespace ReflexCore.Vision
                         using (var form = new PreviewWindow(pid, new IntPtr(window), width, cpu, samples, stop, relay, fixtureWindow, project))
                         {
                             form.LobbyLease = lobbyLease;
+                            if (!String.IsNullOrEmpty(lobbyLease)) form.StartLobbyDetector(project);
                             Application.Run(form);
                             return form.Report();
                         }
@@ -331,8 +332,8 @@ namespace ReflexCore.Vision
         private double frameCost;
         private bool finalized, hotkey;
         private Rectangle placed;
+        internal void StartLobbyDetector(string project) { players = PlayerDetector.TryStart(project); }
         internal string LobbyLease { get; set; }
-        private long nextLobbyHeartbeat;
 
         protected override bool ShowWithoutActivation { get { return true; } }
 
@@ -448,13 +449,6 @@ namespace ReflexCore.Vision
             {
                 if (globalStop != null && File.GetLastWriteTimeUtc(globalStop) >= startedUtc) { Close(); return; }
                 if (!String.IsNullOrEmpty(LobbyLease) && File.GetLastWriteTimeUtc(LobbyLease) < DateTime.UtcNow.AddSeconds(-3)) { Close(); return; }
-                if (!String.IsNullOrEmpty(LobbyLease) && clock.ElapsedMilliseconds >= nextLobbyHeartbeat) {
-                    nextLobbyHeartbeat = clock.ElapsedMilliseconds + 1000;
-                    string expiry = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 3).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                    try { File.WriteAllText(Path.ChangeExtension(LobbyLease, ".preview"), expiry); }
-                    catch (IOException) { }
-                    catch (UnauthorizedAccessException) { }
-                }
                 if (fixture != null) fixture.Advance();
                 var frameStart = Stopwatch.GetTimestamp();
                 long frameUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -528,7 +522,7 @@ namespace ReflexCore.Vision
                 if (!finalized && clock.ElapsedMilliseconds - lastStatusUpdate >= 250)
                 {
                     lastStatusUpdate = clock.ElapsedMilliseconds;
-                    status.Text = (!String.IsNullOrEmpty(LobbyLease) ? "Lobby · engine outlines" : players == null ? "Color / HUD · player scene unverified" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
+                    status.Text = (!String.IsNullOrEmpty(LobbyLease) ? (players == null ? "Lobby Â· player detector unavailable" : "Lobby Â· visual player candidates") : players == null ? "Color / HUD Â· player scene unverified" : "YOLOX players + HUD") + " | " + elapsed.ToString("0.0") + " ms" +
                         (hotkey ? " | Ctrl+Alt+F10" : "");
                 }
             }

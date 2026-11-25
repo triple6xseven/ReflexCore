@@ -51,6 +51,21 @@ function Start-Lobby {
     if((Get-FileHash (Join-Path $bot 'bin/yapb.dll')).Hash -ne '7F4C2F661E8F177FB3AA14B54FE370482C74A00AF432C884CB928B76CDDF4504'){throw 'The installed YaPB version differs from the supported 4.4.957 build.'}
     $lobby=Join-Path $addons 'reflex-lobby'
     [void][IO.Directory]::CreateDirectory($lobby)
+    $planner=Join-Path $root 'examples/plan_cs16_bsp_route.py'
+    $map=Join-Path $game 'maps/de_dust2.bsp'
+    $key=(Get-FileHash $planner).Hash+(Get-FileHash $map).Hash
+    foreach($site in 0,1){
+    $cache=Join-Path $lobby ("route-"+$site+"-"+$key+".txt")
+    if(!(Test-Path -LiteralPath $cache)){
+        $json=& py.exe -3 $planner $map --auto --lobby-spawn --lobby-site $site 2>$null
+        if($LASTEXITCODE -ne 0){throw 'Dust II route planning failed.'}
+        $points=($json -join ' ' | ConvertFrom-Json).waypoints
+        if($points.Count -lt 2 -or $points.Count -gt 128){throw 'Invalid Dust II route.'}
+        $lines=foreach($point in $points){[string]::Format([cultureinfo]::InvariantCulture,'{0} {1} {2}',$point.x,$point.y,$point.z)}
+        [IO.File]::WriteAllLines($cache,[string[]]$lines)
+    }
+    Copy-Item -LiteralPath $cache -Destination (Join-Path $lobby ("route"+$site+".txt")) -Force
+    }
     $compiler=Join-Path $addons 'amxmodx/scripting/amxxpc.exe'
     $binary=Join-Path $addons 'amxmodx/plugins/reflexcore_lobby.amxx'
     & $compiler (Join-Path $assets 'reflexcore_lobby.sma') ("-i"+(Split-Path $compiler)+"/include") ("-i"+$assets) ("-o"+$binary) | Out-Null
@@ -160,10 +175,9 @@ if($Probe -or $ProbeClient -or $ProbeRound){
         if($fresh -notmatch 'Lobby local human connected'){throw 'A second window was launched but server admission was not confirmed.'}
         if($fresh -notmatch 'STEAM_ID_LAN.*joined team "CT"' -or $fresh -notmatch '"ReflexCore<.*joined team "CT"' -or $fresh -notmatch 'lab-opponent.*joined team "TERRORIST"'){throw 'The human, teammate and opponent team assignments were not confirmed.'}
         if($fresh -notmatch 'Lobby H command opened the team menu' -or $fresh -notmatch 'Lobby menu verified Reflex side 1'){throw 'The in-game menu did not confirm the side change.'}
-        if($fresh -notmatch 'Lobby probe confirmed hold, follow and visible-box selection'){throw 'The in-game command transitions were not confirmed.'}
+        if($fresh -notmatch 'Lobby probe confirmed hold, follow and FreeRoam'){throw 'The in-game command transitions were not confirmed.'}
         if($fresh -notmatch 'Lobby Reflex rifle purchase confirmed'){throw 'No team rifle purchase was confirmed by inventory readback.'}
-        if($ProbeVision -and $fresh -notmatch 'Lobby preview outline subscription confirmed'){throw 'Preview did not subscribe to lobby outlines.'}
-        'Second client, team assignment, H orders, box selection and rifle purchase verified.'
+        'Second client, team assignment, H orders, FreeRoam and rifle purchase verified.'
         return
     }
     if($fresh -notmatch 'ReflexCore Local Lobby' -or $fresh -notmatch '"ReflexCore<.*joined team "TERRORIST"' -or $fresh -notmatch 'Probe-CT.*joined team "CT"'){throw 'Lobby or bot join was not confirmed by the server.'}

@@ -286,7 +286,9 @@ def simplify(bsp, points, spacing, preserve_first=False, require_clearance=False
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bsp", type=Path)
-    parser.add_argument("--start", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"))
+    parser.add_argument("--start", type=float, nargs=3, metavar=("X", "Y", "Z"))
+    parser.add_argument("--lobby-site", type=int, choices=(0,1))
+    parser.add_argument("--lobby-spawn", action="store_true", help="Plan from a map spawn for lobby waypoint discovery")
     parser.add_argument("--auto", action="store_true", help="Discover and search all brush bomb targets")
     parser.add_argument("--blocked-heading", type=float,
                         help="Exclude the failed direction on the first recovery hop")
@@ -316,9 +318,11 @@ def main():
             raise ValueError("too many brush bomb targets")
         if not args.auto and args.target_model not in targets:
             raise ValueError("target-model must be a brush bomb target")
-        start = tuple(args.start)
         spawns = [vector(e["origin"]) for e in bsp.entities
                   if e.get("classname") == "info_player_deathmatch" and "origin" in e]
+        if args.lobby_spawn == bool(args.start):
+            raise ValueError("choose one start source")
+        start = spawns[0] if args.lobby_spawn else tuple(args.start)
         if not all(math.isfinite(v) for v in start) or (not args.resume and
                 not any(math.dist(start, p) <= 48 for p in spawns)):
             raise ValueError("start must be an actual position near a Terrorist spawn")
@@ -327,6 +331,8 @@ def main():
             raise ValueError("could not settle a standing player on spawn ground")
         deadline = time.monotonic() + 20
         eligible = targets if args.auto else [args.target_model]
+        if args.lobby_site is not None:
+            eligible = [targets[args.lobby_site]]
         if args.avoid_site is not None and len(targets) > 1:
             eligible = targets[1:] if args.avoid_site == "A" else targets[:1]
         try:
@@ -345,7 +351,8 @@ def main():
             raise ValueError("simplified route fails standing-hull replay")
     except (OSError, IndexError, ValueError, struct.error) as error:
         parser.error(str(error))
-    print(f"{len(path)} grid points -> {len(route)} waypoints in model {target}", file=sys.stderr)
+    if not args.lobby_spawn:
+        print(f"{len(path)} grid points -> {len(route)} waypoints in model {target}", file=sys.stderr)
     print(json.dumps({
         "schema": "reflexcore.cs16.route.v1",
         "map": name,

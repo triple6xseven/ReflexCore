@@ -4,7 +4,8 @@
 #include <hamsandwich>
 #include "reflexcore_lobby_actor.inc"
 
-new g_ammo[33], g_bhop[33], g_boxes[33], g_preview_until[33];
+new g_ammo[33], g_bhop[33];
+new bool:g_watch[33];
 new Float:g_lastChange;
 public plugin_init()
 {
@@ -12,7 +13,7 @@ public plugin_init()
     register_clcmd("rc_lobby", "show_lobby");
     register_clcmd("rc_lobby_bhop", "toggle_bhop");
     register_forward(FM_PlayerPreThink, "held_jump");
-    set_task(0.2, "draw_visible_boxes", 0, "", 0, "b");
+    register_clcmd("rc_bot_menu","bot_menu");
     set_task(1.0, "refill_wallets", 0, "", 0, "b");
     register_clcmd("rc_lobby_clear", "clear_bots");
     register_clcmd("rc_lobby_ct", "add_ct");
@@ -25,6 +26,10 @@ public plugin_init()
     register_clcmd("rc_lobby_long", "long_round");
     register_cvar("rc_lobby_host","");
     setup_patrol_memory();
+    load_site_route();
+    register_logevent("begin_defense",3,"2=Planted_The_Bomb");
+    register_event("SendAudio","finish_defense","a","2=%!MRAD_terwin","2=%!MRAD_ctwin");
+    set_task(0.3, "update_watchers", 0, "", 0, "b");
     set_task(5.0, "save_patrol_memory", 0, "", 0, "b");
     register_cvar("rc_lobby_probe_client","0");
     register_srvcmd("rc_lobby_probe","probe_lobby");
@@ -61,27 +66,44 @@ public show_lobby(id)
 {
     if (!local_player(id)) return PLUGIN_HANDLED;
     new menu = menu_create("ReflexCore | Local team play", "choose");
-    menu_additem(menu, "Play with ReflexCore on my team");
-    menu_additem(menu, "Play against ReflexCore on the other team");
-    menu_additem(menu, "Add one CT bot");
-    menu_additem(menu, "Remove all bots");
-    menu_additem(menu, "Restart round");
-    menu_additem(menu, "Follow me");
-    menu_additem(menu, "Hold position");
-    menu_additem(menu, g_boxes[id] ? "Hide visible player boxes" : "Show visible player boxes");
+    menu_additem(menu,"Follow me","5");
+    menu_additem(menu,"FreeRoam AI","8");
+    menu_additem(menu,"Hold position","6");
+    menu_additem(menu,"Spectate ReflexCore / stop watching","9");
+    menu_additem(menu,"Play on my team","0");
+    menu_additem(menu,"Play against me","1");
+    menu_additem(menu,"Bot settings (J)","10");
+    menu_additem(menu,"Restart round","4");
     menu_display(id, menu);
     return PLUGIN_HANDLED;
 }
 
 public choose(id, menu, item)
 {
+    new info[8], access, callback, name[64];
+    if (item >= 0) {
+        menu_item_getinfo(menu,item,access,info,charsmax(info),name,charsmax(name),callback);
+        item=str_to_num(info);
+    }
     menu_destroy(menu);
     if (item == MENU_EXIT || !local_player(id)) return PLUGIN_HANDLED;
+    if (item == 10) return bot_menu(id);
     if (item == 2) return add_ct(id);
     if (item == 3) return clear_bots(id);
     if (item == 4) return restart_round(id);
-    if (item == 7) {
-        g_boxes[id] = !g_boxes[id];
+    if (item == 9) {
+        if (g_watch[id]) {g_watch[id]=false;return PLUGIN_HANDLED;}
+        engclient_cmd(id,"jointeam","6");
+        g_watch[id]=cs_get_user_team(id)==CS_TEAM_SPECTATOR;
+        if (!g_watch[id]) client_print(id,print_chat,"[ReflexCore] Choose Spectator first, then open H again.");
+        return PLUGIN_HANDLED;
+    }
+    if (item == 8) {
+        if (!owned_reflex() || !g_route_count) {client_print(id,print_chat,"[ReflexCore] Waiting for the actor and map route.");return PLUGIN_HANDLED;}
+        g_roam=true;
+        g_hold=false;
+        g_waypoint=-1;
+        client_print(id,print_chat,"[ReflexCore] FreeRoam AI enabled.");
         return PLUGIN_HANDLED;
     }
     new CsTeams:team = cs_get_user_team(id);
@@ -97,11 +119,13 @@ public choose(id, menu, item)
         }
         g_leader_userid = get_user_userid(id);
         g_hold = item == 6;
+        g_roam = false;
         g_trail_count = 0;
         client_print(id, print_chat, g_hold ? "[ReflexCore] Holding position." : "[ReflexCore] Following you.");
         return PLUGIN_HANDLED;
     }
     g_hold = false;
+    g_roam = false;
     g_trail_count = 0;
     g_lastChange = get_gametime();
     new ally = _:team, enemy = 3 - ally;
@@ -119,7 +143,7 @@ public choose(id, menu, item)
         return PLUGIN_HANDLED;
     }
     if(owned_reflex() && _:cs_get_user_team(g_reflex)==side) server_print("Lobby menu verified Reflex side %d",side);
-    if (item == 0) server_cmd("yb add 2 0 %d 1 Lab-Opponent", enemy);
+    if (item == 0) server_cmd("yb add %d 0 %d 1 Lab-Opponent", get_cvar_num("yb_difficulty"),enemy);
     return PLUGIN_HANDLED;
 }
 
@@ -158,25 +182,7 @@ public refill_wallets() {
             fputs(file, "local-client");
             fclose(file);
         }
-        formatex(path, charsmax(path), "addons/reflex-lobby/client-%d.preview", str_to_num(port));
-        file = fopen(path, "rt");
-        g_preview_until[id] = 0;
-        if (file) {
-            new value[16], now = get_systime();
-            fgets(file, value, charsmax(value));
-            fclose(file);
-            new expiry = str_to_num(value);
-            if (expiry >= now && expiry <= now + 4) {
-                g_preview_until[id] = expiry;
-                if (get_cvar_num("rc_lobby_probe_client")) {
-                    static bool:reported;
-                    if (!reported) {
-                        server_print("Lobby preview outline subscription confirmed");
-                        reported = true;
-                    }
-                }
-            }
-        }
+
     }
     for (new id = 1; id <= get_maxplayers(); id++)
         if (is_user_alive(id) && cs_get_user_money(id) < 16000)
@@ -195,9 +201,8 @@ public held_jump(id) {
         set_pev(id, pev_oldbuttons, pev(id, pev_oldbuttons) & ~IN_JUMP);
 }
 public client_putinserver(id) {
+    g_watch[id]=false;
     g_bhop[id] = 0;
-    g_boxes[id] = 0;
-    g_preview_until[id] = 0;
     g_ammo[id] = 0;
     if(local_player(id)) {
         server_print("Lobby local human connected");
@@ -223,7 +228,7 @@ public add_teammate(data[], task){
     if(!local_player(id) || get_user_userid(id)!=data[0] || owned_reflex()) return;
     new CsTeams:team=cs_get_user_team(id);
     if(team!=CS_TEAM_CT && team!=CS_TEAM_T) return;
-    if(join_reflex(_:team,data[0])) server_cmd("yb add 2 0 %d 1 Lab-Opponent",3-_:team);
+    if(join_reflex(_:team,data[0])) server_cmd("yb add %d 0 %d 1 Lab-Opponent",get_cvar_num("yb_difficulty"),3-_:team);
 }
 public supply_ammo(id) {
     if (!g_ammo[id] || !local_player(id) || !is_user_alive(id)) return;
@@ -235,21 +240,37 @@ public supply_ammo(id) {
 public probe_lobby() {
     if (!lobby_is_local()) return PLUGIN_HANDLED;
     if (!owned_reflex()) join_reflex(1, 0);
+    g_roam=true;
     server_cmd("yb add 2 0 2 1 Probe-CT");
     return PLUGIN_HANDLED;
 }
 
 public lobby_spawn(id) {
     if(id != g_reflex) return;
+    g_waypoint=-1;
     g_trail_count = g_buy_attempts = 0;
     g_next_buy = 0.0;
     g_check_at=0.0;
     g_next_cell=g_cell_count=g_cell_transitions=g_visible_samples=g_clip_decrements=0;
 }
 public lobby_round_end(){
+    g_planted=false;
+    g_site=1-g_site;
+    load_site_route();
     save_patrol_memory();
     g_trail_count = 0;
     if(owned_reflex()) server_print("Lobby life: patrol_cells_entered=%d visible_enemy_ticks=%d attack_clip_decrements=%d",g_cell_transitions,g_visible_samples,g_clip_decrements);
+}
+
+public update_watchers() {
+    for (new id=1;id<=get_maxplayers();id++) {
+        if (!g_watch[id]) continue;
+        if (!local_player(id) || cs_get_user_team(id)!=CS_TEAM_SPECTATOR) {g_watch[id]=false;continue;}
+        if (!owned_reflex() || !is_user_alive(g_reflex)) continue;
+        set_ent_data_entity(id,"CBasePlayer","m_hObserverTarget",g_reflex);
+        set_pev(id,pev_iuser1,4);
+        set_pev(id,pev_iuser2,g_reflex);
+    }
 }
 
 public probe_team(data[],task){
@@ -268,54 +289,46 @@ public probe_menu(data[],task){
     player_menu_info(id,old,menu,page);
     if(menu<0) return;
     server_print("Lobby H command opened the team menu");
-    choose(id, menu, 6);
+    choose(id, menu, 2);
     if (!g_hold) return;
     show_lobby(id);
     player_menu_info(id,old,menu,page);
     if (menu < 0) return;
-    choose(id, menu, 5);
+    choose(id, menu, 0);
     if (g_hold || g_leader_userid != get_user_userid(id)) return;
     show_lobby(id);
     player_menu_info(id,old,menu,page);
     if (menu < 0) return;
-    choose(id, menu, 7);
-    if (!g_boxes[id]) return;
-    server_print("Lobby probe confirmed hold, follow and visible-box selection");
+    choose(id, menu, 1);
+    if (!g_roam) return;
+    server_print("Lobby probe confirmed hold, follow and FreeRoam");
     show_lobby(id);
     player_menu_info(id,old,menu,page);
     if (menu < 0) return;
     // Exercise the real menu callback for item 2 on the tagged probe client.
-    choose(id, menu, 1);
+    choose(id, menu, 5);
 }
 
-public draw_visible_boxes() {
-    if (!lobby_is_local()) return;
-    for (new id = 1; id <= get_maxplayers(); id++) {
-        if ((!g_boxes[id] && g_preview_until[id] < get_systime()) || !local_player(id) || !is_user_alive(id)) continue;
-        new Float:eye[3], Float:offset[3];
-        pev(id, pev_origin, eye);
-        pev(id, pev_view_ofs, offset);
-        for (new k = 0; k < 3; k++) eye[k] += offset[k];
-        new tr = create_tr2();
-        for (new other = 1; other <= get_maxplayers(); other++) {
-            if (other == id || !is_user_alive(other)) continue;
-            new Float:point[3];
-            pev(other, pev_origin, point);
-            engfunc(EngFunc_TraceLine, eye, point, DONT_IGNORE_MONSTERS, id, tr);
-            if (get_tr2(tr, TR_pHit) != other) continue;
-            new Float:lo[3], Float:hi[3];
-            pev(other, pev_absmin, lo);
-            pev(other, pev_absmax, hi);
-            message_begin(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, _, id);
-            write_byte(TE_BOX);
-            for (new k = 0; k < 3; k++) engfunc(EngFunc_WriteCoord, lo[k]);
-            for (new k = 0; k < 3; k++) engfunc(EngFunc_WriteCoord, hi[k]);
-            write_short(2);
-            write_byte(cs_get_user_team(id) == cs_get_user_team(other) ? 130 : 235);
-            write_byte(55);
-            write_byte(255);
-            message_end();
-        }
-        free_tr2(tr);
-    }
+
+
+public bot_menu(id) {
+    if (!local_player(id)) return PLUGIN_HANDLED;
+    new m=menu_create("Local bot settings","bot_choice");
+    menu_additem(m,"Easy opponents");
+    menu_additem(m,"Normal opponents");
+    menu_additem(m,"Hard opponents");
+    menu_additem(m,"Add CT bot");
+    menu_additem(m,"Remove all bots");
+    menu_display(id,m);
+    return PLUGIN_HANDLED;
+}
+public bot_choice(id,m,item) {
+    menu_destroy(m);
+    if (!local_player(id) || item<0) return PLUGIN_HANDLED;
+    if (item==3) return add_ct(id);
+    if (item==4) return clear_bots(id);
+    set_cvar_num("yb_difficulty",item*2);
+    server_cmd("yb kickall instant");
+    if (owned_reflex()) server_cmd("yb add %d 0 %d 1 Lab-Opponent",item*2,3-_:cs_get_user_team(g_reflex));
+    return PLUGIN_HANDLED;
 }

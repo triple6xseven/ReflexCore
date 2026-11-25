@@ -8,6 +8,8 @@ Local-first Windows automation for PCs with limited RAM and GPU capacity. Reflex
 
 ## What works today
 
+**Play CS 1.6 with ReflexCore.** Open **Play with a teammate â†’ Start local server**, then join through **Find Servers â†’ LAN**. Press **H** for Follow, Hold, FreeRoam AI or a first-person spectator camera in a second client. FreeRoam uses a route derived from the installed Dust II map. The local actor uses server visibility and team information to aim. In an observed offline Dust II round, the server logged an AK-47 kill by ReflexCore and a Terrorist team win. Press J to change YaPB opponent difficulty. Player candidates appear only in the ReflexVision preview. Match win rate and visual-only play remain unmeasured. [Lobby guide](docs/CS16-LOCAL-TEAM.md)
+
 - **Plan, act and verify.** The built-in Windows UI Automation scenario runs a sequence of actions and checks the resulting state. The Notepad skill creates a new file and verifies its contents from disk.
 - **Reuse successful methods.** The Notepad skill verified 20 of 20 files in a local Windows test, with zero model calls. Median execution time was 746 ms after the supervisor started. See [benchmark methodology](docs/BENCHMARKS.md).
 - **Supervise tasks in Studio.** Submit built-in tasks, cancel pending work and inspect a local task history. See [Studio](docs/STUDIO.md) and [queue recovery](docs/QUEUE.md).
@@ -45,7 +47,7 @@ dotnet build .\ui\ReflexCore.Studio.csproj -c Release
 powershell.exe -NoProfile -File .\tools\Start-ReflexCore.ps1
 ~~~
 
-In Studio, open **Agent** and select **NOTEPAD · CREATE FILE** to try the new-file task. Keep the new Notepad window in the foreground.
+In Studio, open **Agent** and select **NOTEPAD Â· CREATE FILE** to try the new-file task. Keep the new Notepad window in the foreground.
 
 Start with the [runtime architecture](docs/COGNITIVE-RUNTIME.md), [changelog](CHANGELOG.md), or [contributor notes](AGENTS.md). ReflexCore is [MIT-licensed](LICENSE).
 
