@@ -296,7 +296,7 @@ namespace ReflexCore.Diagnostics
             if(!DateTime.TryParse(Read.Str(activity,"at_utc"),null,System.Globalization.DateTimeStyles.RoundtripKind,out activityUtc) ||
                 Math.Abs((DateTime.UtcNow-activityUtc.ToUniversalTime()).TotalSeconds)>65)agent="inactive / stale";
             stage.Text="BENCH  " + (step.Length==0?"idle":step) + "    REFLEX  " + (agent.Length==0?"unknown":agent);
-            if(pulse%3==1){RefreshHistory();RefreshModel();}
+            if(pulse%3==1){RefreshHistory();RefreshSessionSummary();RefreshModel();}
             RefreshResources();
             if(pulse%6==0 && !gpuBusy)PollGpuAsync();
         }
@@ -339,7 +339,7 @@ namespace ReflexCore.Diagnostics
                 var info=new FileInfo(path);
                 if(info.Length>2097152)return;
                 string sig=info.Length+"/"+info.LastWriteTimeUtc.Ticks;
-                if(sig==lastHistorySignature)return;
+                if(sig==lastHistorySignature){if(selectedRun=="")ShowSelected();return;}
                 string previousRun=selectedRun;
                 List<Dictionary<string,object>> list=new List<Dictionary<string,object>>();
                 string[] lines=File.ReadAllLines(path,Encoding.UTF8);
@@ -362,10 +362,6 @@ namespace ReflexCore.Diagnostics
                 // Newest FIRST, independent of how the user last sorted the grid.
                 runs.Sort(runs.Columns[0],System.ComponentModel.ListSortDirection.Descending);
                 chart.Invalidate();
-                var session=Read.Json(Path.Combine(dir,"latest-session.json"));
-                if(session!=null)summary.Text="VERIFIED " + Read.Str(session,"success")+"/"+Read.Str(session,"measured_runs")+
-                    "   |   p50 " + Read.Str(session,"p50_ms")+" ms   |   p95 " + Read.Str(session,"p95_ms")+
-                    " ms   |   MEAN " + Read.Str(session,"mean_ms")+" ms";
                 runs.ClearSelection();
                 var previous=runs.Rows.Cast<DataGridViewRow>().FirstOrDefault(r=>Convert.ToString(r.Cells[7].Value)==previousRun);
                 if(runs.Rows.Count>0)(previous??runs.Rows[0]).Selected=true;
@@ -373,6 +369,13 @@ namespace ReflexCore.Diagnostics
                 ShowSelected();
                 lastHistorySignature=sig;
             }catch{}finally{refreshingHistory=false;}
+        }
+        void RefreshSessionSummary()
+        {
+                var session=Read.Json(Path.Combine(dir,"latest-session.json"));
+                summary.Text=Read.Str(session,"schema")!="reflexcore.benchmark.session.v1"?"No benchmark session summary available.":"VERIFIED " + Read.Str(session,"success")+"/"+Read.Str(session,"measured_runs")+
+                    "   |   p50 " + Read.Str(session,"p50_ms")+" ms   |   p95 " + Read.Str(session,"p95_ms")+
+                    " ms   |   MEAN " + Read.Str(session,"mean_ms")+" ms";
         }
         void ShowSelected()
         {
