@@ -26,6 +26,7 @@ public plugin_init()
     register_clcmd("rc_lobby_long", "long_round");
     register_cvar("rc_lobby_host","");
     setup_patrol_memory();
+    load_defense_memory();
     load_site_route();
     register_logevent("begin_defense",3,"2=Planted_The_Bomb");
     register_event("SendAudio","finish_defense","a","2=%!MRAD_terwin","2=%!MRAD_ctwin");

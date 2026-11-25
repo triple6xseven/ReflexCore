@@ -1,4 +1,5 @@
 #include <fakemeta>
+#include <vault>
 
 new g_reflex, g_reflex_userid, g_leader_userid;
 new Float:g_patrol_yaw, Float:g_last_position[3], Float:g_check_at;
@@ -14,7 +15,25 @@ new Float:g_progress_at, Float:g_best_distance;
 new g_site, bool:g_planted;
 new g_defense_node, g_defense_style, g_defense_score[2][2];
 
+new bool:g_position_reached, bool:g_defense_scored;
+new g_defender_userid, g_defense_key[2][2][96];
+
+load_defense_memory() {
+    new map[40], bsp[64];
+    get_mapname(map,charsmax(map));
+    formatex(bsp,charsmax(bsp),"maps/%s.bsp",map);
+    for (new site=0;site<2;site++) {
+        for (new style=0;style<2;style++) {
+            formatex(g_defense_key[site][style],95,"reflex_defense_v1_%s_%d_%d_%d",map,file_size(bsp),site,style);
+            g_defense_score[site][style]=clamp(get_vaultdata(g_defense_key[site][style]),-8,8);
+        }
+    }
+}
+
 public begin_defense() {
+    g_position_reached=false;
+    g_defense_scored=false;
+    g_defender_userid=g_reflex_userid;
     g_planted=true;
     g_defense_style=random_num(0,3)==0 ? random_num(0,1) : _:(g_defense_score[g_site][1]>g_defense_score[g_site][0]);
     g_defense_node=max(0,g_route_count-2-g_defense_style*2);
@@ -22,10 +41,16 @@ public begin_defense() {
 
 public finish_defense() {
     if (!g_planted || !g_roam || !owned_reflex() || cs_get_user_team(g_reflex)!=CS_TEAM_T) return;
+    if (!g_position_reached || g_defense_scored || g_defender_userid!=g_reflex_userid) return;
+    g_defense_scored=true;
     new msg[24];
     read_data(2,msg,charsmax(msg));
     new change=equal(msg,"%!MRAD_terwin") ? 1 : -1;
     g_defense_score[g_site][g_defense_style]=clamp(g_defense_score[g_site][g_defense_style]+change,-8,8);
+    new value[8];
+    num_to_str(g_defense_score[g_site][g_defense_style],value,charsmax(value));
+    set_vaultdata(g_defense_key[g_site][g_defense_style],value);
+    server_print("Lobby defense result: site=%d style=%d reward=%d score=%s",g_site,g_defense_style,change,value);
 }
 load_site_route() {
     g_route_count=0;
@@ -364,6 +389,7 @@ public lobby_tick()
         pev(g_reflex,pev_origin,origin);
         angles[1]=floatatan2(g_route[g_defense_node][1]-origin[1],g_route[g_defense_node][0]-origin[0],degrees);
         speed=get_distance_f(origin,g_route[g_defense_node])>50.0 ? 175.0 : 0.0;
+        if (speed==0.0 && is_user_alive(g_reflex)) g_position_reached=true;
         if(speed>0.0) angles[1]=patrol_direction(origin,angles[1]);
     }
     if (!g_roam && !target && !g_hold && g_trail_count && (!leader || speed > 0.0)) {
