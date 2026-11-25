@@ -32,7 +32,6 @@ public plugin_init()
     register_cvar("rc_lobby_host","");
     setup_patrol_memory();
     load_human_routes();
-    set_task(0.3,"sample_human_route",0,"",0,"b");
     register_event("HLTV","new_learning_round","a","1=0","2=0");
     g_site_mode=register_cvar("rc_site_mode","0");
     g_memory_limit=register_cvar("rc_follow_memory","256");

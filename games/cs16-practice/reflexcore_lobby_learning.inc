@@ -1,4 +1,5 @@
-// Shadow learning: observations never enter the active navigation policy.
+// Only experimental detours consult repeated manual directions.
+const HUMAN_ROUTE_TASK = 78432;
 enum _:RouteSample { CellX, CellY, CellZ, Heading, Team, Rounds, SeenAt }
 new g_samples[128][RouteSample], g_sample_count, g_last_round[128];
 new g_teacher, g_teacher_uid, g_round_serial=1, g_sample_path[144];
@@ -11,8 +12,13 @@ load_human_routes() {
     formatex(g_sample_path,charsmax(g_sample_path),"addons/reflex-lobby/human-routes-v1-%s-%d.bin",map,file_size(bsp));
     new file=fopen(g_sample_path,"rb");
     if (!file) return;
-    while (g_sample_count<sizeof(g_samples) && fread_blocks(file,g_samples[g_sample_count],RouteSample,BLOCK_INT)==RouteSample)
+    for (new i=0;i<sizeof(g_samples);i++) {
+        if (fread_blocks(file,g_samples[g_sample_count],RouteSample,BLOCK_INT)!=RouteSample) break;
+        if (g_samples[g_sample_count][Team]<1 || g_samples[g_sample_count][Team]>2
+            || g_samples[g_sample_count][Heading]<0 || g_samples[g_sample_count][Heading]>=8
+            || g_samples[g_sample_count][Rounds]<1 || g_samples[g_sample_count][SeenAt]<=0) continue;
         g_sample_count++;
+    }
     fclose(file);
 }
 
@@ -36,6 +42,7 @@ public sample_human_route() {
     if (!g_teacher_uid) return;
     if (!local_player(g_teacher) || get_user_userid(g_teacher)!=g_teacher_uid) {
         g_teacher_uid=0;
+        remove_task(HUMAN_ROUTE_TASK);
         g_anchor_valid=false;
         save_human_routes();
         return;
@@ -88,15 +95,18 @@ remember_sample(row[RouteSample]) {
     if (slot==g_sample_count) {
         if (slot==sizeof(g_samples)) {
             slot=0;
-            for (new i=1;i<g_sample_count;i++)
-                if (g_samples[i][SeenAt]<g_samples[slot][SeenAt]) slot=i;
+            for (new i=1;i<g_sample_count;i++) {
+                new priority=min(g_samples[i][Rounds],3);
+                new lowest=min(g_samples[slot][Rounds],3);
+                if (priority<lowest || (priority==lowest && g_samples[i][SeenAt]<g_samples[slot][SeenAt])) slot=i;
+            }
         } else g_sample_count++;
         g_samples[slot]=row;
         g_last_round[slot]=0;
     }
     if (g_last_round[slot]==g_round_serial) return;
     g_last_round[slot]=g_round_serial;
-    g_samples[slot][Rounds]++;
+    if (g_samples[slot][Rounds]<cellmax) g_samples[slot][Rounds]++;
     g_samples[slot][SeenAt]=get_systime();
     g_samples_dirty=true;
 }
@@ -116,6 +126,8 @@ public learning_choice(id,m,item) {
     if (item==0) {
         g_teacher=id;
         g_teacher_uid=g_teacher_uid ? 0 : get_user_userid(id);
+        if (g_teacher_uid) set_task(0.3,"sample_human_route",HUMAN_ROUTE_TASK,"",0,"b");
+        else remove_task(HUMAN_ROUTE_TASK);
         g_anchor_valid=false;
         save_human_routes();
         client_print(id,print_chat,g_teacher_uid ? "[ReflexCore] Recording manual routes. Repeated directions can guide detours. F9 pauses recording." : "[ReflexCore] Standard mode. Recording stopped.");
