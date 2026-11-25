@@ -10,7 +10,7 @@ use std::{
     io::Read,
     path::PathBuf,
     process::{Command, Stdio},
-    thread,
+    os::windows::io::AsRawHandle,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use windows::{
@@ -223,7 +223,16 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
             if stopped { return Err(crate::task_integrity::Fault::CancelledUnknown.into()); }
             return Err("UIA action worker timed out; result may be unknown if an action was already issued".into());
         }
-        thread::sleep(Duration::from_millis(25));
+        // Wake on worker exit while keeping the existing cancellation check interval.
+        use windows::Win32::Foundation::{HANDLE, WAIT_FAILED};
+        use windows::Win32::System::Threading::WaitForSingleObject;
+        let wait = unsafe { WaitForSingleObject(HANDLE(child.as_raw_handle()), 25) };
+        if wait == WAIT_FAILED {
+            let error = std::io::Error::last_os_error();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("UIA worker wait failed; action outcome unknown: {error}").into());
+        }
     };
     if !status.success() && crate::task_integrity::cancelled() {
         return Err(crate::task_integrity::Fault::CancelledUnknown.into());

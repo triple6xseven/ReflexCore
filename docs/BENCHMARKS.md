@@ -1,5 +1,35 @@
 # Windows acceptance measurements
 
+## UIA worker exit notification
+
+On the reference Windows laptop (Ryzen 5 4600H, 8 GB), compare the parent
+sleep loop at `c101774` (A) with waiting on the child's process handle (B).
+Use the same interactive desktop and fixture. Build with
+`cargo build --locked --release` at each revision and run
+`tools/Run-ReflexBenchmark.ps1 -Runs 5 -Warmups 1 -AllowVisibleUI` in
+A/B/B/A order. Each attempt starts a fresh fixture and four disposable
+workers. Each session excludes one warmup. OS caches were uncontrolled.
+
+| Session | Build | Verified | Total p50 / p95 (ms) |
+| --- | --- | --- | --- |
+| 48e737a532994670 | A | 5/5 | 1092.18 / 1093.06 |
+| b078bc8432504af7 | B | 5/5 | 1039.63 / 1107.71 |
+| 08d807fc10044fe7 | B | 5/5 | 1041.72 / 1063.02 |
+| 3c1559df5ef74b19 | A | 5/5 | 1107.81 / 1130.63 |
+
+Across ten measured runs per build, nearest-rank total p50/p95 went from
+1092.18/1130.63 ms to 1040.01/1107.71 ms. Flow p50 went from 516 to
+480 ms. Median fixture readiness was 466 ms for both builds. Maximum sampled
+root-process private memory was 1.42 MiB for both. All 20 measured runs
+verified the expected output; the deterministic route made zero model
+calls. With ten samples p95 is the slowest observation. The first candidate
+session had a higher maximum than the first baseline session. These results
+cover one workflow and do not establish general tail latency or child memory.
+
+Fixture SHA-256: `7A4BEB5A153067E6CC69C5B4503E60BA0F647433AC224CC6930F3B989557F36A`.
+Binary SHA-256 A: `39FF7980FA818A970AFB41A4F07B5DD5AEAE63A3205207C99F664DCBD7D29545`.
+Binary SHA-256 B: `12E08AA9B4833065ADE80854775392E39B20EA0DDC5C1E87A95318582A4189E8`.
+
 ## Fixture readiness breakdown
 
 Windows 11 Pro, Ryzen 5 4600H, 8 GB installed. The same CPU-only fixture and

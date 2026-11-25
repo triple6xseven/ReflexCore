@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Wake the UI Automation supervisor when its worker exits. Keep the 25 ms cancellation check interval and the existing run-scoped verification.
+
 - Record how long the owned Windows fixture takes to become discoverable. Find its window directly from typed observations.
 
 - Studio Diagnostics shows the UIA adapter round-trip time for each measured Flow step, including retries. Historical reports remain readable.
