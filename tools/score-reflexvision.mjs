@@ -47,12 +47,13 @@ for await (const line of lines) {
     if (record.predicted_scene !== undefined) {
         const prediction = record.predicted_scene;
         if (!scenes.has(prediction) || prediction === 'stale' ||
-            !['observed', 'timeout', 'encoding_error', 'invalid_response', 'service_error'].includes(record.observer_status) ||
-            (record.observer_status !== 'observed' && prediction !== 'unknown')) {
+            !['observed', 'classic_console', 'timeout', 'encoding_error', 'invalid_response', 'service_error'].includes(record.observer_status) ||
+            (record.observer_status === 'classic_console' && prediction !== 'console') ||
+            (!['observed', 'classic_console'].includes(record.observer_status) && prediction !== 'unknown')) {
             throw new Error('Invalid scene observer evidence');
         }
         sceneObserver.frames++;
-        if (record.observer_status !== 'observed') sceneObserver.unavailable++;
+        if (!['observed', 'classic_console'].includes(record.observer_status)) sceneObserver.unavailable++;
         else if (prediction === scene) sceneObserver.correct++;
         if (prediction === 'match' && scene !== 'match') sceneObserver.falseMatch++;
         if (prediction !== 'match' && scene === 'match') sceneObserver.missedMatch++;

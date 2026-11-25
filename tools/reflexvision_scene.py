@@ -12,7 +12,24 @@ SCHEMA = {
 }
 
 
+def classic_console(cv, image):
+    """Recognize the opaque stock VGUI console panel. Other skins abstain."""
+    sample = image[::4, ::4]
+    fill = cv.inRange(sample, (54, 69, 61), (56, 71, 63))
+    header = cv.inRange(sample, (67, 87, 75), (69, 89, 77))
+    if cv.countNonZero(fill) < fill.size * 0.15:
+        return False
+    x, y, w, h = cv.boundingRect(fill)
+    if w < fill.shape[1] * 0.35 or h < fill.shape[0] * 0.25 or y < 1:
+        return False
+    band = header[max(0, y - max(3, h // 8)):y, x:x+w]
+    return (cv.countNonZero(fill) >= w*h*0.45 and band.size > 0
+            and max(cv.countNonZero(row) for row in band) >= w*0.5)
+
+
 def observe_scene(cv, image, model):
+    if classic_console(cv, image):
+        return "console", "classic_console"
     ok, jpeg = cv.imencode(".jpg", image, [cv.IMWRITE_JPEG_QUALITY, 85])
     if not ok:
         return "unknown", "encoding_error"
@@ -98,4 +115,4 @@ if __name__ == "__main__":
     print(json.dumps({"schema": "reflexvision.observation.v1", "scene": scene,
                       "observer_status": status, "people_xywh_score": boxes,
                       "processing_ms": round(1000 * (time.perf_counter() - start), 2)}))
-    raise SystemExit(0 if status == "observed" else 1)
+    raise SystemExit(0 if status in {"observed", "classic_console"} else 1)
