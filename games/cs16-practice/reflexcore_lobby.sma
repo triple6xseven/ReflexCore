@@ -12,6 +12,8 @@ public plugin_init()
     register_plugin("ReflexCore Local Lobby", "1.0", "ReflexCore");
     register_forward(FM_PlaybackEvent,"pilot_playback");
     register_forward(FM_CmdStart,"pilot_command");
+    RegisterHam(Ham_Weapon_PrimaryAttack,"weapon_ak47","ak_before_attack");
+    RegisterHam(Ham_Weapon_PrimaryAttack,"weapon_ak47","ak_after_attack",1);
     register_clcmd("rc_pilot","toggle_pilot");
     register_clcmd("rc_lobby", "show_lobby");
     register_clcmd("rc_lobby_bhop", "toggle_bhop");

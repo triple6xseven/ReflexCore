@@ -315,7 +315,7 @@ new bool:g_has_cover[2];
 new g_ak_burst_clip[2];
 new Float:g_ak_resume_at[2], Float:g_ak_last_request[2];
 
-fire_command(actor, lane, buttons, Float:angles[3]) {
+fire_command(actor, lane, buttons) {
     if ((buttons & (IN_ATTACK | IN_DUCK)) != (IN_ATTACK | IN_DUCK)) return buttons;
     new flags=pev(actor,pev_flags);
     if ((flags & (FL_ONGROUND | FL_DUCKING)) != (FL_ONGROUND | FL_DUCKING))
@@ -337,12 +337,36 @@ fire_command(actor, lane, buttons, Float:angles[3]) {
         return buttons & ~IN_ATTACK;
     }
 
-    // GoldSrc adds the current punch angle before applying weapon spread.
+    return buttons;
+}
+
+new g_ak_active_weapon[33], Float:g_ak_original_view[33][3];
+
+public ak_before_attack(weapon) {
+    new actor=pev(weapon,pev_owner);
+    if (actor<1 || actor>32 || !lobby_is_local()) return HAM_IGNORED;
+    if (!(actor==g_reflex && owned_reflex()) && !(actor==g_pilot && get_user_userid(actor)==g_pilot_userid
+        && get_gametime()-g_pilot_at<=0.25 && (g_pilot_buttons & IN_ATTACK))) return HAM_IGNORED;
+    // Sample the engine's kick at weapon execution, after player movement.
     new Float:punch[3];
+    new Float:angles[3];
+    pev(actor,pev_v_angle,angles);
+    g_ak_original_view[actor]=angles;
+    g_ak_active_weapon[actor]=weapon;
     pev(actor,pev_punchangle,punch);
     angles[0]=floatclamp(angles[0]-punch[0],-89.0,89.0);
     angles[1]-=punch[1];
-    return buttons;
+    set_pev(actor,pev_v_angle,angles);
+    return HAM_IGNORED;
+}
+
+public ak_after_attack(weapon) {
+    new actor=pev(weapon,pev_owner);
+    if (actor>=1 && actor<=32 && g_ak_active_weapon[actor]==weapon) {
+        set_pev(actor,pev_v_angle,g_ak_original_view[actor]);
+        g_ak_active_weapon[actor]=0;
+    }
+    return HAM_IGNORED;
 }
 
 bool:find_cover(actor, target, Float:result[3]) {
@@ -577,7 +601,7 @@ drive_actor(actor) {
     engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,planting ? buttons : (buttons & IN_DUCK),0,5);
     new before,after,ammo;
     new weapon=get_user_weapon(actor,before,ammo);
-    buttons=fire_command(actor,g_lane,buttons,angles);
+    buttons=fire_command(actor,g_lane,buttons);
     engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,buttons,0,95);
     if((buttons & IN_ATTACK) && get_user_weapon(actor,after,ammo)==weapon && before>after && after>=0)
         g_clip_decrements[g_lane]+=before-after;
@@ -625,7 +649,7 @@ public pilot_command(id,cmd,seed) {
     if (get_gametime()-g_pilot_at>0.25) return FMRES_IGNORED;
     new Float:angles[3];
     angles=g_pilot_angles;
-    new buttons=fire_command(id,1,g_pilot_buttons,angles);
+    new buttons=fire_command(id,1,g_pilot_buttons);
     set_uc(cmd,UC_ViewAngles,angles);
     set_uc(cmd,UC_ForwardMove,g_pilot_speed);
     set_uc(cmd,UC_SideMove,0.0);
