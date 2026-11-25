@@ -10,6 +10,8 @@ Local-first Windows automation for PCs with limited RAM and GPU capacity. Reflex
 
 **Play CS 1.6 with ReflexCore.** Open **Play with a teammate â†’ Start local server**, then join through **Find Servers â†’ LAN**. Press **H** for Follow, Hold, FreeRoam AI or a first-person spectator camera in a second client. FreeRoam uses a route derived from the installed Dust II map. The local actor uses server visibility and team information to aim. In an observed offline Dust II round, the server logged an AK-47 kill by ReflexCore and a Terrorist team win. Press J to change YaPB opponent difficulty. Player candidates appear only in the ReflexVision preview. Match win rate and visual-only play remain unmeasured. [Lobby guide](docs/CS16-LOCAL-TEAM.md)
 
+- **F9 autopilot** is available in the local-lobby development branch. Press F9 to let Reflex play your character, then press it again to resume control. [Local lobby controls](https://github.com/triple6xseven/ReflexCore/blob/feat/local-teammate-lobby/docs/CS16-LOCAL-TEAM.md)
+
 - **Plan, act and verify.** The built-in Windows UI Automation scenario runs a sequence of actions and checks the resulting state. The Notepad skill creates a new file and verifies its contents from disk.
 - **Reuse successful methods.** The Notepad skill verified 20 of 20 files in a local Windows test, with zero model calls. Median execution time was 746 ms after the supervisor started. See [benchmark methodology](docs/BENCHMARKS.md).
 - **Supervise tasks in Studio.** Submit built-in tasks, cancel pending work and inspect a local task history. See [Studio](docs/STUDIO.md) and [queue recovery](docs/QUEUE.md).
