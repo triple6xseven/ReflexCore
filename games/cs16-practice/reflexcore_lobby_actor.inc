@@ -17,6 +17,7 @@ new bool:g_roam, Float:g_route[128][3], g_route_count, g_waypoint = -1;
 new Float:g_progress_at, Float:g_best_distance;
 
 new g_site, bool:g_planted;
+new g_site_mode, g_memory_limit, g_learning, g_training_position;
 new g_defense_node, g_defense_style, g_defense_score[2][2];
 
 new bool:g_position_reached, bool:g_defense_scored;
@@ -40,11 +41,14 @@ public begin_defense() {
     g_defender_userid=g_pilot ? 0 : g_reflex_userid;
     g_planted=true;
     g_defense_style=random_num(0,3)==0 ? random_num(0,1) : _:(g_defense_score[g_site][1]>g_defense_score[g_site][0]);
+    new forced=get_pcvar_num(g_training_position);
+    if (forced==1 || forced==2) g_defense_style=forced-1;
     g_defense_node=max(0,g_route_count-2-g_defense_style*2);
 }
 
 public finish_defense() {
     if (g_pilot || !g_planted || !g_roam || !owned_reflex() || cs_get_user_team(g_reflex)!=CS_TEAM_T) return;
+    if (!get_pcvar_num(g_learning)) return;
     if (!g_position_reached || g_defense_scored || g_defender_userid!=g_reflex_userid) return;
     g_defense_scored=true;
     new msg[24];
@@ -162,7 +166,7 @@ remember_leader(const Float:origin[3]) {
     if (g_trail_count && get_distance_f(origin, g_trail[last]) < 48.0) return;
     for (new i = 0; i < 3; i++) g_trail[g_trail_next][i] = origin[i];
     g_trail_next = (g_trail_next + 1) % sizeof(g_trail);
-    if (g_trail_count < sizeof(g_trail)) g_trail_count++;
+    if (g_trail_count < clamp(get_pcvar_num(g_memory_limit),1,sizeof(g_trail))) g_trail_count++;
 }
 
 bool:follow_trail(const Float:origin[3], Float:angles[3]) {

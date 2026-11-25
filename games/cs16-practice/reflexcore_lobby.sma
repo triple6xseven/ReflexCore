@@ -28,6 +28,10 @@ public plugin_init()
     register_clcmd("rc_lobby_long", "long_round");
     register_cvar("rc_lobby_host","");
     setup_patrol_memory();
+    g_site_mode=register_cvar("rc_site_mode","0");
+    g_memory_limit=register_cvar("rc_follow_memory","256");
+    g_learning=register_cvar("rc_learn_positions","1");
+    g_training_position=register_cvar("rc_training_position","0");
     load_defense_memory();
     load_site_route();
     register_logevent("begin_defense",3,"2=Planted_The_Bomb");
@@ -258,7 +262,8 @@ public lobby_spawn(id) {
 }
 public lobby_round_end(){
     g_planted=false;
-    g_site=1-g_site;
+    new mode=get_pcvar_num(g_site_mode);
+    g_site=mode==0 ? 1-g_site : clamp(mode-1,0,1);
     load_site_route();
     save_patrol_memory();
     g_trail_count = 0;
@@ -337,3 +342,5 @@ public bot_choice(id,m,item) {
 }
 
 public client_disconnected(id) { if (id==g_pilot) release_pilot(); }
+
+public plugin_cfg(){g_site=clamp(get_pcvar_num(g_site_mode)-1,0,1);load_site_route();}

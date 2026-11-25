@@ -433,7 +433,8 @@ namespace ReflexCore.Control
             // DPI-aware API tab. Controls flow vertically and scroll; no absolute Y positions.
             shared.Controls.Add(Header("COUNTER-STRIKE 1.6 // LOCAL PLAY",18,23));
             shared.Controls.Add(Info("Play on Dust II with ReflexCore. Join T or CT and Reflex joins your team automatically. Press H in game to switch sides.",18,73,750));
-            AddButton(shared,"▶ OPEN CS 1.6 SHARED CONTROL LAB",18,287,746,40,()=>OpenSharedControl(),true);
+            AddButton(shared,"Bot settings & training",18,287,365,40,()=>ShowLobbyPanel(shared,false),true);
+            AddButton(shared,"Shared Control lab",399,287,365,40,()=>ShowLobbyPanel(shared,true),false);
             AddButton(shared,"PLAY WITH A TEAMMATE",18,160,746,54,()=>OpenOfflineTool("ReflexCore-CS16Lobby.ps1",""),true);
             AddButton(shared,"SHOW REFLEXVISION",18,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1",""),true);
             AddButton(shared,"CLOSE REFLEXVISION",268,385,235,50,()=>OpenOfflineTool("ReflexCore-ReflexVision.ps1","-Action Stop"),false);
@@ -790,6 +791,76 @@ namespace ReflexCore.Control
             try{var req=(HttpWebRequest)WebRequest.Create("http://127.0.0.1:39771/health");req.Timeout=700;using(var r=req.GetResponse()){} }catch{}
             Thread.Sleep(350);UpdateStatus();
         }
+        void ShowLobbyPanel(TabPage page,bool lab)
+        {
+            var hidden=page.Controls.Cast<System.Windows.Forms.Control>().Where(c=>c.Visible).ToArray();
+            foreach(var c in hidden)c.Hide();
+            page.AutoScroll=false;
+            var panel=new Panel { Dock=DockStyle.Fill, AutoScroll=true,BackColor=page.BackColor,ForeColor=page.ForeColor };
+            page.Controls.Add(panel);
+            panel.BringToFront();
+            ReflexCore.SharedControl.LabWindow view=null;
+            Mutex guard=null;
+            Action close=delegate{
+                if(view!=null)view.Close();
+                if(guard!=null){guard.ReleaseMutex();guard.Dispose();}
+                panel.Dispose();
+                page.AutoScroll=true;
+                foreach(var c in hidden)c.Show();
+            };
+            try {
+                AddButton(panel,"Back to CS 1.6",12,8,180,34,close,false);
+                if(lab){
+                    bool first;
+                    guard=new Mutex(true,@"Local\ReflexCoreCS16SharedControl",out first);
+                    if(!first){guard.Dispose();guard=null;throw new InvalidOperationException("Shared Control is already open.");}
+                    view=new ReflexCore.SharedControl.LabWindow(root);
+                    view.TopLevel=false;
+                    view.FormBorderStyle=FormBorderStyle.None;
+                    panel.Controls.Add(view);
+                    Action resize=delegate{view.SetBounds(0,48,Math.Max(720,panel.ClientSize.Width),Math.Max(610,panel.ClientSize.Height-48));};
+                    resize();panel.Resize+=delegate{if(!view.IsDisposed)resize();};
+                    view.Show();
+                }else{
+                    string file=Path.Combine(root,"data","settings","lobby-profile.txt");
+                    string[][] choices={new[]{"Alternate sites","Site A","Site B"},new[]{"64 positions","128 positions","256 positions"},new[]{"Learn from round results","Freeze position scores"},new[]{"Learned choice","Practice near position","Practice far position"}};
+                    string[] labels={"FreeRoam destination","Follow memory","Training feedback","Post-plant position"};
+                    int[] values={0,2,0,0};
+                    if(File.Exists(file)){
+                        var rows=File.ReadAllLines(file);
+                        for(int i=0;i<4 && i<rows.Length;i++){int v;if(int.TryParse(rows[i],out v)&&v>=0&&v<choices[i].Length)values[i]=v;}
+                    }
+                    panel.Controls.Add(Header("Bot settings & training",18,68));
+                    panel.Controls.Add(Info("Practice a position, play a round, then compare the other position. Reflex updates its score only after reaching the position.",18,115,680));
+                    for(int i=0;i<4;i++){
+                        int row=i;
+                        panel.Controls.Add(Info(labels[i],18,183+i*55,220));
+                        Button button=null;
+                        button=AddButton(panel,choices[i][values[i]],245,176+i*55,330,40,delegate{
+                            values[row]=(values[row]+1)%choices[row].Length;
+                            button.Text=choices[row][values[row]];
+                        },false);
+                    }
+                    var status=Info("Settings apply on the next lobby start.",18,462,600);
+                    panel.Controls.Add(status);
+                    AddButton(panel,"Save lobby settings",18,404,270,42,delegate{
+                        Directory.CreateDirectory(Path.GetDirectoryName(file));
+                        string temp=file+"."+Guid.NewGuid().ToString("N")+".tmp";
+                        File.WriteAllLines(temp,values.Select(v=>v.ToString()).ToArray());
+                        if(File.Exists(file))File.Replace(temp,file,null);else File.Move(temp,file);
+                        status.Text="Saved. Start a new lobby to apply.";
+                    },true);
+                }
+                Action<System.Windows.Forms.Control> paint=null;
+                paint=c=>{c.BackColor=page.BackColor;c.ForeColor=page.ForeColor;foreach(System.Windows.Forms.Control child in c.Controls)paint(child);};
+                paint(panel);
+                EventHandler leave=null;
+                leave=delegate{if(!page.Visible && !panel.IsDisposed)close();};
+                page.VisibleChanged+=leave;
+                panel.Disposed+=delegate{page.VisibleChanged-=leave;};
+            }catch{close();throw;}
+        }
+
         void OpenSharedControl()
         {
             string script=Path.Combine(root,"tools","ReflexCore-SharedControl.ps1");

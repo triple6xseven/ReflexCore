@@ -10,10 +10,10 @@ try {
         catch { Write-Warning 'Tray not started; main UI will still open.' }
     }
     # Combine existing native WinForms implementations into ONE in-process UI assembly.
-    $parts=@('ReflexCore-ControlCenter.cs','ReflexCore-Diagnostics.cs','ReflexCore-ModelPanel.cs','ReflexCore-UnifiedShell.cs','ReflexCore-ThemePalettes.cs','ReflexCore-Queue.cs','ReflexCore-MenuStyle.cs','ReflexCore-HandoffDraft.cs','ReflexCore-ExtensionRename.cs','ReflexCore-FolderWorkflow.cs')
+    $parts=@('ReflexCore-ControlCenter.cs','ReflexCore-Diagnostics.cs','ReflexCore-ModelPanel.cs','ReflexCore-UnifiedShell.cs','ReflexCore-ThemePalettes.cs','ReflexCore-Queue.cs','ReflexCore-MenuStyle.cs','ReflexCore-HandoffDraft.cs','ReflexCore-ExtensionRename.cs','ReflexCore-FolderWorkflow.cs','ReflexCore-SharedControl.cs')
     $sources=@($parts|ForEach-Object{[IO.File]::ReadAllText((Join-Path $root ('tools\'+$_)))})
     $tail=$sources | Select-Object -Skip 1 | ForEach-Object { [regex]::Replace($_,'(?m)^using\s+[A-Za-z0-9_.]+;\s*\r?\n','') }
-    $imports="using System.Collections.Generic;`nusing System.Linq;`nusing System.Threading.Tasks;`nusing System.Web.Script.Serialization;`n"
+    $imports="using System.Net.Http;`nusing System.Collections.Generic;`nusing System.Linq;`nusing System.Threading.Tasks;`nusing System.Web.Script.Serialization;`n"
     $source=$imports+$sources[0]+"`n"+($tail -join "`n")
     $project=Join-Path $root 'ui\ReflexCore.Studio.csproj'
     $studio=Join-Path $root 'ui\bin\Release\net48\ReflexCore.Studio.dll'
@@ -21,7 +21,7 @@ try {
         & dotnet build $project -c Release --nologo
         if($LASTEXITCODE -ne 0){throw 'WPF Studio build failed'}
     }
-    $refs=@('System.Windows.Forms.dll','System.Drawing.dll','System.Core.dll','System.Security.dll','System.Web.Extensions.dll')
+    $refs=@('System.Windows.Forms.dll','System.Drawing.dll','System.Core.dll','System.Security.dll','System.Net.Http.dll','System.Web.Extensions.dll')
     foreach($name in 'WindowsBase','PresentationCore','PresentationFramework','System.Xaml','WindowsFormsIntegration'){
         $loaded=Add-Type -AssemblyName $name -PassThru
         $refs+=($loaded | Select-Object -First 1).Assembly.Location

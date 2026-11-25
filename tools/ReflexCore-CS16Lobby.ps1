@@ -74,6 +74,15 @@ function Start-Lobby {
     [IO.File]::WriteAllText((Join-Path $lobby 'core.ini'),"amxx_plugins addons/reflex-lobby/plugins.ini`r`n")
     [IO.File]::WriteAllText((Join-Path $lobby 'plugins.ini'),"reflexcore_lobby.amxx`r`n")
     $commands=@('hostname "ReflexCore | Local team play"','sv_lan 1','rc_practice_enabled 0','mp_autoteambalance 0','mp_limitteams 0','mp_freezetime 1','mp_startmoney 16000','mp_logdetail 3','yb_quota 0','log on','meta list','amxx plugins')
+    $profilePath=Join-Path $root 'data/settings/lobby-profile.txt'
+    if(Test-Path -LiteralPath $profilePath){
+        $profile=@(Get-Content -LiteralPath $profilePath)
+        if($profile.Count -ne 4 -or $profile[0] -notmatch '^[012]$' -or $profile[1] -notmatch '^[012]$' -or $profile[2] -notmatch '^[01]$' -or $profile[3] -notmatch '^[012]$'){throw 'Save a valid profile in Bot settings & training.'}
+        $commands+="rc_site_mode $($profile[0])"
+        $commands+="rc_follow_memory $(@(64,128,256)[[int]$profile[1]])"
+        $commands+="rc_learn_positions $(1-[int]$profile[2])"
+        $commands+="rc_training_position $($profile[3])"
+    }
     if($lanAddress){$commands+="rc_lobby_host $lanAddress"}
     if($ProbeRound){$commands+='mp_roundtime 1';$commands+='mp_c4timer 15'}
     if($ProbeClient){$commands+='rc_lobby_probe_client 1'}

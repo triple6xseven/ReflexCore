@@ -672,10 +672,10 @@ Return only action and at_bombsite as strict JSON.";
             CheckBox hudToggle=new CheckBox{Text="Show a compact status overlay in the game",Dock=DockStyle.Top,Height=30,
                 ForeColor=Color.FromArgb(192,217,198),Checked=true,Margin=new Padding(4,12,4,4)};
             hudToggle.CheckedChanged+=delegate{
-                if(hudToggle.Checked){hud.Show(this);hud.Set("REFLEXCORE | "+summary.Text);}else hud.Hide();
+                if(hudToggle.Checked){hud.Show(TopLevelControl as Form);hud.Set("REFLEXCORE | "+summary.Text);}else hud.Hide();
             };
             pilotGrid.Controls.Add(hudToggle,0,6);pilot.Controls.Add(pilotGrid);
-            Shown+=delegate{if(hudToggle.Checked){hud.Show(this);hud.Set("REFLEXCORE | IDLE - NO INPUT");}};
+            Shown+=delegate{if(hudToggle.Checked){hud.Show(TopLevelControl as Form);hud.Set("REFLEXCORE | IDLE - NO INPUT");}};
 
             TableLayoutPanel plantGrid=PageGrid(7);
             plantGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,52));
@@ -721,7 +721,7 @@ Return only action and at_bombsite as strict JSON.";
                 BackColor=Color.FromArgb(6,17,20),ForeColor=green,Font=new Font("Consolas",9),WordWrap=false,TabStop=false};
             journalPanel.Controls.Add(activity);journalPanel.Controls.Add(journalTitle);journal.Controls.Add(journalPanel);
 
-            FormClosing+=delegate{StopCurrent(false);UninstallHooks();try{hud.Close();}catch{}};
+            FormClosing+=delegate{timer.Stop();StopCurrent(false);UninstallHooks();try{hud.Close();}catch{}};
             keyboardCallback=Keyboard;mouseCallback=Mouse;
             IntPtr module=Native.GetModuleHandle(null);
             kHook=Native.SetWindowsHookEx(13,keyboardCallback,module,0);
