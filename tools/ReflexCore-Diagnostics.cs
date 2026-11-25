@@ -168,6 +168,7 @@ namespace ReflexCore.Diagnostics
             trace=Grid();trace.Dock=DockStyle.Fill;detailsLayout.Controls.Add(trace,0,1);
             trace.Columns.Add("step","Step");trace.Columns.Add("action","UIA action");trace.Columns.Add("tries","Attempts");
             trace.Columns.Add("status","Status");trace.Columns.Add("verify","Verification");trace.Columns.Add("duration","Elapsed ms");trace.Columns.Add("why","Evidence code");
+            trace.Columns.Add("adapter","UIA round trip (us)");
             var resourcePage=new Panel{Dock=DockStyle.Fill};
             var resourceLayout=Rows(112);resourcePage.Controls.Add(resourceLayout);
             resources=MakeLabel("CPU/RAM polling…",new Font("Consolas",12),accent);resources.Dock=DockStyle.Fill;resourceLayout.Controls.Add(resources,0,0);
@@ -386,7 +387,7 @@ namespace ReflexCore.Diagnostics
             foreach(var part in Read.Array(row,"steps")){
                 var x=Read.Map(part);if(x==null)continue;
                 trace.Rows.Add(Read.Str(x,"index"),Read.Str(x,"action"),Read.Str(x,"attempts"),Read.Str(x,"status"),
-                    Read.Str(x,"verification"),Read.Str(x,"duration_ms"),Read.Str(x,"evidence"));
+                    Read.Str(x,"verification"),Read.Str(x,"duration_ms"),Read.Str(x,"evidence"),Read.Str(x,"adapter_us"));
             }
         }
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]

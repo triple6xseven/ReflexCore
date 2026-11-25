@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Studio Diagnostics shows the UIA adapter round-trip time for each measured Flow step, including retries. Historical reports remain readable.
+
 - Discover the teammate lobby in the LAN browser, buy rifles and ammunition, follow or hold through the H menu, remember stalled patrol headings and preview the local dedicated client. Insert toggles held-jump assistance.
 
 - Add a private Dust II team lobby, two-window client launch, H team menu and GoldSrc buy/practice keys.

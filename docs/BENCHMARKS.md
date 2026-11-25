@@ -1,5 +1,35 @@
 # Windows acceptance measurements
 
+## UIA adapter timing on the reference laptop
+
+Windows, Ryzen 5 4600H, 8 GB installed. The owned four-action Windows Forms
+Goal ran on CPU with zero model calls. Each series had one excluded warmup
+and five measured launches, each with a fresh fixture and fresh UIA workers.
+Percentiles use nearest rank. With five samples p95 is the maximum. Cold OS
+cache and GPU usage were not measured. All 15 measured goals verified.
+
+| Build | Session | Total p50 / p95 ms | Mean ms | Flow p50 ms | Sampled root peak private MiB |
+| --- | --- | --- | --- | --- | --- |
+| Existing release binary | 5f3e00cbccd54430 | 1056.59 / 1083.83 | 1061.48 | 495 | 1.42 |
+| Experimental process-handle wait | ee316a0ccf3d4e9e | 1128.06 / 1305.80 | 1176.14 | 542 | 1.41 |
+| Shipped instrumentation | e20dd0e878f24daa | 1109.44 / 1144.25 | 1106.96 | 518 | 1.41 |
+
+The baseline binary's Rust sources match the feature branch base. All sessions
+used fixture SHA-256 `7A4BEB5A153067E6CC69C5B4503E60BA0F647433AC224CC6930F3B989557F36A`.
+Sessions ran sequentially on an interactive desktop. Load and filesystem cache
+were uncontrolled. The measured median increased by 52.85 ms. These data
+cannot attribute that difference to timing instrumentation. Replacing the
+25 ms worker poll with a timed process-handle wait showed no end-to-end gain
+in this trial and was dropped. Roughly half of the median task time is outside
+Flow. That interval also includes planning and PowerShell fixture startup.
+
+Reproduce at each revision with `cargo build --release --locked` then
+`powershell -ExecutionPolicy Bypass -File tools/Run-ReflexBenchmark.ps1 -Runs 5 -Warmups 1 -AllowVisibleUI`.
+In Studio, open Diagnostics, select a run and open Evidence / decisions.
+Each run keeps its binary hash, fixture hash and action results locally.
+Adapter round trips include retries and worker overhead. They are part of
+step elapsed time. The peak memory column covers sampled root Rust memory only.
+
 The UIA Goal benchmark passes a unique run ID to each owned subprocess. It accepts the run-scoped report only when its schema and ID match and the subprocess succeeds. The latest Flow snapshot stays available for local diagnostics. Run `tools/Run-ReflexBenchmark.ps1 -SelfTest` to check the fixture and rejection of unrelated or truncated reports.
 
 ## Supervised task stop and receipts

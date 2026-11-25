@@ -185,6 +185,7 @@ function Execute-One([int]$iteration,[bool]$warmup){
             if($ver -notin @('verified','not_applicable','unknown','unverified')){$ver='other'}
             $details+=,[ordered]@{
                 index=[int]$step.index;action=$act;attempts=[int]$step.attempts
+                adapter_us=if($step.PSObject.Properties['adapter_us']){[long]$step.adapter_us}else{$null}
                 duration_ms=[double]$step.duration_ms;status=([string]$step.status -replace '[^a-z_]','')
                 verification=$ver
                 evidence=if($act -like 'assert-*' -and $ver -eq 'verified'){'ASSERTION_READBACK_VERIFIED'}

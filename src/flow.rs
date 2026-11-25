@@ -54,6 +54,7 @@ struct Step {
 
 #[derive(Debug, Serialize)]
 struct StepReport {
+    adapter_us: u128,
     index: usize,
     action: String,
     attempts: usize,
@@ -253,6 +254,7 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
     let mut has_evidence = false;
     for (index, step) in flow.steps.iter().enumerate() {
         let per_step = Instant::now();
+        let mut adapter_us = 0;
         let mut last_status = "worker_error".to_owned();
         let mut last_verification = "not_applicable".to_owned();
         let attempts_allowed = if retry_safe(&step.action) {
@@ -271,8 +273,11 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
         for attempt in 1..=attempts_allowed {
             attempt_count = attempt;
             action_id += 1;
-            match crate::uia_actions::execute_scoped(&args[1..], &run_id, action_id,
-                target.map(|(_, pid)| pid), target.is_some() && !trusted_fixture) {
+            let dispatch = Instant::now();
+            let response = crate::uia_actions::execute_scoped(&args[1..], &run_id, action_id,
+                target.map(|(_, pid)| pid), target.is_some() && !trusted_fixture);
+            adapter_us += dispatch.elapsed().as_micros();
+            match response {
                 Ok(response) => {
                     last_status = response["status"].as_str().unwrap_or("invalid_report").to_owned();
                     last_verification = response["verification"].as_str().unwrap_or("not_applicable").to_owned();
@@ -310,6 +315,7 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
             has_evidence |= last_verification == "verified";
         }
         final_report.steps.push(StepReport {
+            adapter_us,
             index: index + 1,
             action: step.action.clone(),
             attempts: attempt_count,
@@ -773,7 +779,7 @@ mod tests {
             outcome: "passed", completed_steps: 1, total_steps: 1,
             steps: vec![StepReport {
                 index: 1, action: "set-value".into(), attempts: 1,
-                status: "issued".into(), verification: "verified".into(), duration_ms: 1,
+                status: "issued".into(), verification: "verified".into(), duration_ms: 1, adapter_us: 1000,
             }],
         };
         let data = serde_json::to_string(&report).unwrap();

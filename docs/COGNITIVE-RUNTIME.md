@@ -1,5 +1,25 @@
 # Cognitive runtime
 
+## 0.8 measurement milestone
+
+The deterministic Windows adapter emits an additive numeric field on each step of
+`reflexcore.flow.execution.v1`. `adapter_us` sums monotonic time inside
+`execute_scoped` across all attempts, including unsuccessful calls. It includes
+window resolution, request preparation, worker startup, execution and reply
+handling. Retry delays and orchestration outside the adapter are excluded.
+The existing benchmark carries this field into the run-specific Studio evidence
+view. Older records have no value. Task success still requires correlated effect
+verification. The telemetry adds no process, model request or background timer.
+
+### Development roadmap
+
+Measure fixture startup and worker startup separately before considering worker
+reuse. Compare identical fixtures in alternating sessions. A future persistent
+worker must pass the existing stale-reply, permission, cancellation and recovery
+checks. Keep Focused and Deep routing and learned cost estimates experimental
+until held-out comparisons justify them. The present UIA workflow uses the
+native Reflex path with zero model calls.
+
 ## Routing and verification
 
 `reflexcore.goal.v2` accepts a `guard` with an exact window title and a value predicate for each graph state. The runtime binds one foreground HWND and process, uses its AutomationId selectors, and checks each source and destination state plus the final Goal. It refuses ambiguous windows and Flow-level window or ordinal path overrides. See [the two-skill manifest](../examples/guarded_goal.json). Use `agent plan examples/guarded_goal.json` for read-only planning and `agent run examples/guarded_goal.json --execute` with the test fixture in the foreground. File-based Save verification is demonstrated by the separate owned fixture adapter.

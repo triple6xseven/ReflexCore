@@ -1,0 +1,17 @@
+name: Windows runtime
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Check fixture and report correlation
+        shell: powershell
+        run: ./tools/Run-ReflexBenchmark.ps1 -SelfTest
+      - name: Compile and check Studio
+        shell: powershell
+        run: ./tools/ReflexCore-ControlCenter.ps1 -SelfTest
