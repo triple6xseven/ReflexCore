@@ -10,6 +10,8 @@ new Float:g_lastChange;
 public plugin_init()
 {
     register_plugin("ReflexCore Local Lobby", "1.0", "ReflexCore");
+    register_forward(FM_CmdStart,"pilot_command");
+    register_clcmd("rc_pilot","toggle_pilot");
     register_clcmd("rc_lobby", "show_lobby");
     register_clcmd("rc_lobby_bhop", "toggle_bhop");
     register_forward(FM_PlayerPreThink, "held_jump");
@@ -333,3 +335,5 @@ public bot_choice(id,m,item) {
     if (owned_reflex()) server_cmd("yb add %d 0 %d 1 Lab-Opponent",item*2,3-_:cs_get_user_team(g_reflex));
     return PLUGIN_HANDLED;
 }
+
+public client_disconnected(id) { if (id==g_pilot) release_pilot(); }

@@ -9,6 +9,10 @@ new Float:g_spawn_origin[3];
 new g_cells[96][3], g_cell_count, g_next_cell, g_cell_transitions;
 new g_visible_samples, g_clip_decrements;
 new bool:g_hold;
+new g_pilot, g_pilot_userid, g_pilot_buttons;
+new Float:g_pilot_angles[3], Float:g_pilot_speed, Float:g_pilot_at;
+new bool:g_prior_roam, bool:g_prior_hold;
+
 new bool:g_roam, Float:g_route[128][3], g_route_count, g_waypoint = -1;
 new Float:g_progress_at, Float:g_best_distance;
 
@@ -33,14 +37,14 @@ load_defense_memory() {
 public begin_defense() {
     g_position_reached=false;
     g_defense_scored=false;
-    g_defender_userid=g_reflex_userid;
+    g_defender_userid=g_pilot ? 0 : g_reflex_userid;
     g_planted=true;
     g_defense_style=random_num(0,3)==0 ? random_num(0,1) : _:(g_defense_score[g_site][1]>g_defense_score[g_site][0]);
     g_defense_node=max(0,g_route_count-2-g_defense_style*2);
 }
 
 public finish_defense() {
-    if (!g_planted || !g_roam || !owned_reflex() || cs_get_user_team(g_reflex)!=CS_TEAM_T) return;
+    if (g_pilot || !g_planted || !g_roam || !owned_reflex() || cs_get_user_team(g_reflex)!=CS_TEAM_T) return;
     if (!g_position_reached || g_defense_scored || g_defender_userid!=g_reflex_userid) return;
     g_defense_scored=true;
     new msg[24];
@@ -72,7 +76,7 @@ bool:site_move(const Float:origin[3], Float:angles[3], &buttons, &Float:speed) {
         new tr=create_tr2();
         for (new i=g_route_count-1;i>=0;i--) {
             if (get_distance_f(origin,g_route[i]) > 300.0) continue;
-            engfunc(EngFunc_TraceLine,origin,g_route[i],IGNORE_MONSTERS,g_reflex,tr);
+            engfunc(EngFunc_TraceLine,origin,g_route[i],IGNORE_MONSTERS,g_pilot ? g_pilot : g_reflex,tr);
             new Float:clearance;
             get_tr2(tr,TR_flFraction,clearance);
             if (clearance < 0.99) continue;
@@ -98,7 +102,7 @@ bool:site_move(const Float:origin[3], Float:angles[3], &buttons, &Float:speed) {
     angles[1]=floatatan2(g_route[g_waypoint][1]-origin[1],g_route[g_waypoint][0]-origin[0],degrees);
     angles[0]=0.0;
     speed=distance < 48.0 ? 125.0 : 235.0;
-    if (get_gametime()-g_progress_at > 0.5 && (pev(g_reflex,pev_flags)&FL_ONGROUND)) buttons |= IN_JUMP;
+    if (get_gametime()-g_progress_at > 0.5 && (pev(g_pilot ? g_pilot : g_reflex,pev_flags)&FL_ONGROUND)) buttons |= IN_JUMP;
     if (get_gametime()-g_progress_at > 2.0) {g_waypoint=-1;return false;}
     return true;
 }
@@ -165,8 +169,10 @@ bool:follow_trail(const Float:origin[3], Float:angles[3]) {
     new tr = create_tr2(), bool:found;
     for (new n = 1; n <= g_trail_count; n++) {
         new index = (g_trail_next + sizeof(g_trail) - n) % sizeof(g_trail);
-        if (get_distance_f(origin, g_trail[index]) < 32.0) break;
-        engfunc(EngFunc_TraceHull, origin, g_trail[index], IGNORE_MONSTERS, HULL_HUMAN, g_reflex, tr);
+        new Float:distance=get_distance_f(origin,g_trail[index]);
+        if (distance<32.0) break;
+        if (distance>384.0) continue;
+        engfunc(EngFunc_TraceHull, origin, g_trail[index], IGNORE_MONSTERS, HULL_HUMAN, g_pilot ? g_pilot : g_reflex, tr);
         new Float:fraction;
         get_tr2(tr, TR_flFraction, fraction);
         if (fraction < 0.99 || get_tr2(tr, TR_StartSolid)) {
@@ -175,10 +181,10 @@ bool:follow_trail(const Float:origin[3], Float:angles[3]) {
             for (new k=0;k<3;k++) {raised[k]=origin[k];end[k]=g_trail[index][k];}
             raised[2]+=18.0;
             end[2]+=18.0;
-            engfunc(EngFunc_TraceHull,origin,raised,IGNORE_MONSTERS,HULL_HUMAN,g_reflex,tr);
+            engfunc(EngFunc_TraceHull,origin,raised,IGNORE_MONSTERS,HULL_HUMAN,g_pilot ? g_pilot : g_reflex,tr);
             get_tr2(tr,TR_flFraction,fraction);
             if (fraction<0.99 || get_tr2(tr,TR_StartSolid)) continue;
-            engfunc(EngFunc_TraceHull,raised,end,IGNORE_MONSTERS,HULL_HUMAN,g_reflex,tr);
+            engfunc(EngFunc_TraceHull,raised,end,IGNORE_MONSTERS,HULL_HUMAN,g_pilot ? g_pilot : g_reflex,tr);
             get_tr2(tr,TR_flFraction,fraction);
             if (fraction<0.99 || get_tr2(tr,TR_StartSolid)) continue;
         }
@@ -273,7 +279,7 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
         end[0]=origin[0]+floatcos(heading,degrees)*150.0;
         end[1]=origin[1]+floatsin(heading,degrees)*150.0;
         end[2]=origin[2];
-        engfunc(EngFunc_TraceHull,origin,end,DONT_IGNORE_MONSTERS,HULL_HUMAN,g_reflex,trace);
+        engfunc(EngFunc_TraceHull,origin,end,DONT_IGNORE_MONSTERS,HULL_HUMAN,g_pilot ? g_pilot : g_reflex,trace);
         get_tr2(trace,TR_flFraction,fraction);
         if(fraction<0.3) continue;
         for(new k=0;k<2;k++) end[k]=origin[k]+(end[k]-origin[k])*fraction;
@@ -287,43 +293,46 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
 
 public lobby_tick()
 {
-    if (!lobby_is_local() || !owned_reflex() || !is_user_alive(g_reflex)) return;
-    new CsTeams:team = cs_get_user_team(g_reflex);
+    if (g_pilot && (!local_player(g_pilot) || !is_user_alive(g_pilot) || get_user_userid(g_pilot)!=g_pilot_userid)) release_pilot();
+    if (!lobby_is_local() || (!g_pilot && !owned_reflex())) return;
+    new actor=g_pilot ? g_pilot : g_reflex;
+    if (!is_user_alive(actor)) return;
+    new CsTeams:team = cs_get_user_team(actor);
     if (team != CS_TEAM_CT && team != CS_TEAM_T) return;
-    if (g_buy_attempts < 4 && get_gametime() >= g_next_buy && cs_get_user_buyzone(g_reflex)) {
+    if (g_buy_attempts < 4 && get_gametime() >= g_next_buy && cs_get_user_buyzone(actor)) {
         new rifle = team == CS_TEAM_T ? CSW_AK47 : CSW_M4A1;
-        if (!user_has_weapon(g_reflex, rifle)) {
-            amxclient_cmd(g_reflex, team == CS_TEAM_T ? "ak47" : "m4a1");
-            if (user_has_weapon(g_reflex, rifle)) {
-                amxclient_cmd(g_reflex, "primammo");
-                engclient_cmd(g_reflex, team == CS_TEAM_T ? "weapon_ak47" : "weapon_m4a1");
+        if (!user_has_weapon(actor, rifle)) {
+            amxclient_cmd(actor, team == CS_TEAM_T ? "ak47" : "m4a1");
+            if (user_has_weapon(actor, rifle)) {
+                amxclient_cmd(actor, "primammo");
+                engclient_cmd(actor, team == CS_TEAM_T ? "weapon_ak47" : "weapon_m4a1");
                 server_print("Lobby Reflex rifle purchase confirmed");
             }
         }
         new CsArmorType:armor;
-        if (cs_get_user_armor(g_reflex,armor)<100 || armor!=CS_ARMOR_VESTHELM) {
-            amxclient_cmd(g_reflex,"vesthelm");
-            if (cs_get_user_armor(g_reflex,armor)==100 && armor==CS_ARMOR_VESTHELM)
+        if (cs_get_user_armor(actor,armor)<100 || armor!=CS_ARMOR_VESTHELM) {
+            amxclient_cmd(actor,"vesthelm");
+            if (cs_get_user_armor(actor,armor)==100 && armor==CS_ARMOR_VESTHELM)
                 server_print("Lobby armor and helmet verified");
         }
         g_buy_attempts++;
         g_next_buy=get_gametime()+0.6;
     }
     new Float:eye[3], Float:offset[3], Float:angles[3], Float:dest[3], Float:point[3];
-    pev(g_reflex,pev_origin,eye);
-    pev(g_reflex,pev_view_ofs,offset);
+    pev(actor,pev_origin,eye);
+    pev(actor,pev_view_ofs,offset);
     for (new k=0;k<3;k++) eye[k]+=offset[k];
     new target, leader, trace=create_tr2();
     new Float:best=99999.0;
     for(new id=1;id<=get_maxplayers();id++){
-        if (id==g_reflex || !is_user_alive(id)) continue;
+        if (id==actor || !is_user_alive(id)) continue;
         new CsTeams:other=cs_get_user_team(id);
         if(other!=CS_TEAM_CT && other!=CS_TEAM_T) continue;
         pev(id,pev_origin,point);
         if (other == team && get_user_userid(id) == g_leader_userid && !g_hold && (pev(id, pev_flags) & FL_ONGROUND))
             remember_leader(point);
         point[2]+=14.0;
-        engfunc(EngFunc_TraceLine,eye,point,DONT_IGNORE_MONSTERS,g_reflex,trace);
+        engfunc(EngFunc_TraceLine,eye,point,DONT_IGNORE_MONSTERS,actor,trace);
         if(get_tr2(trace,TR_pHit)!=id) continue;
         if(other==team){
             if(get_user_userid(id)==g_leader_userid) leader=id;
@@ -337,7 +346,7 @@ public lobby_tick()
     new Float:speed;
     if (g_roam) leader=0;
     new focus=target ? target : leader;
-    pev(g_reflex,pev_v_angle,angles);
+    pev(actor,pev_v_angle,angles);
     if(focus){
         pev(focus,pev_origin,dest);
         dest[2]+=14.0;
@@ -348,14 +357,14 @@ public lobby_tick()
         if(target){
             g_visible_samples++;
             new clip,reserve;
-            get_user_weapon(g_reflex,clip,reserve);
+            get_user_weapon(actor,clip,reserve);
             if(clip==0 && reserve>0) buttons=IN_RELOAD;
             else if(clip>0) buttons=IN_ATTACK;
         }
     }
     if (focus || g_hold) g_patrolled = false;
     if(!focus && !g_hold){
-        new Float:origin[3]; pev(g_reflex,pev_origin,origin);
+        new Float:origin[3]; pev(actor,pev_origin,origin);
         if(get_gametime()>=g_check_at){
             record_cell(origin);
             if(g_check_at==0.0){
@@ -381,26 +390,26 @@ public lobby_tick()
     }
     if (g_roam && !target && !g_planted) {
         new Float:origin[3];
-        pev(g_reflex,pev_origin,origin);
+        pev(actor,pev_origin,origin);
         if (site_move(origin,angles,buttons,speed)) g_patrolled=false;
     }
     if (g_roam && g_planted && !target && g_route_count>1) {
         new Float:origin[3];
-        pev(g_reflex,pev_origin,origin);
+        pev(actor,pev_origin,origin);
         angles[1]=floatatan2(g_route[g_defense_node][1]-origin[1],g_route[g_defense_node][0]-origin[0],degrees);
         speed=get_distance_f(origin,g_route[g_defense_node])>50.0 ? 175.0 : 0.0;
-        if (speed==0.0 && is_user_alive(g_reflex)) g_position_reached=true;
+        if (speed==0.0 && is_user_alive(actor)) g_position_reached=true;
         if(speed>0.0) angles[1]=patrol_direction(origin,angles[1]);
     }
     if (!g_roam && !target && !g_hold && g_trail_count && (!leader || speed > 0.0)) {
         new Float:origin[3];
-        pev(g_reflex, pev_origin, origin);
+        pev(actor, pev_origin, origin);
         if (follow_trail(origin, angles)) { speed = 180.0; g_patrolled = false; }
         else if (leader) angles[1] = patrol_direction(origin, angles[1]);
     }
-    if (!target && !g_hold && !g_roam && speed>0.0 && g_trail_count && (pev(g_reflex,pev_flags)&FL_ONGROUND)) {
+    if (!target && !g_hold && !g_roam && speed>0.0 && g_trail_count && (pev(actor,pev_flags)&FL_ONGROUND)) {
         new Float:velocity[3];
-        pev(g_reflex,pev_velocity,velocity);
+        pev(actor,pev_velocity,velocity);
         if (vector_length(velocity)<15.0) buttons |= IN_JUMP;
     }
     if (!target && !g_hold && speed > 0.0) {
@@ -409,7 +418,7 @@ public lobby_tick()
         end[1] = eye[1] + 64.0 * floatsin(angles[1], degrees);
         end[2] = eye[2];
         new door_trace = create_tr2();
-        engfunc(EngFunc_TraceLine, eye, end, DONT_IGNORE_MONSTERS, g_reflex, door_trace);
+        engfunc(EngFunc_TraceLine, eye, end, DONT_IGNORE_MONSTERS, actor, door_trace);
         new door = get_tr2(door_trace, TR_pHit);
         free_tr2(door_trace);
         if (door > get_maxplayers() && pev_valid(door)) {
@@ -419,21 +428,77 @@ public lobby_tick()
         }
     }
     if (g_hold) speed = 0.0;
-    new bool:planting = g_roam && !target && team == CS_TEAM_T && user_has_weapon(g_reflex,CSW_C4)
-        && (cs_get_user_mapzones(g_reflex) & CS_MAPZONE_BOMBTARGET) != 0;
+    new bool:planting = g_roam && !target && team == CS_TEAM_T && user_has_weapon(actor,CSW_C4)
+        && (cs_get_user_mapzones(actor) & CS_MAPZONE_BOMBTARGET) != 0;
     if (planting) {
         speed=0.0;
-        if (get_user_weapon(g_reflex)!=CSW_C4) engclient_cmd(g_reflex,"weapon_c4");
-        buttons=get_user_weapon(g_reflex)==CSW_C4 ? IN_ATTACK : 0;
-    } else if (target && get_user_weapon(g_reflex)==CSW_C4) {
-        engclient_cmd(g_reflex,"weapon_ak47");
+        if (get_user_weapon(actor)!=CSW_C4) engclient_cmd(actor,"weapon_c4");
+        buttons=get_user_weapon(actor)==CSW_C4 ? IN_ATTACK : 0;
+    } else if (target && get_user_weapon(actor)==CSW_C4) {
+        engclient_cmd(actor,"weapon_ak47");
         buttons=0;
     }
-    if(pev(g_reflex,pev_fixangle)==1) set_pev(g_reflex,pev_fixangle,0);
-    engfunc(EngFunc_RunPlayerMove,g_reflex,angles,speed,0.0,0.0,planting ? buttons : 0,0,5);
+    if (g_pilot) {
+        for (new i=0;i<3;i++) g_pilot_angles[i]=angles[i];
+        g_pilot_at=get_gametime();
+        g_pilot_speed=speed;
+        g_pilot_buttons=buttons;
+        set_pev(actor,pev_angles,angles);
+        set_pev(actor,pev_fixangle,1);
+        return;
+    }
+    if(pev(actor,pev_fixangle)==1) set_pev(actor,pev_fixangle,0);
+    engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,planting ? buttons : 0,0,5);
     new before,after,ammo;
-    new weapon=get_user_weapon(g_reflex,before,ammo);
-    engfunc(EngFunc_RunPlayerMove,g_reflex,angles,speed,0.0,0.0,buttons,0,95);
-    if((buttons & IN_ATTACK) && get_user_weapon(g_reflex,after,ammo)==weapon && before>after && after>=0)
+    new weapon=get_user_weapon(actor,before,ammo);
+    engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,buttons,0,95);
+    if((buttons & IN_ATTACK) && get_user_weapon(actor,after,ammo)==weapon && before>after && after>=0)
         g_clip_decrements+=before-after;
 }
+reset_navigation() {
+    g_waypoint=-1;
+    g_check_at=g_next_buy=0.0;
+    g_buy_attempts=g_cell_count=g_next_cell=g_trail_count=0;
+    g_position_reached=false;
+}
+
+release_pilot() {
+    if (!g_pilot) return;
+    g_pilot=g_pilot_userid=0;
+    g_pilot_at=-1.0;
+    g_roam=g_prior_roam;
+    g_hold=g_prior_hold;
+    reset_navigation();
+}
+
+public toggle_pilot(id) {
+    if (!local_player(id)) return PLUGIN_HANDLED;
+    if (id==g_pilot) {
+        release_pilot();
+        client_print(id,print_chat,"[ReflexCore] Manual control.");
+    } else if (!g_pilot && is_user_alive(id)) {
+        g_prior_hold=g_hold;
+        g_prior_roam=g_roam;
+        g_hold=false;
+        g_roam=true;
+        reset_navigation();
+        g_pilot=id;
+        g_pilot_userid=get_user_userid(id);
+        g_pilot_at=-1.0;
+        client_print(id,print_chat,"[ReflexCore] Autopilot on. Press F9 for manual control.");
+    }
+    return PLUGIN_HANDLED;
+}
+
+public pilot_command(id,cmd,seed) {
+    if (!g_pilot || id!=g_pilot) return FMRES_IGNORED;
+    if (!is_user_alive(id) || get_user_userid(id)!=g_pilot_userid) {release_pilot();return FMRES_IGNORED;}
+    if (get_gametime()-g_pilot_at>0.25) return FMRES_IGNORED;
+    set_uc(cmd,UC_ViewAngles,g_pilot_angles);
+    set_uc(cmd,UC_ForwardMove,g_pilot_speed);
+    set_uc(cmd,UC_SideMove,0.0);
+    set_uc(cmd,UC_UpMove,0.0);
+    set_uc(cmd,UC_Buttons,g_pilot_buttons);
+    return FMRES_HANDLED;
+}
+

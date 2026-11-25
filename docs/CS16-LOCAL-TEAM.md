@@ -43,3 +43,5 @@ Two one-minute autonomous rounds ended with `Target_Saved` for CT. In the round 
 Keep this lobby and YaPB opponent as the acceptance entry point. Next, connect a local Dust II navigation graph to the Reflex actor, route from the actual spawn, and replan on stalled movement. Compare contact rate and time to first contact against this patrol on the same recorded starts. Log the first location with verified line of sight, then measure discharges, damage and survival in later trials. Keep the visual replay benchmark separate and add manually labeled active-play frames before estimating detector recall.
 
 Post-plant defense retains bounded scores for each site and retreat choice in the local AMXX vault. A team win or loss updates the score once, only after the same Reflex actor reached the selected position. Team outcomes are a proxy for position quality.
+
+Press F9 while alive in the owned lobby to lend your player to the FreeRoam controller. Press F9 again for manual control. The separate Reflex actor pauses during takeover. Follow retains 256 sampled positions and skips collision probes beyond 384 units.
