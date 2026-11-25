@@ -10,6 +10,7 @@ new Float:g_lastChange;
 public plugin_init()
 {
     register_plugin("ReflexCore Local Lobby", "1.0", "ReflexCore");
+    register_forward(FM_PlaybackEvent,"pilot_playback");
     register_forward(FM_CmdStart,"pilot_command");
     register_clcmd("rc_pilot","toggle_pilot");
     register_clcmd("rc_lobby", "show_lobby");
@@ -107,9 +108,9 @@ public choose(id, menu, item)
     }
     if (item == 8) {
         if (!owned_reflex() || !g_route_count) {client_print(id,print_chat,"[ReflexCore] Waiting for the actor and map route.");return PLUGIN_HANDLED;}
-        g_roam=true;
-        g_hold=false;
-        g_waypoint=-1;
+        g_roam[0]=true;
+        g_hold[0]=false;
+        g_waypoint[0]=-1;
         client_print(id,print_chat,"[ReflexCore] FreeRoam AI enabled.");
         return PLUGIN_HANDLED;
     }
@@ -125,15 +126,15 @@ public choose(id, menu, item)
             return PLUGIN_HANDLED;
         }
         g_leader_userid = get_user_userid(id);
-        g_hold = item == 6;
-        g_roam = false;
-        g_trail_count = 0;
-        client_print(id, print_chat, g_hold ? "[ReflexCore] Holding position." : "[ReflexCore] Following you.");
+        g_hold[0] = item == 6;
+        g_roam[0] = false;
+        g_trail_count[0] = 0;
+        client_print(id, print_chat, g_hold[0] ? "[ReflexCore] Holding position." : "[ReflexCore] Following you.");
         return PLUGIN_HANDLED;
     }
-    g_hold = false;
-    g_roam = false;
-    g_trail_count = 0;
+    g_hold[0] = false;
+    g_roam[0] = false;
+    g_trail_count[0] = 0;
     g_lastChange = get_gametime();
     new ally = _:team, enemy = 3 - ally;
     server_cmd("yb kickall instant");
@@ -247,18 +248,18 @@ public supply_ammo(id) {
 public probe_lobby() {
     if (!lobby_is_local()) return PLUGIN_HANDLED;
     if (!owned_reflex()) join_reflex(1, 0);
-    g_roam=true;
+    g_roam[0]=true;
     server_cmd("yb add 2 0 2 1 Probe-CT");
     return PLUGIN_HANDLED;
 }
 
 public lobby_spawn(id) {
     if(id != g_reflex) return;
-    g_waypoint=-1;
-    g_trail_count = g_buy_attempts = 0;
-    g_next_buy = 0.0;
-    g_check_at=0.0;
-    g_next_cell=g_cell_count=g_cell_transitions=g_visible_samples=g_clip_decrements=0;
+    g_waypoint[0]=-1;
+    g_trail_count[0] = g_buy_attempts[0] = 0;
+    g_next_buy[0] = 0.0;
+    g_check_at[0]=0.0;
+    g_next_cell[0]=g_cell_count[0]=g_cell_transitions[0]=g_visible_samples[0]=g_clip_decrements[0]=0;
 }
 public lobby_round_end(){
     g_planted=false;
@@ -266,8 +267,8 @@ public lobby_round_end(){
     g_site=mode==0 ? 1-g_site : clamp(mode-1,0,1);
     load_site_route();
     save_patrol_memory();
-    g_trail_count = 0;
-    if(owned_reflex()) server_print("Lobby life: patrol_cells_entered=%d visible_enemy_ticks=%d attack_clip_decrements=%d",g_cell_transitions,g_visible_samples,g_clip_decrements);
+    g_trail_count[0] = 0;
+    if(owned_reflex()) server_print("Lobby life: patrol_cells_entered=%d visible_enemy_ticks=%d attack_clip_decrements=%d",g_cell_transitions[0],g_visible_samples[0],g_clip_decrements[0]);
 }
 
 public update_watchers() {
@@ -298,17 +299,17 @@ public probe_menu(data[],task){
     if(menu<0) return;
     server_print("Lobby H command opened the team menu");
     choose(id, menu, 2);
-    if (!g_hold) return;
+    if (!g_hold[0]) return;
     show_lobby(id);
     player_menu_info(id,old,menu,page);
     if (menu < 0) return;
     choose(id, menu, 0);
-    if (g_hold || g_leader_userid != get_user_userid(id)) return;
+    if (g_hold[0] || g_leader_userid != get_user_userid(id)) return;
     show_lobby(id);
     player_menu_info(id,old,menu,page);
     if (menu < 0) return;
     choose(id, menu, 1);
-    if (!g_roam) return;
+    if (!g_roam[0]) return;
     server_print("Lobby probe confirmed hold, follow and FreeRoam");
     show_lobby(id);
     player_menu_info(id,old,menu,page);
@@ -344,3 +345,12 @@ public bot_choice(id,m,item) {
 public client_disconnected(id) { if (id==g_pilot) release_pilot(); }
 
 public plugin_cfg(){g_site=clamp(get_pcvar_num(g_site_mode)-1,0,1);load_site_route();}
+
+// Locally predicted shots normally omit the shooter. F9 issues its button on the server.
+public pilot_playback(flags, actor, event, Float:delay, Float:origin[3], Float:angles[3],
+    Float:f1, Float:f2, i1, i2, b1, b2) {
+    if (!g_pilot || actor!=g_pilot || !(flags & FEV_NOTHOST) || !(g_pilot_buttons & IN_ATTACK))
+        return FMRES_IGNORED;
+    engfunc(EngFunc_PlaybackEvent,flags & ~FEV_NOTHOST,actor,event,delay,origin,angles,f1,f2,i1,i2,b1,b2);
+    return FMRES_SUPERCEDE;
+}

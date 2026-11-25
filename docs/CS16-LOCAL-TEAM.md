@@ -44,4 +44,4 @@ Keep this lobby and YaPB opponent as the acceptance entry point. Next, connect a
 
 Post-plant defense retains bounded scores for each site and retreat choice in the local AMXX vault. A team win or loss updates the score once, only after the same Reflex actor reached the selected position. Team outcomes are a proxy for position quality.
 
-Press F9 while alive in the owned lobby to lend your player to the FreeRoam controller. Press F9 again for manual control. The separate Reflex actor pauses during takeover. Follow retains 256 sampled positions and skips collision probes beyond 384 units.
+Press F9 while alive in the owned lobby to lend your player to the FreeRoam controller. Press F9 again for manual control. The separate Reflex actor continues playing on its own team with independent navigation and equipment state. Follow retains 256 sampled positions and skips collision probes beyond 384 units.

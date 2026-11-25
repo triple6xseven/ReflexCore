@@ -2,25 +2,26 @@
 #include <vault>
 
 new g_reflex, g_reflex_userid, g_leader_userid;
-new Float:g_patrol_yaw, Float:g_last_position[3], Float:g_check_at;
-new bool:g_travel_reported;
-new Float:g_spawn_origin[3];
+new Float:g_patrol_yaw[2], Float:g_last_position[2][3], Float:g_check_at[2];
+new bool:g_travel_reported[2];
+new Float:g_spawn_origin[2][3];
 // Keep only recent occupied cells. Each entry is local to this actor's current life.
-new g_cells[96][3], g_cell_count, g_next_cell, g_cell_transitions;
-new g_visible_samples, g_clip_decrements;
-new bool:g_hold;
+new g_cells[2][96][3], g_cell_count[2], g_next_cell[2], g_cell_transitions[2];
+new g_visible_samples[2], g_clip_decrements[2];
+new bool:g_hold[2];
 new g_pilot, g_pilot_userid, g_pilot_buttons;
 new Float:g_pilot_angles[3], Float:g_pilot_speed, Float:g_pilot_at;
-new bool:g_prior_roam, bool:g_prior_hold;
+new g_lane, g_actor;
+new Float:g_detour_until[2];
 
-new bool:g_roam, Float:g_route[128][3], g_route_count, g_waypoint = -1;
-new Float:g_progress_at, Float:g_best_distance;
+new bool:g_roam[2], Float:g_route[128][3], g_route_count, g_waypoint[2] = {-1,-1};
+new Float:g_progress_at[2], Float:g_best_distance[2];
 
 new g_site, bool:g_planted;
 new g_site_mode, g_memory_limit, g_learning, g_training_position;
 new g_defense_node, g_defense_style, g_defense_score[2][2];
 
-new bool:g_position_reached, bool:g_defense_scored;
+new bool:g_position_reached[2], bool:g_defense_scored;
 new g_defender_userid, g_defense_key[2][2][96];
 
 load_defense_memory() {
@@ -36,9 +37,9 @@ load_defense_memory() {
 }
 
 public begin_defense() {
-    g_position_reached=false;
+    g_position_reached[g_lane]=false;
     g_defense_scored=false;
-    g_defender_userid=g_pilot ? 0 : g_reflex_userid;
+    g_defender_userid=g_reflex_userid;
     g_planted=true;
     g_defense_style=random_num(0,3)==0 ? random_num(0,1) : _:(g_defense_score[g_site][1]>g_defense_score[g_site][0]);
     new forced=get_pcvar_num(g_training_position);
@@ -47,9 +48,9 @@ public begin_defense() {
 }
 
 public finish_defense() {
-    if (g_pilot || !g_planted || !g_roam || !owned_reflex() || cs_get_user_team(g_reflex)!=CS_TEAM_T) return;
+    if (!g_planted || !g_roam[g_lane] || !owned_reflex() || cs_get_user_team(g_reflex)!=CS_TEAM_T) return;
     if (!get_pcvar_num(g_learning)) return;
-    if (!g_position_reached || g_defense_scored || g_defender_userid!=g_reflex_userid) return;
+    if (!g_position_reached[g_lane] || g_defense_scored || g_defender_userid!=g_reflex_userid) return;
     g_defense_scored=true;
     new msg[24];
     read_data(2,msg,charsmax(msg));
@@ -75,47 +76,53 @@ load_site_route() {
 }
 
 bool:site_move(const Float:origin[3], Float:angles[3], &buttons, &Float:speed) {
-    if (!g_route_count) return false;
-    if (g_waypoint < 0) {
+    if (!g_route_count || get_gametime()<g_detour_until[g_lane]) return false;
+    if (g_waypoint[g_lane] < 0) {
         new tr=create_tr2();
         for (new i=g_route_count-1;i>=0;i--) {
             if (get_distance_f(origin,g_route[i]) > 300.0) continue;
-            engfunc(EngFunc_TraceLine,origin,g_route[i],IGNORE_MONSTERS,g_pilot ? g_pilot : g_reflex,tr);
+            engfunc(EngFunc_TraceLine,origin,g_route[i],IGNORE_MONSTERS,g_actor,tr);
             new Float:clearance;
             get_tr2(tr,TR_flFraction,clearance);
             if (clearance < 0.99) continue;
-            g_waypoint=i;
-            g_best_distance=99999.0;
+            g_waypoint[g_lane]=i;
+            g_best_distance[g_lane]=99999.0;
             break;
         }
         free_tr2(tr);
-        if (g_waypoint < 0) return false;
+        if (g_waypoint[g_lane] < 0) return false;
     }
-    new Float:distance=get_distance_f(origin,g_route[g_waypoint]);
+    new Float:distance=get_distance_f(origin,g_route[g_waypoint[g_lane]]);
     if (distance < 23.0) {
-        if (g_waypoint+1 == g_route_count) {speed=0.0; return true;}
-        g_waypoint++;
-        distance=get_distance_f(origin,g_route[g_waypoint]);
-        server_print("Lobby site route waypoint %d/%d",g_waypoint,g_route_count);
-        g_best_distance=99999.0;
+        if (g_waypoint[g_lane]+1 == g_route_count) {speed=0.0; return true;}
+        g_waypoint[g_lane]++;
+        distance=get_distance_f(origin,g_route[g_waypoint[g_lane]]);
+        server_print("Lobby site route waypoint %d/%d",g_waypoint[g_lane],g_route_count);
+        g_best_distance[g_lane]=99999.0;
     }
-    if (distance < g_best_distance-3.0) {
-        g_best_distance=distance;
-        g_progress_at=get_gametime();
+    if (distance < g_best_distance[g_lane]-3.0) {
+        g_best_distance[g_lane]=distance;
+        g_progress_at[g_lane]=get_gametime();
     }
-    angles[1]=floatatan2(g_route[g_waypoint][1]-origin[1],g_route[g_waypoint][0]-origin[0],degrees);
+    angles[1]=floatatan2(g_route[g_waypoint[g_lane]][1]-origin[1],g_route[g_waypoint[g_lane]][0]-origin[0],degrees);
     angles[0]=0.0;
     speed=distance < 48.0 ? 125.0 : 235.0;
-    if (get_gametime()-g_progress_at > 0.5 && (pev(g_pilot ? g_pilot : g_reflex,pev_flags)&FL_ONGROUND)) buttons |= IN_JUMP;
-    if (get_gametime()-g_progress_at > 2.0) {g_waypoint=-1;return false;}
+    if (get_gametime()-g_progress_at[g_lane] > 0.5 && (pev(g_actor,pev_flags)&FL_ONGROUND)) buttons |= IN_JUMP;
+    if (get_gametime()-g_progress_at[g_lane] > 2.0) {
+        stall_record(origin,angles[1],1);
+        g_detour_until[g_lane]=get_gametime()+2.0;
+        g_waypoint[g_lane]=-1;
+        g_check_at[g_lane]=0.0;
+        return false;
+    }
     return true;
 }
-new Float:g_trail[256][3], g_trail_count, g_trail_next, g_buy_attempts;
-new Float:g_next_buy;
+new Float:g_trail[2][256][3], g_trail_count[2], g_trail_next[2], g_buy_attempts[2];
+new Float:g_next_buy[2];
 
 // A bounded map-local record of patrol headings that repeatedly stalled.
 new g_stalls[128][5], g_stall_count, g_stall_next;
-new bool:g_stalls_dirty, bool:g_patrolled, g_memory_path[112];
+new bool:g_stalls_dirty, bool:g_patrolled[2], g_memory_path[112];
 
 setup_patrol_memory() {
     new map[48], bsp[80];
@@ -162,37 +169,37 @@ stall_record(const Float:point[3], Float:yaw, change) {
 }
 
 remember_leader(const Float:origin[3]) {
-    new last = (g_trail_next + sizeof(g_trail) - 1) % sizeof(g_trail);
-    if (g_trail_count && get_distance_f(origin, g_trail[last]) < 48.0) return;
-    for (new i = 0; i < 3; i++) g_trail[g_trail_next][i] = origin[i];
-    g_trail_next = (g_trail_next + 1) % sizeof(g_trail);
-    if (g_trail_count < clamp(get_pcvar_num(g_memory_limit),1,sizeof(g_trail))) g_trail_count++;
+    new last = (g_trail_next[g_lane] + 256 - 1) % 256;
+    if (g_trail_count[g_lane] && get_distance_f(origin, g_trail[g_lane][last]) < 48.0) return;
+    for (new i = 0; i < 3; i++) g_trail[g_lane][g_trail_next[g_lane]][i] = origin[i];
+    g_trail_next[g_lane] = (g_trail_next[g_lane] + 1) % 256;
+    if (g_trail_count[g_lane] < clamp(get_pcvar_num(g_memory_limit),1,256)) g_trail_count[g_lane]++;
 }
 
 bool:follow_trail(const Float:origin[3], Float:angles[3]) {
     new tr = create_tr2(), bool:found;
-    for (new n = 1; n <= g_trail_count; n++) {
-        new index = (g_trail_next + sizeof(g_trail) - n) % sizeof(g_trail);
-        new Float:distance=get_distance_f(origin,g_trail[index]);
+    for (new n = 1; n <= g_trail_count[g_lane]; n++) {
+        new index = (g_trail_next[g_lane] + 256 - n) % 256;
+        new Float:distance=get_distance_f(origin,g_trail[g_lane][index]);
         if (distance<32.0) break;
         if (distance>384.0) continue;
-        engfunc(EngFunc_TraceHull, origin, g_trail[index], IGNORE_MONSTERS, HULL_HUMAN, g_pilot ? g_pilot : g_reflex, tr);
+        engfunc(EngFunc_TraceHull, origin, g_trail[g_lane][index], IGNORE_MONSTERS, HULL_HUMAN, g_actor, tr);
         new Float:fraction;
         get_tr2(tr, TR_flFraction, fraction);
         if (fraction < 0.99 || get_tr2(tr, TR_StartSolid)) {
-            if (get_distance_f(origin,g_trail[index])>96.0) continue;
+            if (get_distance_f(origin,g_trail[g_lane][index])>96.0) continue;
             new Float:raised[3], Float:end[3];
-            for (new k=0;k<3;k++) {raised[k]=origin[k];end[k]=g_trail[index][k];}
+            for (new k=0;k<3;k++) {raised[k]=origin[k];end[k]=g_trail[g_lane][index][k];}
             raised[2]+=18.0;
             end[2]+=18.0;
-            engfunc(EngFunc_TraceHull,origin,raised,IGNORE_MONSTERS,HULL_HUMAN,g_pilot ? g_pilot : g_reflex,tr);
+            engfunc(EngFunc_TraceHull,origin,raised,IGNORE_MONSTERS,HULL_HUMAN,g_actor,tr);
             get_tr2(tr,TR_flFraction,fraction);
             if (fraction<0.99 || get_tr2(tr,TR_StartSolid)) continue;
-            engfunc(EngFunc_TraceHull,raised,end,IGNORE_MONSTERS,HULL_HUMAN,g_pilot ? g_pilot : g_reflex,tr);
+            engfunc(EngFunc_TraceHull,raised,end,IGNORE_MONSTERS,HULL_HUMAN,g_actor,tr);
             get_tr2(tr,TR_flFraction,fraction);
             if (fraction<0.99 || get_tr2(tr,TR_StartSolid)) continue;
         }
-        angles[1] = floatatan2(g_trail[index][1]-origin[1], g_trail[index][0]-origin[0], degrees);
+        angles[1] = floatatan2(g_trail[g_lane][index][1]-origin[1], g_trail[g_lane][index][0]-origin[0], degrees);
         angles[0] = 0.0;
         found = true;
         break;
@@ -207,19 +214,19 @@ record_cell(const Float:origin[3])
 {
     new cell[3];
     for(new k=0;k<3;k++) cell[k]=cell_coord(origin[k]);
-    if(g_cell_count){
-        new prev=(g_next_cell+sizeof(g_cells)-1)%sizeof(g_cells);
-        if(cell[0]==g_cells[prev][0] && cell[1]==g_cells[prev][1] && cell[2]==g_cells[prev][2]) return;
+    if(g_cell_count[g_lane]){
+        new prev=(g_next_cell[g_lane]+96-1)%96;
+        if(cell[0]==g_cells[g_lane][prev][0] && cell[1]==g_cells[g_lane][prev][1] && cell[2]==g_cells[g_lane][prev][2]) return;
     }
-    for(new k=0;k<3;k++) g_cells[g_next_cell][k]=cell[k];
-    g_next_cell=(g_next_cell+1)%sizeof(g_cells);
-    if(g_cell_count<sizeof(g_cells)) g_cell_count++;
-    g_cell_transitions++;
+    for(new k=0;k<3;k++) g_cells[g_lane][g_next_cell[g_lane]][k]=cell[k];
+    g_next_cell[g_lane]=(g_next_cell[g_lane]+1)%96;
+    if(g_cell_count[g_lane]<96) g_cell_count[g_lane]++;
+    g_cell_transitions[g_lane]++;
 }
 
 visits(const Float:point[3]){
     new x=cell_coord(point[0]),y=cell_coord(point[1]),z=cell_coord(point[2]),count;
-    for(new i=0;i<g_cell_count;i++) if(g_cells[i][0]==x && g_cells[i][1]==y && g_cells[i][2]==z) count++;
+    for(new i=0;i<g_cell_count[g_lane];i++) if(g_cells[g_lane][i][0]==x && g_cells[g_lane][i][1]==y && g_cells[g_lane][i][2]==z) count++;
     return count;
 }
 
@@ -251,11 +258,11 @@ bool:join_reflex(team, leader)
     g_reflex = bot;
     g_reflex_userid = get_user_userid(bot);
     g_leader_userid = leader;
-    g_hold = false;
-    g_roam = false;
-    g_waypoint = -1;
-    g_buy_attempts = g_trail_count = 0;
-    g_next_buy = 0.0;
+    g_hold[g_lane] = false;
+    g_roam[g_lane] = false;
+    g_waypoint[g_lane] = -1;
+    g_buy_attempts[g_lane] = g_trail_count[g_lane] = 0;
+    g_next_buy[g_lane] = 0.0;
     new Float:angles[3], value[2];
     num_to_str(team, value, charsmax(value));
     for (new i = 0; i < 4 && get_ent_data(bot,"CBasePlayer","m_iJoiningState") != 4; i++)
@@ -265,7 +272,7 @@ bool:join_reflex(team, leader)
     for (new i = 0; i < 4 && get_ent_data(bot,"CBasePlayer","m_iJoiningState") != 0; i++)
         engfunc(EngFunc_RunPlayerMove, bot, angles, 0.0, 0.0, 0.0, 0, 0, 1);
     if (_:cs_get_user_team(bot) == team) {
-        g_check_at = 0.0;
+        g_check_at[g_lane] = 0.0;
         return true;
     }
     remove_reflex();
@@ -283,7 +290,7 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
         end[0]=origin[0]+floatcos(heading,degrees)*150.0;
         end[1]=origin[1]+floatsin(heading,degrees)*150.0;
         end[2]=origin[2];
-        engfunc(EngFunc_TraceHull,origin,end,DONT_IGNORE_MONSTERS,HULL_HUMAN,g_pilot ? g_pilot : g_reflex,trace);
+        engfunc(EngFunc_TraceHull,origin,end,DONT_IGNORE_MONSTERS,HULL_HUMAN,g_actor,trace);
         get_tr2(trace,TR_flFraction,fraction);
         if(fraction<0.3) continue;
         for(new k=0;k<2;k++) end[k]=origin[k]+(end[k]-origin[k])*fraction;
@@ -298,12 +305,21 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
 public lobby_tick()
 {
     if (g_pilot && (!local_player(g_pilot) || !is_user_alive(g_pilot) || get_user_userid(g_pilot)!=g_pilot_userid)) release_pilot();
-    if (!lobby_is_local() || (!g_pilot && !owned_reflex())) return;
-    new actor=g_pilot ? g_pilot : g_reflex;
+    if (!lobby_is_local()) return;
+    if (owned_reflex()) drive_actor(g_reflex);
+    if (g_pilot) {
+        g_lane=1;
+        drive_actor(g_pilot);
+        g_lane=0;
+    }
+}
+
+drive_actor(actor) {
+    g_actor=actor;
     if (!is_user_alive(actor)) return;
     new CsTeams:team = cs_get_user_team(actor);
     if (team != CS_TEAM_CT && team != CS_TEAM_T) return;
-    if (g_buy_attempts < 4 && get_gametime() >= g_next_buy && cs_get_user_buyzone(actor)) {
+    if (g_buy_attempts[g_lane] < 4 && get_gametime() >= g_next_buy[g_lane] && cs_get_user_buyzone(actor)) {
         new rifle = team == CS_TEAM_T ? CSW_AK47 : CSW_M4A1;
         if (!user_has_weapon(actor, rifle)) {
             amxclient_cmd(actor, team == CS_TEAM_T ? "ak47" : "m4a1");
@@ -319,8 +335,8 @@ public lobby_tick()
             if (cs_get_user_armor(actor,armor)==100 && armor==CS_ARMOR_VESTHELM)
                 server_print("Lobby armor and helmet verified");
         }
-        g_buy_attempts++;
-        g_next_buy=get_gametime()+0.6;
+        g_buy_attempts[g_lane]++;
+        g_next_buy[g_lane]=get_gametime()+0.6;
     }
     new Float:eye[3], Float:offset[3], Float:angles[3], Float:dest[3], Float:point[3];
     pev(actor,pev_origin,eye);
@@ -333,7 +349,7 @@ public lobby_tick()
         new CsTeams:other=cs_get_user_team(id);
         if(other!=CS_TEAM_CT && other!=CS_TEAM_T) continue;
         pev(id,pev_origin,point);
-        if (other == team && get_user_userid(id) == g_leader_userid && !g_hold && (pev(id, pev_flags) & FL_ONGROUND))
+        if (other == team && get_user_userid(id) == g_leader_userid && !g_hold[g_lane] && (pev(id, pev_flags) & FL_ONGROUND))
             remember_leader(point);
         point[2]+=14.0;
         engfunc(EngFunc_TraceLine,eye,point,DONT_IGNORE_MONSTERS,actor,trace);
@@ -348,7 +364,7 @@ public lobby_tick()
     free_tr2(trace);
     new buttons;
     new Float:speed;
-    if (g_roam) leader=0;
+    if (g_roam[g_lane]) leader=0;
     new focus=target ? target : leader;
     pev(actor,pev_v_angle,angles);
     if(focus){
@@ -359,64 +375,64 @@ public lobby_tick()
         engfunc(EngFunc_VecToAngles,dest,angles);
         angles[0]=angles[0]>180.0 ? 360.0-angles[0] : -angles[0];
         if(target){
-            g_visible_samples++;
+            g_visible_samples[g_lane]++;
             new clip,reserve;
             get_user_weapon(actor,clip,reserve);
             if(clip==0 && reserve>0) buttons=IN_RELOAD;
             else if(clip>0) buttons=IN_ATTACK;
         }
     }
-    if (focus || g_hold) g_patrolled = false;
-    if(!focus && !g_hold){
+    if (focus || g_hold[g_lane]) g_patrolled[g_lane] = false;
+    if(!focus && !g_hold[g_lane]){
         new Float:origin[3]; pev(actor,pev_origin,origin);
-        if(get_gametime()>=g_check_at){
+        if(get_gametime()>=g_check_at[g_lane]){
             record_cell(origin);
-            if(g_check_at==0.0){
-                g_patrol_yaw=angles[1];
-                for(new i=0;i<3;i++) g_spawn_origin[i]=origin[i];
-                g_travel_reported=false;
-            }else if(g_patrolled){
-                new bool:stalled = get_distance_f(origin,g_last_position)<10.0;
-                stall_record(g_last_position, g_patrol_yaw, stalled ? 1 : -1);
-                if (stalled) g_patrol_yaw+=75.0;
+            if(g_check_at[g_lane]==0.0){
+                g_patrol_yaw[g_lane]=angles[1];
+                for(new i=0;i<3;i++) g_spawn_origin[g_lane][i]=origin[i];
+                g_travel_reported[g_lane]=false;
+            }else if(g_patrolled[g_lane]){
+                new bool:stalled = get_distance_f(origin,g_last_position[g_lane])<10.0;
+                stall_record(g_last_position[g_lane], g_patrol_yaw[g_lane], stalled ? 1 : -1);
+                if (stalled) g_patrol_yaw[g_lane]+=75.0;
             }
-            g_patrol_yaw=patrol_direction(origin,g_patrol_yaw);
-            for(new i=0;i<3;i++) g_last_position[i]=origin[i];
-            g_check_at=get_gametime()+0.3;
-            g_patrolled = true;
-            if(!g_travel_reported && get_distance_f(origin,g_spawn_origin)>160.0){
-                g_travel_reported=true;
+            g_patrol_yaw[g_lane]=patrol_direction(origin,g_patrol_yaw[g_lane]);
+            for(new i=0;i<3;i++) g_last_position[g_lane][i]=origin[i];
+            g_check_at[g_lane]=get_gametime()+0.3;
+            g_patrolled[g_lane] = true;
+            if(!g_travel_reported[g_lane] && get_distance_f(origin,g_spawn_origin[g_lane])>160.0){
+                g_travel_reported[g_lane]=true;
                 server_print("Lobby Reflex patrol displacement exceeded 160 units");
             }
         }
-        angles[0]=0.0; angles[1]=g_patrol_yaw;
+        angles[0]=0.0; angles[1]=g_patrol_yaw[g_lane];
         speed=165.0;
     }
-    if (g_roam && !target && !g_planted) {
+    if (g_roam[g_lane] && !target && !g_planted) {
         new Float:origin[3];
         pev(actor,pev_origin,origin);
-        if (site_move(origin,angles,buttons,speed)) g_patrolled=false;
+        if (site_move(origin,angles,buttons,speed)) g_patrolled[g_lane]=false;
     }
-    if (g_roam && g_planted && !target && g_route_count>1) {
+    if (g_roam[g_lane] && g_planted && !target && g_route_count>1) {
         new Float:origin[3];
         pev(actor,pev_origin,origin);
         angles[1]=floatatan2(g_route[g_defense_node][1]-origin[1],g_route[g_defense_node][0]-origin[0],degrees);
         speed=get_distance_f(origin,g_route[g_defense_node])>50.0 ? 175.0 : 0.0;
-        if (speed==0.0 && is_user_alive(actor)) g_position_reached=true;
+        if (speed==0.0 && is_user_alive(actor)) g_position_reached[g_lane]=true;
         if(speed>0.0) angles[1]=patrol_direction(origin,angles[1]);
     }
-    if (!g_roam && !target && !g_hold && g_trail_count && (!leader || speed > 0.0)) {
+    if (!g_roam[g_lane] && !target && !g_hold[g_lane] && g_trail_count[g_lane] && (!leader || speed > 0.0)) {
         new Float:origin[3];
         pev(actor, pev_origin, origin);
-        if (follow_trail(origin, angles)) { speed = 180.0; g_patrolled = false; }
+        if (follow_trail(origin, angles)) { speed = 180.0; g_patrolled[g_lane] = false; }
         else if (leader) angles[1] = patrol_direction(origin, angles[1]);
     }
-    if (!target && !g_hold && !g_roam && speed>0.0 && g_trail_count && (pev(actor,pev_flags)&FL_ONGROUND)) {
+    if (!target && !g_hold[g_lane] && !g_roam[g_lane] && speed>0.0 && g_trail_count[g_lane] && (pev(actor,pev_flags)&FL_ONGROUND)) {
         new Float:velocity[3];
         pev(actor,pev_velocity,velocity);
         if (vector_length(velocity)<15.0) buttons |= IN_JUMP;
     }
-    if (!target && !g_hold && speed > 0.0) {
+    if (!target && !g_hold[g_lane] && speed > 0.0) {
         new Float:end[3];
         end[0] = eye[0] + 64.0 * floatcos(angles[1], degrees);
         end[1] = eye[1] + 64.0 * floatsin(angles[1], degrees);
@@ -431,8 +447,8 @@ public lobby_tick()
             if (equal(classname, "func_door") || equal(classname, "func_door_rotating")) buttons |= IN_USE;
         }
     }
-    if (g_hold) speed = 0.0;
-    new bool:planting = g_roam && !target && team == CS_TEAM_T && user_has_weapon(actor,CSW_C4)
+    if (g_hold[g_lane]) speed = 0.0;
+    new bool:planting = g_roam[g_lane] && !target && team == CS_TEAM_T && user_has_weapon(actor,CSW_C4)
         && (cs_get_user_mapzones(actor) & CS_MAPZONE_BOMBTARGET) != 0;
     if (planting) {
         speed=0.0;
@@ -442,7 +458,7 @@ public lobby_tick()
         engclient_cmd(actor,"weapon_ak47");
         buttons=0;
     }
-    if (g_pilot) {
+    if (g_lane==1) {
         for (new i=0;i<3;i++) g_pilot_angles[i]=angles[i];
         g_pilot_at=get_gametime();
         g_pilot_speed=speed;
@@ -457,22 +473,21 @@ public lobby_tick()
     new weapon=get_user_weapon(actor,before,ammo);
     engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,buttons,0,95);
     if((buttons & IN_ATTACK) && get_user_weapon(actor,after,ammo)==weapon && before>after && after>=0)
-        g_clip_decrements+=before-after;
+        g_clip_decrements[g_lane]+=before-after;
 }
 reset_navigation() {
-    g_waypoint=-1;
-    g_check_at=g_next_buy=0.0;
-    g_buy_attempts=g_cell_count=g_next_cell=g_trail_count=0;
-    g_position_reached=false;
+    g_waypoint[g_lane]=-1;
+    g_detour_until[g_lane]=0.0;
+    g_check_at[g_lane]=g_next_buy[g_lane]=0.0;
+    g_buy_attempts[g_lane]=g_cell_count[g_lane]=g_next_cell[g_lane]=g_trail_count[g_lane]=0;
+    g_position_reached[g_lane]=false;
 }
 
 release_pilot() {
     if (!g_pilot) return;
     g_pilot=g_pilot_userid=0;
     g_pilot_at=-1.0;
-    g_roam=g_prior_roam;
-    g_hold=g_prior_hold;
-    reset_navigation();
+
 }
 
 public toggle_pilot(id) {
@@ -481,11 +496,11 @@ public toggle_pilot(id) {
         release_pilot();
         client_print(id,print_chat,"[ReflexCore] Manual control.");
     } else if (!g_pilot && is_user_alive(id)) {
-        g_prior_hold=g_hold;
-        g_prior_roam=g_roam;
-        g_hold=false;
-        g_roam=true;
+        g_lane=1;
+        g_hold[g_lane]=false;
+        g_roam[g_lane]=true;
         reset_navigation();
+        g_lane=0;
         g_pilot=id;
         g_pilot_userid=get_user_userid(id);
         g_pilot_at=-1.0;
