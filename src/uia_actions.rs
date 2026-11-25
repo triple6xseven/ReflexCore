@@ -3,6 +3,7 @@
 //! No broad credential capture, no raw keyboard injection, no arbitrary shell execution.
 
 mod metrics;
+pub(crate) mod session;
 use metrics::clock_us;
 use serde_json::{json, Value};
 use std::{
@@ -191,18 +192,29 @@ pub(crate) fn execute(args: &[String], run_id: &str, action_id: usize, fixture_o
 }
 
 pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, owner: Option<u32>, foreground: bool) -> Result<Value> {
+    dispatch(args, run_id, action_id, owner, foreground, None)
+}
+
+pub(crate) fn dispatch(args: &[String], run_id: &str, action_id: usize, owner: Option<u32>, foreground: bool, session: Option<&mut session::Session>) -> Result<Value> {
     let entry = clock_us();
     crate::task_integrity::check_cancel()?;
     let req = parse(args)?;
     let resolve = clock_us();
     let (hwnd, window_title) = resolve_window(&req).map_err(|_| crate::task_integrity::Fault::Infrastructure)?;
     let resolved = clock_us();
-    let request = crate::task_integrity::ActionExchange::new(run_id, action_id)?;
-    let temp = request.path();
     crate::task_integrity::check_cancel()?;
     let mut wire = req.to_wire();
     wire["fixture_owner"] = json!(owner);
     wire["require_foreground"] = json!(foreground);
+    if let Some(session) = session {
+        let prepared = clock_us();
+        let mut report = session.dispatch(hwnd, owner, action_id, wire)?;
+        report["phases"]["request_us"] = json!(resolve-entry + prepared-resolved);
+        report["phases"]["resolve_us"] = json!(resolved-resolve);
+        return Ok(report);
+    }
+    let request = crate::task_integrity::ActionExchange::new(run_id, action_id)?;
+    let temp = request.path();
     use std::os::windows::process::CommandExt;
     use windows::Win32::System::Threading::CREATE_NO_WINDOW;
     let mut command = Command::new(std::env::current_exe()?);
@@ -212,8 +224,9 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
         .arg(hwnd.to_string())
         .arg(&temp)
         .arg(request.encode(wire)?)
+        .env("REFLEXCORE_UIA_TIMING_ACK", "1")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let spawning = clock_us();
     let mut child = command.spawn()?;
@@ -257,6 +270,9 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
     }
 
     let exited = clock_us();
+    let mut stamp = [0; 8];
+    child.stdout.take().ok_or("Missing worker timing pipe")?.read_exact(&mut stamp)?;
+    let published = u64::from_le_bytes(stamp);
     let mut report = request.read()?;
     let validated = clock_us();
     drop(request);
@@ -267,6 +283,8 @@ pub(crate) fn execute_scoped(args: &[String], run_id: &str, action_id: usize, ow
     m["spawn_us"] = json!(spawned-spawning);
     m["startup_from_spawn_us"] = json!(m["entry_us"].as_u64().map(|v| v.saturating_sub(spawning)));
     m["publish_to_exit_us"] = json!(m["publishing_us"].as_u64().map(|v| exited.saturating_sub(v)));
+    m["response_write_us"] = json!(m["publishing_us"].as_u64().map(|v| published.saturating_sub(v)));
+    m["exit_us"] = json!(exited.saturating_sub(published));
     m["validate_us"] = json!(validated-exited);
     m["cleanup_us"] = json!(clock_us()-validated);
     m["root_private_bytes"] = json!(metrics::private_bytes());
@@ -460,7 +478,30 @@ pub fn run_worker(args: &[String]) -> Result<()> {
     let hwnd: usize = args[0].parse()?;
     let output = PathBuf::from(&args[1]);
     let mut request = crate::task_integrity::ActionEnvelope::decode(args[2].as_bytes())?;
-    let req = &request.payload;
+    let context = initialize()?;
+    request.payload = perform(&context.0, hwnd, &request.payload, entry, context.2, context.3)?;
+    let staging = output.with_extension("tmp");
+    fs::OpenOptions::new().write(true).create_new(true).open(&staging)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, &serde_json::to_vec(&request)?))?;
+    fs::rename(staging, output)?;
+    if std::env::var_os("REFLEXCORE_UIA_TIMING_ACK").is_some() {
+        std::io::Write::write_all(&mut std::io::stdout().lock(), &clock_us().to_le_bytes())?;
+    }
+    Ok(())
+}
+
+fn initialize() -> Result<(IUIAutomation, ComApartment, u64, u64)> {
+    let init = clock_us();
+    let _com = ComApartment::enter()?;
+    let com_ready = clock_us();
+    let automation: IUIAutomation = unsafe {
+        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?
+    };
+    let uia_ready = clock_us();
+    Ok((automation, _com, com_ready-init, uia_ready-com_ready))
+}
+
+fn perform(automation: &IUIAutomation, hwnd: usize, req: &Value, entry: u64, com_us: u64, uia_us: u64) -> Result<Value> {
     let fixture_owner = req["fixture_owner"].as_u64().map(u32::try_from).transpose()?;
     let target_window = hwnd as *mut c_void;
     if fixture_owner.is_some_and(|owner| owner != crate::observer::window_process(target_window)) {
@@ -469,13 +510,7 @@ pub fn run_worker(args: &[String]) -> Result<()> {
     let timeout_ms = req["timeout_ms"].as_u64().ok_or("Missing timeout")?;
     let max_nodes = req["max_nodes"].as_u64().ok_or("Missing max_nodes")? as usize;
     let started = Instant::now();
-    let init = clock_us();
-    let _com = ComApartment::enter()?;
-    let com_ready = clock_us();
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?
-    };
-    let uia_ready = clock_us();
+    let discovery_start = clock_us();
     let root = unsafe { automation.ElementFromHandle(HWND(hwnd as *mut c_void))? };
     let walker: IUIAutomationTreeWalker = unsafe { automation.RawViewWalker()? };
 
@@ -589,6 +624,8 @@ pub fn run_worker(args: &[String]) -> Result<()> {
         } else {
             if crate::task_integrity::cancelled() {
                 result["status"] = json!("cancelled");
+            } else if req["deadline_us"].as_u64().is_some_and(|deadline| clock_us() >= deadline) {
+                return Err("Worker deadline expired".into());
             } else if fixture_owner.is_some_and(|owner| crate::observer::window_process(target_window) != owner)
                 || ((req["require_foreground"] == true || (fixture_owner.is_none() && crate::task_integrity::task_id().is_some()))
                     && crate::observer::foreground_window() != target_window) {
@@ -607,21 +644,19 @@ pub fn run_worker(args: &[String]) -> Result<()> {
             }
         }
     }
-    result["duration_ms"] = json!(started.elapsed().as_millis());
+    result["duration_ms"] = json!((started.elapsed().as_micros() + u128::from(com_us + uia_us)) / 1000);
     crate::privacy::sanitize_uia_report(&mut result);
+    if fixture_owner.is_some_and(|owner| crate::observer::window_process(target_window) != owner) {
+        return Err("Owned UIA target changed during action".into());
+    }
     result["phases"] = json!({
-        "entry_us":entry, "com_us":com_ready-init, "uia_us":uia_ready-com_ready,
-        "discovery_us":discovered-uia_ready, "operation_us":readback.unwrap_or_else(clock_us)-discovered,
+        "entry_us":entry, "com_us":com_us, "uia_us":uia_us,
+        "discovery_us":discovered-discovery_start, "operation_us":readback.unwrap_or_else(clock_us)-discovered,
         "verification_us":readback.map(|t| clock_us()-t),
         "child_private_bytes":metrics::private_bytes(), "child_cpu_us":metrics::cpu_us(),
         "publishing_us":clock_us()
     });
-    request.payload = result;
-    let staging = output.with_extension("tmp");
-    fs::OpenOptions::new().write(true).create_new(true).open(&staging)
-        .and_then(|mut file| std::io::Write::write_all(&mut file, &serde_json::to_vec(&request)?))?;
-    fs::rename(staging, output)?;
-    Ok(())
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -67,6 +67,10 @@ struct StepReport {
 #[derive(Debug, Serialize)]
 struct FlowReport {
     #[serde(skip_serializing_if = "Option::is_none")]
+    execution_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_close_us: Option<u128>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     fixture_ready_us: Option<u128>,
     schema: &'static str,
     started_ms: u128,
@@ -204,9 +208,14 @@ impl PendingEffect {
     }
 }
 
-fn save_report(report: &FlowReport) -> Result<()> {
+fn save_report(report: &FlowReport, owned_fixture: bool) -> Result<()> {
     fs::create_dir_all("data")?;
     fs::write(REPORT, serde_json::to_vec_pretty(report)?)?;
+    if owned_fixture {
+        if let Ok(run) = std::env::var("REFLEXCORE_BENCHMARK_RUN_ID") {
+            save_benchmark_report(Path::new("data/benchmark-runs"), report, &run)?;
+        }
+    }
     Ok(())
 }
 
@@ -242,7 +251,10 @@ fn execute_flow(flow: &Flow, fixture: Option<(&str, u32)>, fixture_ready_us: Opt
 fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture: bool, fixture_ready_us: Option<u128>) -> Result<()> {
     validate(flow)?;
     let started = Instant::now();
+    let run_id = task_integrity::run_id();
     let mut final_report = FlowReport {
+        execution_run_id: Some(run_id.clone()),
+        session_close_us: None,
         fixture_ready_us,
         schema: "reflexcore.flow.execution.v1",
         started_ms: now_ms(),
@@ -252,8 +264,11 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
         total_steps: flow.steps.len(),
         steps: Vec::new(),
     };
-    let run_id = task_integrity::run_id();
     let mut action_id = 0;
+    let mut session = if trusted_fixture && std::env::var("REFLEXCORE_UIA_WORKER").as_deref() == Ok("session") {
+        let (hwnd, pid) = target.ok_or("Session requires an owned fixture")?;
+        Some(crate::uia_actions::session::Session::start(&run_id, usize::from_str_radix(hwnd.trim_start_matches("0x"), 16)?, pid)?)
+    } else { None };
     let mut pending = PendingEffect::None;
     let mut has_evidence = false;
     for (index, step) in flow.steps.iter().enumerate() {
@@ -279,8 +294,8 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
             attempt_count = attempt;
             action_id += 1;
             let dispatch = Instant::now();
-            let response = crate::uia_actions::execute_scoped(&args[1..], &run_id, action_id,
-                target.map(|(_, pid)| pid), target.is_some() && !trusted_fixture);
+            let response = crate::uia_actions::dispatch(&args[1..], &run_id, action_id,
+                target.map(|(_, pid)| pid), target.is_some() && !trusted_fixture, session.as_mut());
             adapter_us += dispatch.elapsed().as_micros();
             match response {
                 Ok(response) => {
@@ -333,6 +348,7 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
         println!("[{:02}/{}] {:<13} status={} verification={} tries={}",
             index + 1, flow.steps.len(), step.action, last_status, last_verification, attempt_count);
         if !succeeded {
+            final_report.session_close_us = session.take().map(|worker| worker.close());
             final_report.duration_ms = started.elapsed().as_millis();
             let fault = action_fault.unwrap_or(match (last_status.as_str(), &pending) {
                 ("assertion_failed", PendingEffect::FixtureOutput) if index == 3 => Fault::VerificationFailed,
@@ -345,24 +361,25 @@ fn execute_scoped_flow(flow: &Flow, target: Option<(&str, u32)>, trusted_fixture
                 Fault::EffectUnknown => "completed_unverified",
                 _ => "failed",
             };
-            save_report(&final_report)?;
+            save_report(&final_report, trusted_fixture)?;
             return Err(fault.into());
         }
         final_report.completed_steps += 1;
     }
+    final_report.session_close_us = session.take().map(|worker| worker.close());
     final_report.duration_ms = started.elapsed().as_millis();
+    if task_integrity::cancelled() {
+        final_report.outcome = "cancelled";
+        save_report(&final_report, trusted_fixture)?;
+        return Err(pending.preserve_uncertainty(Fault::Cancelled).into());
+    }
     if pending != PendingEffect::None || !has_evidence {
         final_report.outcome = "completed_unverified";
-        save_report(&final_report)?;
+        save_report(&final_report, trusted_fixture)?;
         return Err(Fault::EffectUnknown.into());
     }
     final_report.outcome = "passed";
-    save_report(&final_report)?;
-    if trusted_fixture {
-        if let Ok(benchmark_run) = std::env::var("REFLEXCORE_BENCHMARK_RUN_ID") {
-            save_benchmark_report(Path::new("data/benchmark-runs"), &final_report, &benchmark_run)?;
-        }
-    }
+    save_report(&final_report, trusted_fixture)?;
     println!("[ReflexCore] FLOW PASSED: {} steps, {} ms", flow.steps.len(), final_report.duration_ms);
     println!("[Privacy] Redacted execution report: {REPORT}");
     Ok(())
@@ -703,6 +720,8 @@ mod tests {
     fn overlapping_benchmark_reports_keep_their_run_identity() {
         let artifact = FixtureArtifact::new().unwrap();
         let report = FlowReport {
+            execution_run_id: None,
+            session_close_us: None,
             fixture_ready_us: None,
             schema: "reflexcore.flow.execution.v1", started_ms: 0, duration_ms: 1,
             outcome: "passed", completed_steps: 0, total_steps: 0, steps: vec![],
@@ -791,6 +810,8 @@ mod tests {
     #[test]
     fn no_sensitive_selectors_in_execution_record() {
         let report = FlowReport {
+            execution_run_id: None,
+            session_close_us: None,
             fixture_ready_us: None,
             schema: "test", started_ms: 1, duration_ms: 2,
             outcome: "passed", completed_steps: 1, total_steps: 1,

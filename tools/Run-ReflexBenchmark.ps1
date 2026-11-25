@@ -7,6 +7,7 @@ param(
     [ValidateRange(0,5)][int]$Warmups=1,
     [ValidateRange(15,180)][int]$TimeoutSeconds=90,
     [ValidateSet(1,4,20,100)][int]$Actions=4,
+    [ValidateSet('disposable','session')][string]$Worker='disposable',
     [switch]$AllowVisibleUI,
     [switch]$SelfTest
 )
@@ -122,6 +123,7 @@ function Execute-One([int]$iteration,[bool]$warmup){
     if($Actions -ne 4){$info.Arguments="flow measure-fixture --execute $Actions"}
     $info.WorkingDirectory=$root
     $info.EnvironmentVariables["REFLEXCORE_BENCHMARK_RUN_ID"]=$runId
+    $info.EnvironmentVariables["REFLEXCORE_UIA_WORKER"]=$Worker
     $info.UseShellExecute=$false
     $info.CreateNoWindow=$true
     $info.RedirectStandardInput=$false
@@ -206,7 +208,7 @@ function Execute-One([int]$iteration,[bool]$warmup){
     $flowMs=if($null -ne $flowData -and $verified){[double]$flowData.duration_ms}else{$null}
     $overhead=if($null -ne $flowMs){[Math]::Max(0,[Math]::Round($duration-$flowMs,2))}else{$null}
     $record=[ordered]@{
-        schema=$schema;task=$task;session=$script:session;run_id=$runId;iteration=$iteration;warmup=$warmup
+        schema=$schema;task=$task;session=$script:session;run_id=$runId;iteration=$iteration;warmup=$warmup;worker=$Worker
         started_utc=$startUtc.ToString('o');success=[bool]$verified;reason_code=$reason
         total_ms=$duration;flow_ms=$flowMs;non_flow_ms=$overhead
         fixture_ready_us=if($null -ne $flowData -and $flowData.PSObject.Properties['fixture_ready_us']){[long]$flowData.fixture_ready_us}else{$null}

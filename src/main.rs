@@ -153,6 +153,9 @@ fn main() -> Result<()> {
         }
 
         #[cfg(windows)]
+        "uia-session-worker" => uia_actions::session::worker(&args[1..])?,
+
+        #[cfg(windows)]
         "uia" => {
             uia_explorer::run(&args[1..])?;
         }

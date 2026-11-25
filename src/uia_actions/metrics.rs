@@ -28,7 +28,14 @@ pub(super) fn private_bytes() -> Option<usize> {
 pub(super) fn process_private(process: windows::Win32::Foundation::HANDLE) -> Option<usize> {
     let mut counters = PROCESS_MEMORY_COUNTERS_EX::default();
     let size = size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
-    unsafe { GetProcessMemoryInfo(process, (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast(), size) }.ok()?;
+    unsafe {
+        GetProcessMemoryInfo(
+            process,
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast(),
+            size,
+        )
+    }
+    .ok()?;
     Some(counters.PrivateUsage)
 }
 
@@ -42,7 +49,16 @@ pub(super) fn sample_pair(child: &std::process::Child, peak: &mut Option<usize>)
 
 pub(super) fn cpu_us() -> Option<u64> {
     let [mut created, mut exit, mut kernel, mut user] = [FILETIME::default(); 4];
-    unsafe { GetProcessTimes(GetCurrentProcess(), &mut created, &mut exit, &mut kernel, &mut user) }.ok()?;
+    unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut created,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )
+    }
+    .ok()?;
     let ticks = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
     Some((ticks(kernel) + ticks(user)) / 10)
 }
