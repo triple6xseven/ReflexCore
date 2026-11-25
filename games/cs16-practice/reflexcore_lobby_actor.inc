@@ -302,6 +302,46 @@ Float:patrol_direction(const Float:origin[3], Float:yaw)
     return choice;
 }
 
+new g_reload_weapon[2];
+new Float:g_reload_until[2], Float:g_cover[2][3];
+new bool:g_has_cover[2];
+
+bool:find_cover(actor, target, Float:result[3]) {
+    new Float:start[3], Float:enemy[3], Float:offset[3];
+    pev(actor,pev_origin,start);
+    pev(target,pev_origin,enemy);
+    pev(target,pev_view_ofs,offset);
+    for (new k=0;k<3;k++) enemy[k]+=offset[k];
+    new trace=create_tr2();
+    for (new radius=64;radius<=192;radius+=64) {
+        for (new dir=0;dir<8;dir++) {
+            new Float:end[3], Float:probe[3], Float:fraction;
+            end=start;
+            end[0]+=float(radius)*floatcos(float(dir*45),degrees);
+            end[1]+=float(radius)*floatsin(float(dir*45),degrees);
+            new hull=(pev(actor,pev_flags)&FL_DUCKING) ? HULL_HEAD : HULL_HUMAN;
+            engfunc(EngFunc_TraceHull,start,end,DONT_IGNORE_MONSTERS,hull,actor,trace);
+            get_tr2(trace,TR_flFraction,fraction);
+            if (fraction<1.0 || get_tr2(trace,TR_StartSolid)) continue;
+            probe=end;
+            probe[2]-=56.0;
+            engfunc(EngFunc_TraceLine,end,probe,IGNORE_MONSTERS,actor,trace);
+            get_tr2(trace,TR_flFraction,fraction);
+            if (fraction>=1.0) continue;
+            probe=end;
+            probe[2]+=28.0;
+            engfunc(EngFunc_TraceLine,enemy,probe,IGNORE_MONSTERS,target,trace);
+            get_tr2(trace,TR_flFraction,fraction);
+            if (fraction>=1.0) continue;
+            result=end;
+            free_tr2(trace);
+            return true;
+        }
+    }
+    free_tr2(trace);
+    return false;
+}
+
 public lobby_tick()
 {
     if (g_pilot && (!local_player(g_pilot) || !is_user_alive(g_pilot) || get_user_userid(g_pilot)!=g_pilot_userid)) release_pilot();
@@ -316,7 +356,7 @@ public lobby_tick()
 
 drive_actor(actor) {
     g_actor=actor;
-    if (!is_user_alive(actor)) return;
+    if (!is_user_alive(actor)) { g_reload_weapon[g_lane]=0; return; }
     new CsTeams:team = cs_get_user_team(actor);
     if (team != CS_TEAM_CT && team != CS_TEAM_T) return;
     if (g_buy_attempts[g_lane] < 4 && get_gametime() >= g_next_buy[g_lane] && cs_get_user_buyzone(actor)) {
@@ -367,6 +407,14 @@ drive_actor(actor) {
     if (g_roam[g_lane]) leader=0;
     new focus=target ? target : leader;
     pev(actor,pev_v_angle,angles);
+    new clip,reserve,current_weapon=get_user_weapon(actor,clip,reserve);
+    if (clip!=0 || reserve<=0 || current_weapon!=g_reload_weapon[g_lane] || get_gametime()>=g_reload_until[g_lane])
+        g_reload_weapon[g_lane]=0;
+    if (target && clip==0 && reserve>0 && !g_reload_weapon[g_lane] && current_weapon!=CSW_C4) {
+        g_reload_weapon[g_lane]=current_weapon;
+        g_reload_until[g_lane]=get_gametime()+5.0;
+        g_has_cover[g_lane]=!g_hold[g_lane] && find_cover(actor,target,g_cover[g_lane]);
+    }
     if(focus){
         pev(focus,pev_origin,dest);
         dest[2]+=14.0;
@@ -376,10 +424,8 @@ drive_actor(actor) {
         angles[0]=angles[0]>180.0 ? 360.0-angles[0] : -angles[0];
         if(target){
             g_visible_samples[g_lane]++;
-            new clip,reserve;
-            get_user_weapon(actor,clip,reserve);
             if(clip==0 && reserve>0) buttons=IN_RELOAD;
-            else if(clip>0) buttons=IN_ATTACK;
+            else if(clip>0) buttons=IN_ATTACK | IN_DUCK;
         }
     }
     if (focus || g_hold[g_lane]) g_patrolled[g_lane] = false;
@@ -450,7 +496,22 @@ drive_actor(actor) {
     if (g_hold[g_lane]) speed = 0.0;
     new bool:planting = g_roam[g_lane] && !target && team == CS_TEAM_T && user_has_weapon(actor,CSW_C4)
         && (cs_get_user_mapzones(actor) & CS_MAPZONE_BOMBTARGET) != 0;
-    if (planting) {
+    if (g_reload_weapon[g_lane]) {
+        planting=false;
+        speed=0.0;
+        buttons=IN_DUCK | IN_RELOAD;
+        if (g_has_cover[g_lane] && !g_hold[g_lane]) {
+            new Float:pos[3];
+            pev(actor,pev_origin,pos);
+            new Float:dx=g_cover[g_lane][0]-pos[0], Float:dy=g_cover[g_lane][1]-pos[1];
+            if (dx*dx+dy*dy>256.0) {
+                angles[0]=0.0;
+                angles[1]=floatatan2(dy,dx,degrees);
+                buttons=IN_RELOAD;
+                speed=215.0;
+            }
+        }
+    } else if (planting) {
         speed=0.0;
         if (get_user_weapon(actor)!=CSW_C4) engclient_cmd(actor,"weapon_c4");
         buttons=get_user_weapon(actor)==CSW_C4 ? IN_ATTACK : 0;
@@ -468,7 +529,7 @@ drive_actor(actor) {
         return;
     }
     if(pev(actor,pev_fixangle)==1) set_pev(actor,pev_fixangle,0);
-    engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,planting ? buttons : 0,0,5);
+    engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,planting ? buttons : (buttons & IN_DUCK),0,5);
     new before,after,ammo;
     new weapon=get_user_weapon(actor,before,ammo);
     engfunc(EngFunc_RunPlayerMove,actor,angles,speed,0.0,0.0,buttons,0,95);
@@ -476,6 +537,7 @@ drive_actor(actor) {
         g_clip_decrements[g_lane]+=before-after;
 }
 reset_navigation() {
+    g_reload_weapon[g_lane]=0;
     g_waypoint[g_lane]=-1;
     g_detour_until[g_lane]=0.0;
     g_check_at[g_lane]=g_next_buy[g_lane]=0.0;
