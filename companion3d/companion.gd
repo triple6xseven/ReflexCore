@@ -759,10 +759,6 @@ func _process(delta: float) -> void:
 		seat_offset=lerpf(seat_offset,target_offset,1-exp(-14*dt))
 		sole_contact_y=roundi(actual.y+contact_y-seat_offset*window.size.y/camera.size) if contact_y>=0.0 else -1
 		pivot.position.y+=seat_offset
-		if physical=="cloud_sit":
-			# Keep the avatar aligned with the cloud's fractional screen position.
-			var subpixel_y := motion.position.y-float(actual.y+view_margin.y)
-			pivot.position.y-=subpixel_y*camera.size/window.size.y
 		for role in PROJECTED_ROLES:
 			if rig.roles.has(role):
 				projected_bones[role]=camera.unproject_position(rig.world_bone(role))
@@ -804,7 +800,7 @@ func _process(delta: float) -> void:
 	if now<transition_fps_until:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
-	Engine.max_fps=frame_limit if interactive or physical=="cloud_sit" else mini(24,frame_limit)
+	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
 	if status_clock>=1.8 or (status_clock>=0.22 and avatar_state!=last_reported_pose):
 		last_reported_pose=avatar_state
 		_publish()
