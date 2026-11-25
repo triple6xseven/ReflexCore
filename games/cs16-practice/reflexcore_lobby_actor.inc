@@ -12,6 +12,7 @@ new bool:g_hold[2];
 new g_pilot, g_pilot_userid, g_pilot_buttons;
 new Float:g_pilot_angles[3], Float:g_pilot_speed, Float:g_pilot_at;
 new g_lane, g_actor;
+#include "reflexcore_lobby_learning.inc"
 new Float:g_detour_until[2];
 
 new bool:g_roam[2], Float:g_route[128][3], g_route_count, g_waypoint[2] = {-1,-1};

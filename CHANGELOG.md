@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Open H > Auto-learning to record your manual movement in the experimental profile. Learning history shows the latest map-local direction samples and distinct round counts. F9 pauses recording for the controlled player. Switching back to Standard stops collection. Samples are stored separately and do not change the active bot policy.
+
 - Lobby Reflex and F9 control crouch while firing and search for nearby cover when reloading an empty magazine during contact. Hold Position reloads in place.
 
 - Discover the teammate lobby in the LAN browser, buy rifles and ammunition, follow or hold through the H menu, remember stalled patrol headings and preview the local dedicated client. Insert toggles held-jump assistance.

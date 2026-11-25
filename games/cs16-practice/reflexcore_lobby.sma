@@ -29,6 +29,9 @@ public plugin_init()
     register_clcmd("rc_lobby_long", "long_round");
     register_cvar("rc_lobby_host","");
     setup_patrol_memory();
+    load_human_routes();
+    set_task(0.3,"sample_human_route",0,"",0,"b");
+    register_event("HLTV","new_learning_round","a","1=0","2=0");
     g_site_mode=register_cvar("rc_site_mode","0");
     g_memory_limit=register_cvar("rc_follow_memory","256");
     g_learning=register_cvar("rc_learn_positions","1");
@@ -76,6 +79,7 @@ public show_lobby(id)
     new menu = menu_create("ReflexCore | Local team play", "choose");
     menu_additem(menu,"Follow me","5");
     menu_additem(menu,"FreeRoam AI","8");
+    menu_additem(menu,g_teacher_uid ? "Auto-learning: Experimental (on)" : "Auto-learning: Standard (off)","11");
     menu_additem(menu,"Hold position","6");
     menu_additem(menu,"Spectate ReflexCore / stop watching","9");
     menu_additem(menu,"Play on my team","0");
@@ -95,6 +99,7 @@ public choose(id, menu, item)
     }
     menu_destroy(menu);
     if (item == MENU_EXIT || !local_player(id)) return PLUGIN_HANDLED;
+    if (item == 11) return learning_menu(id);
     if (item == 10) return bot_menu(id);
     if (item == 2) return add_ct(id);
     if (item == 3) return clear_bots(id);
