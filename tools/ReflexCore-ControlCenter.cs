@@ -447,7 +447,7 @@ namespace ReflexCore.Control
                 Directory.CreateDirectory(folder);
                 Process.Start("explorer.exe","\""+folder+"\"");
             },false);
-            shared.Controls.Add(Info("Use your existing game or launch a second window. Reflex plays on the server and leaves your mouse and keyboard free.",18,244,750));
+            shared.Controls.Add(Info("In the local lobby, press F9 to let Reflex play your character. Press F9 again to take back control.",18,244,750));
             shared.Controls.Add(Info("Press F12 or Ctrl+Alt+P to stop. The controller uses public game signals and a limited set of inputs. Recordings capture local game controls.",18,336,750));
             var apiFlow=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,
                 WrapContents=false,BackColor=bg,Padding=new Padding(18,18,18,20)};

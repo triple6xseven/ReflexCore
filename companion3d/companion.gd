@@ -800,7 +800,9 @@ func _process(delta: float) -> void:
 	if now<transition_fps_until:
 		interactive=true
 		frame_limit=maxi(frame_limit,48)
-	Engine.max_fps=frame_limit if interactive else mini(24,frame_limit)
+	# The cloud keeps bobbing after the pose settles.
+	var idle_fps := 30 if physical=="cloud_sit" else 24
+	Engine.max_fps=frame_limit if interactive else mini(idle_fps,frame_limit)
 	if status_clock>=1.8 or (status_clock>=0.22 and avatar_state!=last_reported_pose):
 		last_reported_pose=avatar_state
 		_publish()

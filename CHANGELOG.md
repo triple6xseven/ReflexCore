@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Show the F9 local-lobby control in Studio and smooth the companion's seated cloud motion.
+
 - Keep the Windows companion drawing surface stable during dragging and pose changes. Pointer hit tests control click-through without reshaping the native window.
 
 - Experimental site-route recovery can favor a clear direction demonstrated in three rounds for the same team and map cell. Standard mode excludes these hints.
