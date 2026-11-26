@@ -406,10 +406,13 @@ fn validate_saved(id: &str) -> Result<()> {
 
 pub(crate) fn run(args: &[String]) -> Result<()> {
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["verify-notepad", run, scope] => skill_registry::saved_text::verify_notepad(run, scope),
+        ["bind", id, version, app, mode] => skill_registry::saved_text::describe_binding(id, version, app, mode),
         ["registry"] => {
             let reliability = crate::agent::memory::lab_reliability()?;
             println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "skills": skill_registry::SKILLS,
+                "schema": "reflexcore.skill_catalog.v1",
+                "skills": skill_registry::SKILLS.iter().map(|s| s.catalog_entry()).collect::<Vec<_>>(),
                 "bounded_replay_statistics": reliability.into_iter().map(|(environment, skill, trials, verified)| {
                     serde_json::json!({"environment": environment, "skill": skill, "version": 1, "trials": trials, "verified_one_pulse": verified})
                 }).collect::<Vec<_>>()

@@ -174,3 +174,14 @@ pub(super) fn publish(from: &Path, to: &Path) -> io::Result<()> {
     unsafe { MoveFileW(PCWSTR(src.as_ptr()), PCWSTR(dest.as_ptr())) }
         .map_err(|_| io::Error::last_os_error())
 }
+
+/// Pin each parent before opening the leaf. The handle denies writes and
+/// replacement until the caller finishes reading the same regular file.
+pub(crate) fn open_for_readback(path: &Path) -> io::Result<File> {
+    let (_pin, path) = target(path)?;
+    let file = open(&path, true, 1)?;
+    if !file.metadata()?.is_file() {
+        return Err(invalid());
+    }
+    Ok(file)
+}

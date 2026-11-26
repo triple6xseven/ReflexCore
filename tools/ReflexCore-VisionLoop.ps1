@@ -363,11 +363,41 @@ function Get-NotepadDemoGate([string]$app,[string]$editable,[bool]$osEditable) {
     return 'uia_uncertain'
 }
 
-function Safe-ReadText([string]$path) {
-    if(-not (Test-Path -LiteralPath $path -PathType Leaf)) {return ''}
-    $item=Get-Item -LiteralPath $path
-    if($item.Length -gt 4096) {throw 'Demo readback exceeds expected size'}
-    return [IO.File]::ReadAllText($path)
+function Invoke-SkillReader([string]$arguments,[string]$text) {
+    $info=[Diagnostics.ProcessStartInfo]::new($verifier,$arguments)
+    $info.WorkingDirectory=$root
+    $info.UseShellExecute=$false
+    $info.CreateNoWindow=$true
+    $info.RedirectStandardOutput=$true
+    if($text){$info.EnvironmentVariables['REFLEXCORE_EXPECTED_TEXT']=$text}
+    Require-NotStopped
+    $worker=[Diagnostics.Process]::Start($info)
+    try {
+        $output=$worker.StandardOutput.ReadToEndAsync()
+        $deadline=[Diagnostics.Stopwatch]::StartNew()
+        while(!$worker.WaitForExit(75)){
+            Require-NotStopped
+            if($deadline.Elapsed.TotalSeconds -ge 11){throw 'Disk readback deadline exceeded; effect unknown'}
+        }
+        Require-NotStopped
+        if($worker.ExitCode -ne 0){throw 'The requested saved-text skill could not be verified'}
+        $json=$output.GetAwaiter().GetResult()
+        if($json.Length -gt 1024){throw 'Invalid skill evidence'}
+        return ($json | ConvertFrom-Json)
+    } finally {
+        if(!$worker.HasExited){$worker.Kill();$worker.WaitForExit()}
+        $worker.Dispose()
+    }
+}
+
+function Confirm-SavedText([string]$run,[string]$text) {
+    $scope=if($TestFixture){'fixture'}else{'desktop'}
+    $e=Invoke-SkillReader "learning verify-notepad $run $scope" $text
+    if($e.schema -cne 'reflexcore.skill.evidence.v1' -or $e.run_id -cne $run -or
+       $e.skill_id -cne 'artifact.verify_saved_text' -or $e.skill_version -ne 1 -or
+       $e.adapter -cne 'notepad' -or $e.adapter_version -ne 1 -or $e.verifier_version -ne 1 -or
+       $e.outcome -cne 'verified'){throw 'Unexpected disk evidence identity'}
+    return $e
 }
 
 . (Join-Path $PSScriptRoot 'ReflexCore-SkillMemory.ps1')
@@ -501,7 +531,14 @@ try {
             Initialize-VisualModel
             Require-NotStopped
         }
-        $token='ReflexCore-VisionLoop-'+[guid]::NewGuid().ToString('N').Substring(0,12)+'.txt'
+        $verifier=Join-Path $root 'target/release/reflexcore.exe'
+        if(![IO.File]::Exists($verifier)){throw 'Build the release runtime before starting the editor'}
+        $bound=Invoke-SkillReader 'learning bind artifact.verify_saved_text 1 notepad foreground' ''
+        if($bound.schema -cne 'reflexcore.skill.binding.v1' -or $bound.skill_id -cne 'artifact.verify_saved_text' -or
+           $bound.skill_version -ne 1 -or $bound.binding.adapter -cne 'notepad' -or
+           $bound.binding.contract_version -ne 1){throw 'Incompatible Notepad binding'}
+        $skillRun=[guid]::NewGuid().ToString('N')
+        $token='ReflexCore-VisionLoop-'+$skillRun+'.txt'
         if(-not [ReflexCore.VisionLoop.Host]::IsValidWindowToken($token)){throw 'Demo token generation rejected'}
         $desktop=if($TestFixture){[IO.Directory]::CreateDirectory((Join-Path $runtime 'fixtures')).FullName}else{[Environment]::GetFolderPath('Desktop')}
         if([string]::IsNullOrEmpty($desktop) -or -not(Test-Path -LiteralPath $desktop -PathType Container)) {throw 'Windows Desktop directory unavailable'}
@@ -550,14 +587,9 @@ try {
         Write-Stage 'executing'
         $used=[ReflexCore.VisionLoop.Host]::EditAndSave($token,$text,$preferred,[Func[bool]]{Test-StopRequested})
         Write-Stage 'awaiting_effect'
-        $verified=$false
-        for($i=0;$i -lt 60;$i++) {
-            Start-Sleep -Milliseconds 150
-            Require-NotStopped
-            if([string]::Equals((Safe-ReadText $ownedPath),$text,[StringComparison]::Ordinal)) {$verified=$true;break}
-        }
         Write-Stage 'verifying'
-        if(-not $verified) {throw 'Notepad disk readback did not match exactly; goal is NOT VERIFIED'}
+        $evidence=Confirm-SavedText $skillRun $text
+        Require-NotStopped
         Write-Stage 'verified' 'pass'
         $memorySaved=$false
         try {if(!$TestNativeInput -and $family -ne 'unknown'){Save-VerifiedSkill $memory $family $used $skill; $memorySaved=$true}}
@@ -568,7 +600,7 @@ try {
             Require-NotStopped
             [ReflexCore.VisionLoop.Host]::CloseVerifiedTab($token)
         }
-        [pscustomobject]@{schema='reflexcore.notepad.result.v1';verified=$true;method=$used;memory_hit=$hit;memory_saved=$memorySaved;model_calls=$script:apiRequests;elapsed_ms=$watch.ElapsedMilliseconds}
+        [pscustomobject]@{schema='reflexcore.notepad.result.v1';verified=$true;skill=$evidence;method=$used;memory_hit=$hit;memory_saved=$memorySaved;model_calls=$script:apiRequests;elapsed_ms=$watch.ElapsedMilliseconds}
         Write-Stage 'completed' 'pass'
     }
 } catch {

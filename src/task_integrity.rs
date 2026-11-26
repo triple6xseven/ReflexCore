@@ -102,6 +102,11 @@ pub(crate) fn check_cancel() -> Result<()> {
 }
 
 pub(crate) fn write_receipt(run: &str, fault: Option<Fault>, verified: bool) -> Result<()> {
+    write_goal_receipt(run, fault, verified, None)
+}
+
+pub(crate) fn write_goal_receipt(run: &str, fault: Option<Fault>, verified: bool,
+    evidence: Option<&crate::skill_registry::saved_text::Evidence<'_>>) -> Result<()> {
     let Some(id) = task_id() else { return Ok(()) };
     let outcome = match fault {
         Some(Fault::Cancelled | Fault::CancelledUnknown) => "cancelled",
@@ -121,11 +126,14 @@ pub(crate) fn write_receipt(run: &str, fault: Option<Fault>, verified: bool) -> 
         None if verified => "verified",
         _ => "not_confirmed",
     };
-    let document = serde_json::json!({
+    let mut document = serde_json::json!({
         "schema": "reflexcore.task.receipt.v1", "task_id": id, "run_id": run,
         "stage": "goal", "outcome": outcome, "verification": verification,
         "reason": fault.map(Fault::code).unwrap_or(if verified { "verified_goal" } else { "no_effect_evidence" })
     });
+    if let Some(evidence) = evidence {
+        document["skill"] = serde_json::to_value(evidence)?;
+    }
     publish_receipt(&id, run, &document)
 }
 

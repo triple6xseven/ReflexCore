@@ -415,11 +415,12 @@ pub fn run(args: &[String]) -> Result<()> {
             _ => return Err("Usage: agent verified-demo --execute [--background]".into()),
         };
         let run_id = crate::task_integrity::run_id();
-        let result = crate::flow::verified_demo(background);
+        let result = crate::flow::verified_demo(background, &run_id);
         let fault = result.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
             .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));
-        crate::task_integrity::write_receipt(&run_id, fault, result.is_ok())?;
-        return result;
+        crate::task_integrity::write_goal_receipt(&run_id, fault, result.is_ok(), result.as_ref().ok())?;
+        println!("{}", serde_json::to_string(&result?)?);
+        return Ok(());
     }
     let (goal, execute_flag) = match command {
         "demo" => {

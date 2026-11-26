@@ -1,4 +1,4 @@
-mod scope;
+use crate::local_files as scope;
 #[cfg(test)]
 mod tests;
 use crate::task_integrity::{self, Fault};
@@ -17,6 +17,7 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, Fault>;
+
 const MAX_CHECKLIST: u64 = 512 * 1024;
 const MAX_REPORT: u64 = 4 * 1024 * 1024;
 #[derive(Deserialize, Serialize, PartialEq, Debug)]
@@ -120,8 +121,7 @@ fn bounded(file: File, limit: u64) -> io::Result<Vec<u8>> {
     Ok(b)
 }
 fn private_bytes(path: &Path, limit: u64) -> Result<Vec<u8>> {
-    let (_pin, path) = scope::target(path).map_err(|_| Fault::PreconditionFailed)?;
-    let file = scope::open(&path, true, 1).map_err(|_| Fault::PreconditionFailed)?;
+    let file = scope::open_for_readback(path).map_err(|_| Fault::PreconditionFailed)?;
     bounded(file, limit).map_err(|_| Fault::PreconditionFailed)
 }
 fn private_json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Result<T> {

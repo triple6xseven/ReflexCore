@@ -464,8 +464,8 @@ fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixturePro
 struct FixtureArtifact(PathBuf);
 
 impl FixtureArtifact {
-    fn new() -> Result<Self> {
-        let dir = std::env::temp_dir().join(format!("ReflexCore-save-{}", task_integrity::run_id()));
+    fn new(run: &str) -> Result<Self> {
+        let dir = crate::skill_registry::saved_text::winforms_folder(run)?;
         fs::create_dir(&dir)?;
         Ok(Self(dir))
     }
@@ -518,26 +518,39 @@ fn verify_transition<T>(
     match observe(ctx, to) {
         Ok(true) => Ok(()),
         Ok(false) => Err(Fault::VerificationFailed.into()),
+        Err(error) if matches!(error.downcast_ref::<Fault>(), Some(Fault::Cancelled | Fault::CancelledUnknown)) =>
+            Err(Fault::CancelledUnknown.into()),
         Err(_) => Err(Fault::EffectUnknown.into()),
     }
 }
 
-pub(crate) fn verified_demo(background: bool) -> Result<()> {
+pub(crate) fn verified_demo(background: bool, run: &str) -> Result<crate::skill_registry::saved_text::Evidence<'_>> {
+    use crate::skill_registry::saved_text::{self, Adapter};
+    let start = Instant::now();
+    let binding = saved_text::bind(saved_text::ID, 1, Adapter::Winforms, background)?;
+    let bind_ns = start.elapsed().as_nanos();
+    let measure = std::env::var("REFLEXCORE_SKILL_TIMINGS").as_deref() == Ok("1");
+    task_integrity::check_cancel()?;
     let skills = [
         ("prepare-editor", FixtureState::Empty, FixtureState::Prepared, 0),
         ("save-document", FixtureState::Prepared, FixtureState::Saved, 2),
     ];
     let edges = skills.map(|(id, from, to, _)| (id, from.id(), to.id(), 1));
+    let planning = Instant::now();
     let plan = crate::agent::plan_edges(FixtureState::Empty.id(), FixtureState::Saved.id(), &edges)?;
+    let plan_us = planning.elapsed().as_micros();
     let _lock = FlowLock::acquire()?;
-    let artifact = FixtureArtifact::new()?;
+    let artifact = FixtureArtifact::new(run)?;
     let path = artifact.path();
     let (fixture, hwnd) = start_fixture(Some(&path), background)?;
     let owned = (&*hwnd, fixture.0.id());
     let flow = parse_flow(include_str!("../examples/smoke_flow.json"))?;
     let expected = flow.steps[0].value.as_deref().ok_or("Missing fixture text")?;
-    let run = task_integrity::run_id();
+    let mut session = if std::env::var("REFLEXCORE_UIA_WORKER").as_deref() == Ok("session") {
+        Some(crate::uia_actions::session::Session::start(run, usize::from_str_radix(hwnd.trim_start_matches("0x"), 16)?, owned.1)?)
+    } else { None };
     let mut next = 0;
+    let mut timings = Vec::new();
     let mut action = |step: &Step| -> Result<serde_json::Value> {
         if background && !matches!(step.action.as_str(), "set-value" | "invoke" | "assert-value") {
             return Err(Fault::PreconditionFailed.into());
@@ -548,12 +561,25 @@ pub(crate) fn verified_demo(background: bool) -> Result<()> {
         let mut args = build_action_args(&flow, step);
         args[1] = format!("--hwnd={hwnd}");
         next += 1;
-        crate::uia_actions::execute(&args[1..], &run, next, Some(owned.1))
+        let started = Instant::now();
+        let reply = crate::uia_actions::dispatch(&args[1..], run, next, Some(owned.1), false, session.as_mut())?;
+        if measure {
+            let phases = &reply["phases"];
+            timings.push(serde_json::json!({
+                "action": next, "elapsed_us": started.elapsed().as_micros(),
+                "spawn_us": phases["spawn_us"], "com_us": phases["com_us"], "uia_us": phases["uia_us"],
+                "concurrent_private_bytes": phases["concurrent_private_bytes"], "child_cpu_us": phases["child_cpu_us"],
+                "root_cpu_us": phases["root_cpu_us"]
+            }));
+        }
+        Ok(reply)
     };
     let read_saved = || -> Result<bool> {
-        let mut bytes = Vec::new();
-        fs::File::open(&path)?.take(4097).read_to_end(&mut bytes)?;
-        Ok(bytes == expected.as_bytes())
+        match binding.verify_winforms(run, expected) {
+            Ok(_) => Ok(true),
+            Err(Fault::VerificationFailed) => Ok(false),
+            Err(fault) => Err(fault.into()),
+        }
     };
     // Both skills use the same owned window. The final effect is checked on disk.
     for index in plan {
@@ -580,11 +606,13 @@ pub(crate) fn verified_demo(background: bool) -> Result<()> {
             }
         })?;
     }
-    if !read_saved().map_err(|_| Fault::EffectUnknown)? {
-        return Err(Fault::VerificationFailed.into());
+    let evidence = binding.verify_winforms(run, expected)?;
+    if measure {
+        println!("{}", serde_json::json!({"schema":"reflexcore.skill.timing.v1", "run_id":run,
+            "bind_ns":bind_ns, "plan_us":plan_us, "actions":timings}));
     }
     println!("[ReflexCore] GOAL VERIFIED: two guarded skills and independent file readback");
-    Ok(())
+    Ok(evidence)
 }
 
 fn fixture_value_matches(reply: serde_json::Value) -> Result<bool> {
@@ -718,7 +746,7 @@ mod tests {
 
     #[test]
     fn overlapping_benchmark_reports_keep_their_run_identity() {
-        let artifact = FixtureArtifact::new().unwrap();
+        let artifact = FixtureArtifact::new(&task_integrity::run_id()).unwrap();
         let report = FlowReport {
             execution_run_id: None,
             session_close_us: None,

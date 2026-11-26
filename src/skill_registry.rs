@@ -1,4 +1,5 @@
 use serde::Serialize;
+pub(crate) mod saved_text;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -7,6 +8,8 @@ pub(crate) enum Capability {
     ProbeMotion,
     ApplyBoundedPulse,
     OwnedGoldsrcPractice,
+    OwnedArtifact,
+    ReopenDisk,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -16,6 +19,7 @@ pub(crate) enum Operation {
     FixedPulse,
     CalibratedPulse,
     GoldsrcPulse,
+    VerifySavedText,
 }
 
 #[derive(Serialize)]
@@ -35,7 +39,45 @@ pub(crate) struct Skill {
 
 pub(crate) const GOLDSRC_PULSE_ID: &str = "cs16.advance";
 
+impl Skill {
+    pub(crate) fn catalog_entry(&self) -> serde_json::Value {
+        let mut entry = serde_json::json!(self);
+        if self.operation == Operation::VerifySavedText {
+            entry["description"] = "Verify the exact text saved by the requested editor".into();
+            entry["status"] = "executable".into();
+            entry["domain"] = "artifact".into();
+            entry["contract_version"] = 1.into();
+            entry["bindings"] = serde_json::json!(saved_text::BINDINGS);
+            entry["output"] = "reflexcore.skill.evidence.v1".into();
+            entry["permission"] = "read_owned_output".into();
+            entry["max_bytes"] = saved_text::LIMIT.into();
+        } else {
+            entry["status"] = "experimental_lab".into();
+            entry["domain"] = if self.operation == Operation::GoldsrcPulse {
+                "goldsrc"
+            } else {
+                "motion"
+            }
+            .into();
+        }
+        entry
+    }
+}
+
 pub(crate) const SKILLS: &[Skill] = &[
+    Skill {
+        id: saved_text::ID,
+        version: 1,
+        category: "universal",
+        from: "save_issued",
+        to: "saved_text_confirmed",
+        requires: &[Capability::OwnedArtifact, Capability::ReopenDisk],
+        inputs: &["owned_saved_file", "expected_text"],
+        effect: "saved_text_equals_expected",
+        verifier: "bounded_ordinal_disk_readback_v1",
+        cost: 1,
+        operation: Operation::VerifySavedText,
+    },
     Skill {
         id: "motion.probe",
         version: 1,

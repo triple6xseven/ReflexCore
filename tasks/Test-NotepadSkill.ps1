@@ -10,6 +10,15 @@ for($run=0;$run -lt $Runs;$run++){
         if($Visual){$opts.Route='Visual'}
         $result=& $tool @opts
         if($result.schema -cne 'reflexcore.notepad.result.v1' -or !$result.verified){throw 'Missing disk evidence'}
+        $e=$result.skill
+        if($e.run_id -cnotmatch '\A[0-9a-f]{32}\z' -or $e.adapter -cne 'notepad' -or
+           $e.skill_id -cne 'artifact.verify_saved_text' -or $e.skill_version -ne 1 -or
+           $e.verifier_version -ne 1 -or $e.outcome -cne 'verified'){throw 'Missing bound skill receipt'}
+        $folder=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ReflexCore/runtime/fixtures'
+        $path=Join-Path $folder ('ReflexCore-VisionLoop-'+$e.run_id+'.txt')
+        $expected=if($opts.UnicodeFixture){'ReflexCore '+[char]0x0416+[char]0x03A9+[char]::ConvertFromUtf32(0x1f600)}else{'ReflexCore is operational'}
+        if(![string]::Equals([IO.File]::ReadAllText($path),$expected,[StringComparison]::Ordinal)){throw 'External disk check failed'}
+        if(!$Visual -and $result.model_calls -ne 0){throw 'Deterministic route called a model'}
         $elapsed+=[long]$result.elapsed_ms
         $calls+=$result.model_calls
         if($result.memory_hit){$hits++}

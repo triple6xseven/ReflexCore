@@ -47,9 +47,31 @@ namespace ReflexCore.Bridge
         public string old_extension { get; set; }
         public string new_extension { get; set; }
     }
+    public sealed class SkillEvidence
+    {
+        public string schema {get;set;}
+        public string run_id {get;set;}
+        public string skill_id {get;set;}
+        public int skill_version {get;set;}
+        public string adapter {get;set;}
+        public int adapter_version {get;set;}
+        public int verifier_version {get;set;}
+        public string outcome {get;set;}
+        public long readback_us {get;set;}
+        internal bool Matches(TaskReceipt receipt)
+        {
+            return schema=="reflexcore.skill.evidence.v1" && run_id==receipt.run_id &&
+                skill_id=="artifact.verify_saved_text" && skill_version==1 && verifier_version==1 &&
+                adapter_version==1 && readback_us>=0 && outcome=="verified" &&
+                receipt.outcome=="verified" && receipt.verification=="verified" &&
+                ((adapter=="winforms" && receipt.stage=="goal" && receipt.reason=="verified_goal") ||
+                 (adapter=="notepad" && receipt.stage=="notepad" && receipt.reason=="disk_readback"));
+        }
+    }
     public sealed class TaskReceipt
     {
         public HandoffSummary handoff { get; set; }
+        public SkillEvidence skill {get;set;}
         public int? renamed { get; set; }
         public HandoffMetrics metrics { get; set; }
         public string schema { get; set; }
@@ -186,7 +208,7 @@ namespace ReflexCore.Bridge
                     !new[]{"verified","failed","unknown","not_confirmed"}.Contains(value.verification) ||
                     !new[]{"verified_goal","disk_readback","rename_completed","rename_partial","verification_failed","precondition_failed","focus_lost","infrastructure_error","operator_cancelled",
                         "cancelled_effect_unknown","effect_unknown","no_effect_evidence","process_exited","process_failed","cleanup_unconfirmed","interrupted"}.Contains(value.reason))return null;
-                return value;
+                return value.skill==null || value.skill.Matches(value)?value:null;
             } catch(ArgumentException) { return null; }
               catch(InvalidOperationException) { return null; }
         }

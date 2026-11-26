@@ -228,8 +228,19 @@ namespace ReflexCore.VisionLoop
         {
             if (String.IsNullOrEmpty(text) || text.Length > 1000 || stopped == null)
                 throw new ArgumentException("Invalid edit request");
-            var editor = OwnedEditor(token);
-            if (!Matches(editor, "")) throw new InvalidOperationException("Demo editor must initially be empty");
+            // Notepad can publish the new tab title before UIA exposes its document.
+            // Only observe during this window. Never clear or replace a nonempty editor.
+            var deadline = Stopwatch.StartNew();
+            AutomationElement editor;
+            do
+            {
+                if (stopped()) throw new OperationCanceledException("Stopped by operator");
+                editor = OwnedEditor(token);
+                if (Matches(editor, "")) break;
+                if (deadline.ElapsedMilliseconds >= 600)
+                    throw new InvalidOperationException("Demo editor must initially be empty");
+                Thread.Sleep(30);
+            } while (true);
             if (stopped()) throw new OperationCanceledException("Stopped by operator");
             CheckModifiers();
             object pattern;
