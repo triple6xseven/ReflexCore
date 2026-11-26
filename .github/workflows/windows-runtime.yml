@@ -13,12 +13,21 @@ jobs:
         shell: powershell
         run: |
           ./tools/Run-ReflexBenchmark.ps1 -SelfTest
-          foreach ($name in 'Measure-NativeSession','Compare-NativeSession','Test-NativeSession') {
+          foreach ($name in 'Measure-NativeSession','Compare-NativeSession','Test-NativeSession','Measure-SkillTransfer') {
             $errors = $null
             $tokens = $null
             [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path "./tools/$name.ps1").Path, [ref]$tokens, [ref]$errors)
             if ($errors.Count) { throw $errors[0] }
           }
+      - name: Validate editor bindings without opening a window
+        shell: powershell
+        run: |
+          $exe = './target/release/reflexcore.exe'
+          $id = 'artifact.verify_saved_text'
+          $result = & $exe learning bind $id 1 winforms background | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $result.binding.contract_version -ne 1 -or !$result.binding.background) { throw 'Invalid WinForms binding' }
+          $result = & $exe learning bind $id 1 notepad foreground | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $result.binding.adapter -ne 'notepad' -or $result.binding.background) { throw 'Invalid Notepad binding' }
       - name: Compile and check Studio
         # The visible fixture and its in-flight fault tests need an unlocked desktop.
         shell: powershell

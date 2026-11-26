@@ -337,6 +337,11 @@ namespace ReflexCore.Control
                     return;
                 }
                 var receipt=row.Receipt;
+                if(receipt!=null && receipt.skill!=null){
+                    resultText.Text="Saved text verified on disk · "+receipt.skill.adapter+Environment.NewLine+
+                        receipt.skill.skill_id+" v"+receipt.skill.skill_version;
+                    return;
+                }
                 if(row.Task=="rename" && row.State=="interrupted"){
                     int? confirmed=ExtensionRename.ConfirmedCount(row.Id);
                     resultText.Text=confirmed.HasValue?"Interrupted · "+confirmed.Value+" confirmed in the journal. Inspect the folder before retrying."
@@ -625,7 +630,7 @@ namespace ReflexCore.Control
                 grid.RowTemplate.Height=29;
                 var summary=new Label {Dock=DockStyle.Top,Height=40,Padding=new Padding(12,10,8,4),
                     Text="Loading skills and saved movement observations...",ForeColor=theme.Sub};
-                var detail=new Label {Dock=DockStyle.Bottom,Height=86,Padding=new Padding(12,8,8,4),BackColor=theme.Card};
+                var detail=new Label {Dock=DockStyle.Bottom,Height=116,Padding=new Padding(12,8,8,4),BackColor=theme.Card};
                 dialog.Controls.Add(grid);
                 dialog.Controls.Add(detail);
                 var chooseData=new Button {Dock=DockStyle.Right,Width=174,Text="Choose installation",FlatStyle=FlatStyle.Flat,
@@ -637,9 +642,12 @@ namespace ReflexCore.Control
                 header.Controls.Add(chooseData);
                 dialog.Controls.Add(header);
                 grid.SelectionChanged+=delegate {
-                    string description;
-                    detail.Text=grid.SelectedRows.Count==1 && rows.TryGetValue(
-                        Convert.ToString(grid.SelectedRows[0].Cells[0].Value),out description)?description:"";
+                    detail.Text="";
+                    if(grid.SelectedRows.Count!=1)return;
+                    var selected=grid.SelectedRows[0];
+                    string id=Convert.ToString(selected.Cells["skill"].Value),description;
+                    if(rows.TryGetValue(id+"/"+selected.Cells["environment"].Value,out description) ||
+                       rows.TryGetValue(id,out description))detail.Text=description;
                 };
                 Action<string> load=async delegate(string installation) {
                     chooseData.Enabled=false;
@@ -659,6 +667,19 @@ namespace ReflexCore.Control
                             rows[skill.id]="Expected effect: "+skill.effect+"   |   Verifier: "+skill.verifier+
                                 Environment.NewLine+"Requires: "+String.Join(", ",skill.requires??new string[0])+
                                 Environment.NewLine+"Inputs: "+String.Join(", ",skill.inputs??new string[0]);
+                            if(skill.bindings!=null){
+                                var evidence=new ReflexCore.Bridge.QueueStore(installation).Snapshot();
+                                foreach(var binding in skill.bindings){
+                                    rows[skill.id+"/"+binding.adapter]=skill.description+" · "+skill.domain+" · "+skill.status+
+                                        Environment.NewLine+rows[skill.id]+Environment.NewLine+binding.backend+" v"+binding.adapter_version+
+                                        (binding.background?" · supports background saves":" · needs the editor in the foreground");
+                                    var count=evidence.Count(e=>e.State=="completed" && e.Receipt!=null && e.Receipt.skill!=null &&
+                                        e.Receipt.skill.skill_id==skill.id && e.Receipt.skill.skill_version==skill.version &&
+                                        e.Receipt.skill.adapter==binding.adapter && e.Receipt.skill.adapter_version==binding.adapter_version);
+                                    grid.Rows.Add(skill.id,skill.version,skill.category,binding.adapter,count+" verified in history");
+                                }
+                                continue;
+                            }
                             bool hasSamples=false;
                             foreach(var item in report.bounded_replay_statistics)
                             {
@@ -669,7 +690,7 @@ namespace ReflexCore.Control
                             }
                             if(!hasSamples)grid.Rows.Add(skill.id,skill.version,skill.category,"—","No samples yet");
                         }
-                        summary.Text="Built-in experimental skills and local SQLite movement statistics";
+                        summary.Text="Select a skill to inspect its requirements, editor support and verification method.";
                     }
                     catch(Exception)
                     {
@@ -724,6 +745,10 @@ namespace ReflexCore.Control
 
         sealed class SkillLibraryEntry
         {
+            public string description {get;set;}
+            public string domain {get;set;}
+            public string status {get;set;}
+            public SkillLibraryBinding[] bindings {get;set;}
             public string id {get;set;}
             public int version {get;set;}
             public string category {get;set;}
@@ -733,6 +758,13 @@ namespace ReflexCore.Control
             public string[] inputs {get;set;}
         }
 
+        sealed class SkillLibraryBinding
+        {
+            public string adapter {get;set;}
+            public int adapter_version {get;set;}
+            public string backend {get;set;}
+            public bool background {get;set;}
+        }
         sealed class SkillLibrarySample
         {
             public string skill {get;set;}

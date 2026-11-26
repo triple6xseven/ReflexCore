@@ -142,13 +142,13 @@ namespace ReflexCore.Bridge
         static object[] Tools()
         {
             return new[]{
-                Tool("list_skills","Read experimental skills, local movement evidence, and executable workflow contracts.",new[]{"skills","bounded_replay_statistics","memory_state","memory_source","workflows","handoff_feedback"}),
+                Tool("list_skills","Inspect executable editor bindings, verification requirements and experimental movement skills.",new[]{"skills","bounded_replay_statistics","memory_state","memory_source","workflows","handoff_feedback"}),
                 Tool("list_projects","Discover configured projects and locally saved handoff presets. A preset can be run without entering paths.",new[]{"projects"}),
                 Tool("submit_handoff_check","Submit a handoff check for Studio approval. All paths are relative to the selected project.",new[]{"task_id","state","next_action"},
                     new[]{"folder","checklist","report"},new[]{"project"},false),
                 Tool("submit_saved_handoff","Request a saved check for Studio approval. Choose a project and preset returned by list_projects.",new[]{"task_id","state","next_action"},
                     new[]{"project","preset"},null,false),
-                Tool("get_task_result","Read status, the next operator step, and the typed handoff receipt for a queue task.",new[]{"task_id","state","next_action","receipt"},new[]{"task_id"}),
+                Tool("get_task_result","Read handoff status or a retained editor skill receipt by queue task ID.",new[]{"task_id","state","next_action","receipt"},new[]{"task_id"}),
                 Tool("cancel_task","Request cancellation. Read get_task_result for terminal confirmation.",new[]{"task_id","cancellation_requested"},new[]{"task_id"},null,false),
                 Tool("list_lab_runs","Read recent summaries from owned offline matches.",new[]{"runs"}),
                 Tool("list_combat_runs","Discover measured offline combat trials. Results use engine evidence, with no visual detector in the loop.",new[]{"runs"}),
@@ -197,9 +197,14 @@ namespace ReflexCore.Bridge
                 case "cancel_task":
                     var id=StringArg(args,"task_id");
                     if(!QueueStore.ValidId(id))throw new ArgumentException("Invalid task ID.");
-                    var row=queue.Snapshot().FirstOrDefault(item=>item.Id==id && item.Task=="handoff");
-                    if(row==null)throw new ArgumentException("Handoff task was not found in the retained queue.");
+                    var row=queue.Snapshot().FirstOrDefault(item=>item.Id==id && (item.Task=="handoff" ||
+                        (name=="get_task_result" && item.Receipt!=null && item.Receipt.skill!=null &&
+                         ((item.Receipt.skill.adapter=="winforms" && (item.Task=="uia" || item.Task=="uia-background")) ||
+                          (item.Receipt.skill.adapter=="notepad" && (item.Task=="notepad" || item.Task=="visual"))))));
+                    if(row==null)throw new ArgumentException("Task unavailable for this operation.");
                     if(name=="cancel_task")return new {task_id=id,cancellation_requested=queue.Request(id,"cancel")};
+                    if(row.Task!="handoff")return new {task_id=id,state=row.State,next_action="review_result",
+                        receipt=row.Receipt,workflow=new {id=row.Receipt.skill.skill_id,version=row.Receipt.skill.skill_version}};
                     string state=row.State;
                     if(state=="pending")
                     {

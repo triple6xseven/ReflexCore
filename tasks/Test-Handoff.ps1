@@ -123,7 +123,27 @@ try{
             Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 10) 'Wrong MCP tools'
             Require ((Invoke-Tool 'list_skills' @{}).isError) 'MCP did not honor the off switch'
             [IO.File]::WriteAllText((Join-Path $settings 'mcp.enabled'),'on')
-            Require (((Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json).skills.Count -gt 0) 'MCP skill catalog is empty'
+            $catalog=(Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json
+            $saved=@($catalog.skills|Where-Object id -ceq 'artifact.verify_saved_text')
+            Require ($catalog.schema -ceq 'reflexcore.skill_catalog.v1' -and $saved.Count -eq 1 -and
+                $saved[0].bindings.adapter -ccontains 'notepad' -and $saved[0].bindings.adapter -ccontains 'winforms') 'Missing saved-text skill bindings'
+            foreach($variant in 'valid','foreign','unsupported'){
+                $editorId=[datetime]::UtcNow.ToString('yyyyMMddHHmmssfff')+'-'+[guid]::NewGuid().ToString('N')
+                $run=[guid]::NewGuid().ToString('N')
+                $e=@{schema='reflexcore.skill.evidence.v1';skill_id='artifact.verify_saved_text';skill_version=1
+                    run_id=$run;adapter='notepad';adapter_version=1;verifier_version=1;outcome='verified';readback_us=5}
+                if($variant -eq 'foreign'){$e.run_id=[guid]::NewGuid().ToString('N')}
+                if($variant -eq 'unsupported'){$e.verifier_version=2}
+                $record=@{schema='reflexcore.task.receipt.v1';task_id=$editorId;run_id=$run;stage='notepad'
+                    outcome='verified';verification='verified';reason='disk_readback';skill=$e}
+                $history=Join-Path $bridge "queue-history/$editorId.completed"
+                [IO.File]::WriteAllLines($history,@('RUN','notepad-save.ps1',($record|ConvertTo-Json -Depth 4 -Compress)))
+                $reply=Invoke-Tool 'get_task_result' @{task_id=$editorId}
+                if($variant -eq 'valid'){
+                    Require ($reply.structuredContent.receipt.skill.run_id -ceq $run) 'Missing retained editor evidence'
+                    Require ((Invoke-Tool 'cancel_task' @{task_id=$editorId}).isError) 'Editor discovery expanded cancellation authority'
+                }else{Require ($reply.isError) 'Foreign or unsupported skill evidence was accepted'}
+            }
             $mapping=@{reflexcore=$fixture;zxclaglab=$folder}
             [IO.File]::WriteAllText((Join-Path $settings 'mcp-projects.json'),($mapping|ConvertTo-Json -Compress))
             $projects=(Invoke-Tool 'list_projects' @{}).content[0].text|ConvertFrom-Json
