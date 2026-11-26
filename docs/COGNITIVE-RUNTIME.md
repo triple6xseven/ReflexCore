@@ -2,6 +2,35 @@
 
 ## 0.8 measurement milestone
 
+### Native execution sessions
+
+The owned interactive Windows Flow fixture can opt into one disposable
+process per Flow with `REFLEXCORE_UIA_WORKER=session`. Standard CLI actions,
+guarded user flows and the background save workflow retain their existing
+execution policy. Studio Diagnostics reads the selected run's existing
+benchmark record and shows discovery, initialization and readback costs.
+
+The Flow owns the supervisor. It starts one worker, binds its session and
+run IDs to the fixture HWND and PID, and permits one outstanding request.
+Inside the worker, a single COM apartment and UI Automation instance live for
+the session. Each action resolves the window and discovers its element again.
+Only named set-value, assert-value and invoke fixture operations are eligible.
+The existing action implementation checks mutation permission and ownership;
+the existing Flow verifier binds Apply to a later Output readback.
+
+Protocol v1 uses a four-byte little-endian length and a JSON frame, limited
+to 256 KiB, over inherited stdin/stdout. A reply echoes the entire request
+header, including capability, absolute QPC deadline and action sequence. It
+carries a typed worker error or a sanitized action result and numeric phases.
+An eight-byte monotonic publication timestamp follows the reply for timing.
+It has no authority to verify the action. A bounded I/O thread lets the parent
+observe cancellation and deadlines even if the child blocks on a provider or
+pipe. Failure ends the Flow, kills its own worker and joins the I/O thread.
+A non-inherited kill-on-close Windows job handle terminates the session worker
+if the supervisor exits abruptly. Assignment is required before dispatch.
+A later Flow creates a fresh session. There is no cross-run cache or automatic
+mutation replay. No service, GPU, model or network listener is involved.
+
 The deterministic Windows adapter emits an additive numeric field on each step of
 `reflexcore.flow.execution.v1`. `adapter_us` sums monotonic time inside
 `execute_scoped` across all attempts, including unsuccessful calls. It includes
@@ -24,10 +53,9 @@ setup until the PID-owned window is found. The value includes process launch
 and polling. Studio displays it for the correlated run. Typed window lookup
 avoids converting a desktop observation to JSON on each readiness probe.
 
-Next, measure UIA worker startup separately from execution and response handling
-before considering worker reuse. Compare identical fixtures in alternating sessions. A future persistent
-worker must pass the existing stale-reply, permission, cancellation and recovery
-checks. Keep Focused and Deep routing and learned cost estimates experimental
+Next, evaluate a second owned workflow with independent disk evidence and
+measure cancellation tails before extending session eligibility. Keep
+Focused and Deep routing and learned cost estimates experimental
 until held-out comparisons justify them. The present UIA workflow uses the
 native Reflex path with zero model calls.
 

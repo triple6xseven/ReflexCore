@@ -1,5 +1,41 @@
 # Windows acceptance measurements
 
+## Native UIA execution sessions
+
+Run `cargo build --release --locked` and then
+`tools/Measure-NativeSession.ps1 -AllowVisibleUI` on an unlocked Windows
+desktop. The harness runs the same executable in A/B/B/A blocks. A uses
+one UIA process per action. B reuses one isolated UIA process per owned
+Flow. Each block excludes one verified warmup. A four-action run uses the
+historical Goal, writes the fixture input, checks it, invokes Apply and
+checks the output independently. A single action reads the initially empty
+input. The 20- and 100-action fixtures append independent UIA output reads
+to the four-action Flow. This characterizes reuse on a stable target.
+
+The phase breakdown uses monotonic Windows QPC microseconds. Parent request
+preparation and window resolution precede dispatch. Spawn time measures
+the process creation call; spawn-to-worker-entry includes it and the child
+loader. Do not add these overlapping values. The child measures COM entry,
+UIA instance construction, element discovery, operation and readback.
+Operation includes capability queries and dispatch. Readback includes result
+construction after the provider call. Response writing covers serialization
+and publication. Parent validation includes reading the disposable response
+file; for sessions, the I/O thread decodes the bounded frame before waking the
+parent. The child publication stamp splits response handling from exit or
+acknowledgement. Session shutdown is recorded once per Flow. Root and child
+CPU are cumulative Windows process counters and may have coarse resolution.
+Aggregate private memory sums adjacent samples of the live parent and worker.
+These samples exclude the PowerShell fixture, the benchmark harness and
+Studio. They can miss short-lived memory peaks.
+
+Latency percentiles use nearest rank. The denominator for verified runs
+includes all measured attempts. Local session IDs identify the run records
+in Measurement Lab. Compare selected sessions again with
+`tools/Compare-NativeSession.ps1 -Sessions $ids`. Compare inputs and the
+binary hash before combining runs. Per-action percentiles pool completed
+actions. Zero model calls follow from the native execution path. Each run
+starts a fresh parent and fixture. System caches and desktop load are uncontrolled.
+
 ## UIA worker exit notification
 
 On the reference Windows laptop (Ryzen 5 4600H, 8 GB), compare the parent
@@ -372,3 +408,24 @@ On the configured Windows Dust II lab, the LAN broadcast query returned the lobb
 The previous held-out moving AK fixture recorded one discharge and no damage. In two new runs of the same moving variant, the fake client consumed its outstanding spawn view before its first view command. Both fresh dedicated-server logs recorded a single AK attack for 140 damage and a kill. The first run still counted zero CSX damage events despite target health changing from 100 to -40. The second run used the post-damage game hook inside the owned shot and recorded one damage event and 100 HP lost. Its run ID is `1ffd267522d84519b53b75f872806a8b`. Server identity and line of sight supplied the target. These narrow runs do not estimate match win rate or visual target recognition.
 
 On two existing annotated 480-by-360 frames, the first Ollama configuration timed out twice at 45 seconds. With a bounded context, smaller batch and longer offline deadline, local Qwen3-VL 2B returned unknown for active play (135.40 s including cold start) and console for the console image (13.83 s). Result: one of two scene labels correct, one missed match, zero false match labels. Person recall on the single annotated player was 0 with the inferred gate. The earlier human-gated run detected that player at score 0.826. This dataset is a diagnostic pair; collecting independently labeled recordings across maps and scenes is required before using predictions for live decisions.
+
+### Reference laptop results
+
+Runtime f013ada, release SHA-256 627AA5050AC6277DB2B135AFC4E9DA38EF2299E4A6178DB1E9574A5CDC43BE86.
+Windows 11, Ryzen 5 4600H, 8 GB RAM, CPU only. All 72 measured tasks verified with zero model calls.
+
+| Four-action workflow, 30 runs per mode | Disposable | Session |
+| --- | ---: | ---: |
+| Total p50 / p95 / p99 (ms) | 1090.35 / 1273.53 / 1354.30 | 877.42 / 1207.47 / 1301.38 |
+| Flow / fixture readiness p50 (ms) | 511 / 466.79 | 298 / 467.38 |
+| Action / discovery p50 (ms) | 127.24 / 61.50 | 70.42 / 55.17 |
+| Spawn to entry / COM / UIA init per new worker p50 (ms) | 32.23 / 1.17 / 7.94 | 33.68 / 1.26 / 8.21 |
+| Root / worker CPU per run p50 (ms) | 62.50 / 187.50 | 46.88 / 78.13 |
+| Maximum sampled root / worker / concurrent private memory (MiB) | 1.49 / 2.86 / 4.25 | 1.52 / 2.95 / 4.40 |
+| Workers created | 120 | 30 |
+
+At n=30 nearest-rank p99 equals the maximum. For 1, 20 and 100 actions there were two measured runs per mode. Disposable/session total p50 values were 662/666, 2609/1361 and 10653/4733 ms respectively. At n=2 the reported median is the smaller observation. The longer fixtures repeatedly read Output after one Apply. The single-action case showed no latency gain.
+
+Single in-flight fault probes, disposable/session time to termination in ms: cancellation 45.4/43.1, worker crash 28.6/30.6, timeout 11422.9/11415.9, lost window 30.0/25.4. Each stopped after one mutation attempt. Both fresh recovery runs verified. Queue and background disk readback, Studio smoke and 124 Rust tests passed locally. Remote CI status is separate.
+
+Use `tools/Measure-NativeSession.ps1 -AllowVisibleUI -Quick` for a short functional comparison. Reserve the full matrix for changes to execution policy or published performance comparisons. Integrate instrumentation first, then the opt-in fixture session, then Diagnostics. Evaluate a second workflow with independent disk readback before changing defaults.

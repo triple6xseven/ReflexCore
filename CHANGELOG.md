@@ -2,6 +2,8 @@
 
 ## Unreleased — Verify a Handoff Folder
 
+- Add opt-in native execution sessions for the owned Windows UI Automation fixture. Compare disposable and session workers on 1, 4, 20 or 100 actions and inspect per-action initialization, discovery and readback in Studio Diagnostics.
+
 - Wake the UI Automation supervisor when its worker exits. Keep the 25 ms cancellation check interval and the existing run-scoped verification.
 
 - Record how long the owned Windows fixture takes to become discoverable. Find its window directly from typed observations.

@@ -11,7 +11,15 @@ jobs:
       - run: cargo build --release --locked
       - name: Check fixture and report correlation
         shell: powershell
-        run: ./tools/Run-ReflexBenchmark.ps1 -SelfTest
+        run: |
+          ./tools/Run-ReflexBenchmark.ps1 -SelfTest
+          foreach ($name in 'Measure-NativeSession','Compare-NativeSession','Test-NativeSession') {
+            $errors = $null
+            $tokens = $null
+            [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path "./tools/$name.ps1").Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw $errors[0] }
+          }
       - name: Compile and check Studio
+        # The visible fixture and its in-flight fault tests need an unlocked desktop.
         shell: powershell
         run: ./tools/ReflexCore-ControlCenter.ps1 -SelfTest

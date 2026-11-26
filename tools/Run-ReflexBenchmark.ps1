@@ -9,6 +9,7 @@ param(
     [ValidateSet(1,4,20,100)][int]$Actions=4,
     [ValidateSet('disposable','session')][string]$Worker='disposable',
     [switch]$AllowVisibleUI,
+    [switch]$PassThru,
     [switch]$SelfTest
 )
 $ErrorActionPreference='Stop'
@@ -187,6 +188,17 @@ function Execute-One([int]$iteration,[bool]$warmup){
     $details=@()
     if($null -ne $flowData){
         foreach($step in @($flowData.steps)){
+            $phases=@()
+            if($step.PSObject.Properties['phases']){
+                foreach($sample in @($step.phases)){
+                    $safe=[ordered]@{}
+                    foreach($key in @('action_id','spawn_us','startup_from_spawn_us','com_us','uia_us','discovery_us','operation_us','verification_us','request_us','resolve_us','response_write_us','ack_us','validate_us','cleanup_us','exit_us','concurrent_private_bytes','child_private_bytes','root_private_bytes','child_cpu_us','root_cpu_us')){
+                        $field=$sample.PSObject.Properties[$key]
+                        if($null -ne $field -and ($field.Value -is [long] -or $field.Value -is [int]) -and $field.Value -ge 0){$safe[$key]=[long]$field.Value}
+                    }
+                    $phases+=,$safe
+                }
+            }
             $act=[string]$step.action
             if($act -notin @('set-value','assert-value','invoke','inspect','assert-name','focus','toggle','select')){$act='unknown'}
             $ver=[string]$step.verification
@@ -194,7 +206,7 @@ function Execute-One([int]$iteration,[bool]$warmup){
             $details+=,[ordered]@{
                 index=[int]$step.index;action=$act;attempts=[int]$step.attempts
                 adapter_us=if($step.PSObject.Properties['adapter_us']){[long]$step.adapter_us}else{$null}
-                phases=if($step.PSObject.Properties['phases']){@($step.phases)}else{$null}
+                phases=$phases
                 duration_ms=[double]$step.duration_ms;status=([string]$step.status -replace '[^a-z_]','')
                 verification=$ver
                 evidence=if($act -like 'assert-*' -and $ver -eq 'verified'){'ASSERTION_READBACK_VERIFIED'}
@@ -214,6 +226,8 @@ function Execute-One([int]$iteration,[bool]$warmup){
         fixture_ready_us=if($null -ne $flowData -and $flowData.PSObject.Properties['fixture_ready_us']){[long]$flowData.fixture_ready_us}else{$null}
         process_cpu_ms=[Math]::Round($cpuMs,2);peak_private_mb=$peakPrivate;peak_working_mb=$peakWorking
         exit_code=$exitCode;fixture_sha256=$fixtureHash;rust_sha256=$binaryHash
+        execution_run_id=if($flowData -and $flowData.PSObject.Properties['execution_run_id'] -and $flowData.execution_run_id -cmatch '^[a-f0-9]{56}$'){[string]$flowData.execution_run_id}else{$null}
+        session_close_us=if($flowData -and $flowData.PSObject.Properties['session_close_us']){[long]$flowData.session_close_us}else{$null}
         steps=$details;resource_samples=@($samples.ToArray())
         limits=@{cpu_ram_scope='root_rust_process_only';qwen_measured=$false;ui_automation=$true;mouse_control=$false}
     }
@@ -270,6 +284,7 @@ try{
     Write-Host ('[ReflexCore] BENCHMARK: verified='+$ok+'/'+$Runs+', p50='+$median+' ms, p95='+$p95+' ms, mean='+$mean+' ms')
     Write-Host ('[ReflexCore] Local results: '+$base)
     # The command deliberately fails when any measured run did not verify the goal.
+    if($PassThru){Write-Output $script:session}
     if($failed -gt 0){exit 2}
 }catch{
     try{Write-Stage 'failed' 0 $false 0}catch{}

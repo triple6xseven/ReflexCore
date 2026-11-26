@@ -170,6 +170,9 @@ namespace ReflexCore.Diagnostics
             trace.Columns.Add("step","Step");trace.Columns.Add("action","UIA action");trace.Columns.Add("tries","Attempts");
             trace.Columns.Add("status","Status");trace.Columns.Add("verify","Verification");trace.Columns.Add("duration","Elapsed ms");trace.Columns.Add("why","Evidence code");
             trace.Columns.Add("adapter","UIA round trip (us)");
+            trace.Columns.Add("init","COM + UIA init (us)");
+            trace.Columns.Add("lookup","Discovery (us)");
+            trace.Columns.Add("readback","Readback (us)");
             var resourcePage=new Panel{Dock=DockStyle.Fill};
             var resourceLayout=Rows(112);resourcePage.Controls.Add(resourceLayout);
             resources=MakeLabel("CPU/RAM polling…",new Font("Consolas",12),accent);resources.Dock=DockStyle.Fill;resourceLayout.Controls.Add(resources,0,0);
@@ -391,15 +394,20 @@ namespace ReflexCore.Diagnostics
                 return;
             }
             selectedRun=runId;
-            evidence.Text="Task: fixed Goal Agent -> controlled WinForms input -> Apply -> verified output\r\n"+
+            evidence.Text="Task: "+Read.Str(row,"task")+"   |   Worker: "+(Read.Str(row,"worker")==""?"disposable":Read.Str(row,"worker"))+"\r\n"+
                 "Outcome="+Read.Str(row,"reason_code")+"; duration="+Read.Str(row,"total_ms")+"ms; flow="+Read.Str(row,"flow_ms")+"ms\r\n"+
                 "Root Rust CPU="+Read.Str(row,"process_cpu_ms")+"ms; peak private="+Read.Str(row,"peak_private_mb")+"MB; peak working="+Read.Str(row,"peak_working_mb")+"MB\r\n"+
-                "Fixture ready: "+(Read.Str(row,"fixture_ready_us")==""?"unavailable":Read.Str(row,"fixture_ready_us")+" us")+"\r\n"+
+                "Fixture ready: "+(Read.Str(row,"fixture_ready_us")==""?"unavailable":Read.Str(row,"fixture_ready_us")+" us")+
+                (Read.Str(row,"session_close_us")==""?"":"   |   Session close: "+Read.Str(row,"session_close_us")+" us")+"\r\n"+
                 "Decision policy: Dijkstra minimum cost over declared skill flows. Evidence = UIA assertions, not model thoughts.";
             foreach(var part in Read.Array(row,"steps")){
                 var x=Read.Map(part);if(x==null)continue;
+                var samples=Read.Array(x,"phases");
+                var timing=samples.Length==0?Read.Map(Read.Value(x,"phases")):Read.Map(samples[samples.Length-1]);
                 trace.Rows.Add(Read.Str(x,"index"),Read.Str(x,"action"),Read.Str(x,"attempts"),Read.Str(x,"status"),
-                    Read.Str(x,"verification"),Read.Str(x,"duration_ms"),Read.Str(x,"evidence"),Read.Str(x,"adapter_us"));
+                    Read.Str(x,"verification"),Read.Str(x,"duration_ms"),Read.Str(x,"evidence"),Read.Str(x,"adapter_us"),
+                    timing==null?"":(Read.Num(timing,"com_us")+Read.Num(timing,"uia_us")).ToString(),
+                    Read.Str(timing,"discovery_us"),Read.Str(timing,"verification_us"));
             }
         }
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
