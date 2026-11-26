@@ -429,3 +429,86 @@ At n=30 nearest-rank p99 equals the maximum. For 1, 20 and 100 actions there wer
 Single in-flight fault probes, disposable/session time to termination in ms: cancellation 45.4/43.1, worker crash 28.6/30.6, timeout 11422.9/11415.9, lost window 30.0/25.4. Each stopped after one mutation attempt. Both fresh recovery runs verified. Queue and background disk readback, Studio smoke and 124 Rust tests passed locally. Remote CI status is separate.
 
 Use `tools/Measure-NativeSession.ps1 -AllowVisibleUI -Quick` for a short functional comparison. Reserve the full matrix for changes to execution policy or published performance comparisons. Integrate instrumentation first, then the opt-in fixture session, then Diagnostics. Evaluate a second workflow with independent disk readback before changing defaults.
+
+## 0.8.3 saved-text transfer on Windows
+
+The task opens a new, nonactivating WinForms fixture, fills its editor, saves
+once and independently reopens the output. Five sequential UIA requests serve
+one save. The old and new disposable paths use the same fixture, goal, expected
+bytes and exclusive-create rule. The new session path changes the worker
+lifetime. Every measured run must publish its own verified queue receipt.
+Candidate timing and skill evidence must match that receipt's run ID.
+
+Windows 11 Pro build 26300, Ryzen 5 4600H, 7.37 GiB OS-visible RAM. CPU only,
+zero model calls. Seven measured runs per mode, one excluded warmup per mode;
+starting order rotates each iteration. Every run uses a fresh runtime process
+and fixture. End-to-end time includes fixture launch and process exit. A Windows
+Job Object attached immediately after launch measures CPU, total associated
+processes and peak concurrent job commit, including the PowerShell fixture.
+
+| Mode | Verified | End-to-end p50 / p95 / p99 / max (ms) | Tree CPU p50 (ms) | Peak tree commit (MiB) | Processes per tree |
+| --- | ---: | --- | ---: | ---: | ---: |
+| 0.8.2 disposable | 7/7 | 1249 / 1395 / 1395 / 1395 | 1250 | 81.00 | 16 |
+| 0.8.3 disposable | 7/7 | 1281 / 1485 / 1485 / 1485 | 1344 | 80.96 | 16 |
+| 0.8.3 opt-in session | 7/7 | 981 / 1156 / 1156 / 1156 | 1063 | 81.36 | 8 |
+
+The new disposable median increased by 32 ms. The opt-in session median was
+268 ms lower than the original disposable median. Each mode recorded 35 UIA
+requests across seven runs. The two candidate modes recorded 35 and 7 worker
+starts respectively. A job process count includes other Windows children.
+With nearest-rank percentiles at n=7, both p95 and p99 are the slowest run.
+These are descriptive results from one machine. Keep the default disposable.
+
+| Candidate phase | Disposable | Session |
+| --- | ---: | ---: |
+| Goal planning p50 (µs) | 29 | 29 |
+| Action p50 / p95 (ms) | 112.96 / 142.40 | 42.29 / 120.22 |
+| Worker creation p50, starts only (ms) | 6.79 | 6.62 |
+| COM / UIA initialization p50, starts only (ms) | 1.29 / 7.92 | 1.51 / 7.98 |
+| Final independent readback p50 (µs) | 693 | 655 |
+| Maximum sampled runtime + worker private memory (MiB) | 3.95 | 4.01 |
+
+Per-action observations overlap their nested phases. CPU time is cumulative user
+and kernel time across the associated processes. Job commit and sampled private
+memory have different scopes. The baseline did not emit per-action phase data
+for this Goal. Single-call binding medians were below clock resolution. An
+isolated optimized release microbenchmark (31 batches of 4,096 lookups, one
+excluded warmup, no file or UI access) returned 3.69 ns per bind at p50/p95/p99
+and maximum, rounded to two decimals. This includes registry lookup, capability
+negotiation and binding together. It does not predict workflow latency.
+
+Release SHA-256 values:
+
+- Baseline from the native-session checkout: `627AA5050AC6277DB2B135AFC4E9DA38EF2299E4A6178DB1E9574A5CDC43BE86`.
+- Candidate runtime `f81b79c`: `8A004ECCEAB04364EDB4A1329B42532B2249931ACB61D9A4B2BE157E820150B7`.
+- Shared fixture: `97AA5AF18633EB5A4672737E300E917001AD02D3A19285603C869E42D488E156`.
+
+Build both revisions independently. From the feature checkout, pass the location
+of the built baseline. Correlated rows stay in gitignored local data.
+
+```powershell
+.\tools\Measure-SkillTransfer.ps1 -BaselineRoot ..\native-execution-sessions -Runs 7
+cargo test --locked --release measure_binding -- --ignored --nocapture
+```
+
+### Transfer and negative evidence
+
+* WinForms saved and verified through both worker modes. The queue test also
+  sampled the foreground window and confirmed it stayed unchanged.
+* The final Notepad acceptance verified 2/2 fresh saves (plain and held-out
+  Unicode), with an external read of each file and zero model calls. Elapsed
+  times were 1,097 and 1,752 ms in sorted order. This is a functional pair.
+  A development run passed 1/2: on the first attempt the editor failed the
+  initial-empty check before editing. The supervisor now briefly re-observes
+  the owned editor before rejecting it. The original UIA state was not captured.
+* Fault injection against the inherited session supervisor measured cancellation
+  at 52.8 ms, crash at 37.3 ms, lost target at 34.1 ms and timeout at 11,394.5
+  ms. Each is one probe. The fresh recovery run passed in 847.8 ms. These are
+  supervisor measurements, not cancellation percentiles for Notepad.
+* Contract tests reject absent capabilities, incompatible versions, a background
+  Notepad request, mismatching or oversized outputs and missing readback. MCP
+  integration rejects foreign evidence and unsupported verifier versions.
+  Studio compilation, UI smoke, queue recovery, skill-memory checks and the
+  release Rust suite passed locally (127 tests and one separately run microbenchmark).
+  A separate queue test retained two distinct Notepad receipts tied to their
+  original runs and independently reported zero model calls.

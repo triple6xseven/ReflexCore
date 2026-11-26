@@ -1,5 +1,18 @@
 ## Guarded user Goals and stable skill identity
 
+## Unreleased — 0.8.3 universal skill foundation
+
+- WinForms and Notepad now share a bounded native verifier for the exact text
+  saved to their own output. The background WinForms save can use one isolated
+  UIA worker throughout the Goal. Notepad checks the installed binding before
+  creating its document.
+- Studio Skill Library shows supported editors, foreground requirements and
+  retained verified results. Studio and read-only MCP results identify the
+  skill and adapter that produced the evidence for a selected run.
+- Added a synthetic transfer comparison and negative checks for absent capabilities,
+  unsupported versions, changed files and foreign receipts. See the
+  [implementation checkpoint](docs/UNIVERSAL-SKILL-RUNTIME.md).
+
 ## Unreleased — Verify a Handoff Folder
 
 - Add opt-in native execution sessions for the owned Windows UI Automation fixture. Compare disposable and session workers on 1, 4, 20 or 100 actions and inspect per-action initialization, discovery and readback in Studio Diagnostics.

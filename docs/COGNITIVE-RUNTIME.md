@@ -1,12 +1,22 @@
 # Cognitive runtime
 
+## 0.8.3 universal skill foundation
+
+The existing Rust skill registry binds the versioned saved-text verifier to two
+editor workflows. The frontend asks for a specific editor and execution mode.
+The runtime checks declared capabilities, preserves the editor's ownership and
+input rules, and reopens the task-owned output through the shared local file
+primitive. A fresh successful observation supplies the queue receipt. Studio
+and MCP read that receipt and catalog. See the [protocol and transfer experiments](UNIVERSAL-SKILL-RUNTIME.md)
+and the [engineering roadmap](ROADMAP.md).
+
 ## 0.8 measurement milestone
 
 ### Native execution sessions
 
-The owned interactive Windows Flow fixture can opt into one disposable
-process per Flow with `REFLEXCORE_UIA_WORKER=session`. Standard CLI actions,
-guarded user flows and the background save workflow retain their existing
+The owned interactive Windows Flow fixture and the owned WinForms save workflow
+can opt into one isolated worker per execution with `REFLEXCORE_UIA_WORKER=session`.
+Standard CLI actions and guarded user flows retain their existing
 execution policy. Studio Diagnostics reads the selected run's existing
 benchmark record and shows discovery, initialization and readback costs.
 

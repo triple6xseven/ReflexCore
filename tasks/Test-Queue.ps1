@@ -162,7 +162,7 @@ public static class ReflexForegroundProbe
         Write-Output 'Background UIA fixture verified disk output while the foreground window stayed unchanged at each queue poll.'
     }
     if($AllowInput){
-        foreach($file in 'ReflexCore-VisionHost.cs','ReflexCore-VisionLoop.ps1','ReflexCore-SkillMemory.ps1'){
+        foreach($file in 'ReflexCore-VisionHost.cs','ReflexCore-VisionLoop.ps1','ReflexCore-SkillMemory.ps1','ReflexCore-NotepadReceipt.ps1'){
             Copy-Item -LiteralPath (Join-Path $root ('tools/'+$file)) -Destination (Join-Path $fixture 'tools')
         }
         Put-Task 'notepad-save' @'
@@ -180,6 +180,7 @@ catch{
     throw
 }
 if(!$result.verified -or $result.schema -cne 'reflexcore.notepad.result.v1'){throw 'Missing disk readback'}
+& (Join-Path $project 'tools/ReflexCore-NotepadReceipt.ps1') -Evidence $result.skill
 [IO.File]::AppendAllText((Join-Path $project 'evidence'),('verified '+[int]$result.memory_hit+' '+$result.model_calls+[Environment]::NewLine))
 '@
         $first=$store.Submit('notepad-save',$true)
@@ -192,6 +193,12 @@ if(!$result.verified -or $result.schema -cne 'reflexcore.notepad.result.v1'){thr
         Wait-Verified $first
         Wait-Verified $uia
         Wait-Verified $second
+        $receipts=@($store.Snapshot()|Where-Object {$_.Id -in $first,$second}|ForEach-Object {$_.Receipt})
+        Assert-Queue ($receipts.Count -eq 2 -and @($receipts.run_id|Select-Object -Unique).Count -eq 2) 'Expected two distinct editor runs'
+        foreach($receipt in $receipts){
+            Assert-Queue ($receipt.verification -ceq 'verified' -and $receipt.skill.adapter -ceq 'notepad' -and
+                $receipt.skill.run_id -ceq $receipt.run_id -and $receipt.skill.skill_id -ceq 'artifact.verify_saved_text') 'Uncorrelated Notepad receipt'
+        }
         $results=[IO.File]::ReadAllLines((Join-Path $fixture 'evidence'))
         Assert-Queue ($results.Count -eq 2 -and $results[0] -cmatch '^verified [01] 0$' -and $results[1] -ceq 'verified 1 0') 'Queued skill memory or readback failed'
         Write-Output 'Queued Rust UIA goal passed. Two Notepad workers verified 2/2 files, reused the saved skill on the second run and made zero model calls.'
