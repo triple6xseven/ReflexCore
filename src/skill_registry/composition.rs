@@ -610,6 +610,59 @@ fn execute(args: &[String], claim: Option<&Claim>) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "paired filesystem timing on a local NTFS volume"]
+    fn paired_copy_timing() {
+        let mut times = [Vec::new(), Vec::new()];
+        for pair in 0..32 {
+            for arm in [pair % 2, 1 - pair % 2] {
+                let run = task_integrity::run_id();
+                let root = saved_text::winforms_folder(&run).unwrap();
+                std::fs::create_dir(&root).unwrap();
+                std::fs::write(root.join("saved.txt"), "source").unwrap();
+                let (scope, output) = local_files::target(&root.join("result.txt")).unwrap();
+                let plan = Plan {
+                    progress: None, graph: &GRAPH, second: None, stop_path: root.join("stop"),
+                    published: 0.into(), probe: None,
+                    binding: saved_text::bind(saved_text::ID, 1, Adapter::Winforms, true).unwrap(),
+                    adapter: Adapter::Winforms, grants: 31, deadline: Instant::now() + Duration::from_secs(30),
+                    started: std::time::SystemTime::now(), _scope: scope, output, suffix: "!".into(),
+                };
+                let start = Instant::now();
+                if arm == 1 {
+                    plan.finish(&run, "source").unwrap();
+                } else {
+                    plan.check(1).unwrap();
+                    let artifact = plan.binding.artifact(&run, "source").unwrap();
+                    plan.check(2).unwrap();
+                    plan.boundary(Boundary::SourceVerified, 2).unwrap();
+                    let (_proof, bytes) = artifact.consume(&run, plan.adapter).unwrap();
+                    assert!(plan.binding.matches_snapshot(&bytes, "source"));
+                    let expected = format!("source{}", plan.suffix);
+                    plan.check(2).unwrap();
+                    let (mut stage, id) = plan.create(2, &expected).unwrap();
+                    plan.check(3).unwrap();
+                    plan.verify_output(3, &stage.path, id, &expected).unwrap();
+                    plan.boundary(Boundary::Publish, 3).unwrap();
+                    stage.publish(&plan.output).unwrap();
+                    plan.published.set(1);
+                    plan.boundary(Boundary::Published, 3).unwrap();
+                    plan.verify_output(3, &plan.output, id, &expected).unwrap();
+                    plan.check(3).unwrap();
+                }
+                let us = start.elapsed().as_micros();
+                assert_eq!(std::fs::read(&plan.output).unwrap(), b"source!");
+                if pair >= 2 { times[arm].push(us); }
+                drop(plan);
+                for name in ["saved.txt", "result.txt"] { std::fs::remove_file(root.join(name)).unwrap(); }
+                std::fs::remove_dir(root).unwrap();
+            }
+        }
+        for (arm, values) in times.iter_mut().enumerate() {
+            values.sort_unstable();
+            println!("arm={arm} n=30 p50_us={} p95_us={} p99_max_us={}", values[14], values[28], values[29]);
+        }
+    }
+    #[test]
     fn abrupt_composition_exit() {
         use Boundary::*;
         const NAME: &str = "skill_registry::composition::tests::abrupt_composition_exit";
