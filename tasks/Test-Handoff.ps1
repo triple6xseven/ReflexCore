@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([switch]$Benchmark,[switch]$Mcp,[ValidateRange(1,20)][int]$Sessions=4,
+param([switch]$Benchmark,[switch]$Mcp,[switch]$Composition,[ValidateRange(1,20)][int]$Sessions=4,
       [ValidateRange(1,30)][int]$WarmRuns=5,[string]$MetricsFile,[switch]$RequireOllamaStopped)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
@@ -26,7 +26,7 @@ function Close-Tray {
         $tray.Dispose();$script:tray=$null
     }
 }
-function Terminal-Job([string]$id) {
+function Terminal-Job([string]$id,[switch]$Attempt) {
     $timer=[Diagnostics.Stopwatch]::StartNew()
     do {
         [void]$pump.Invoke($tray,@())
@@ -37,7 +37,7 @@ function Terminal-Job([string]$id) {
     Require ($file.Count -eq 1) 'Queue did not publish exactly one terminal history entry'
     $lines=[IO.File]::ReadAllLines($file[0]);Require ($lines.Length -eq 3) 'Missing terminal receipt'
     $r=$lines[2]|ConvertFrom-Json
-    Require ($r.task_id -ceq $id -and $r.run_id -ceq $id) 'Foreign or missing receipt'
+    Require ($r.task_id -ceq $id -and ($Attempt -or $r.run_id -ceq $id)) 'Foreign or missing receipt'
     return $r
 }
 function Run-Job([string]$report,[string]$expectedOutcome) {
@@ -70,7 +70,7 @@ try{
     foreach($d in 'folder','tools','tasks','target/release','data/bridge/queue-history'){
         [void][IO.Directory]::CreateDirectory((Join-Path $fixture $d))
     }
-    foreach($f in 'tools/ReflexCore-QueuedWorker.ps1','tools/ReflexCore-ExtensionRename.cs','tasks/rename-extensions.ps1','tasks/verify-handoff.ps1','target/release/reflexcore.exe'){
+    foreach($f in 'tasks/compose-text.ps1','tools/ReflexCore-Fixture.ps1','tools/ReflexCore-VisionHost.cs','tools/ReflexCore-VisionLoop.ps1','tools/ReflexCore-NotepadReceipt.ps1','tools/ReflexCore-SkillMemory.ps1','tools/ReflexCore-QueuedWorker.ps1','tools/ReflexCore-ExtensionRename.cs','tasks/rename-extensions.ps1','tasks/verify-handoff.ps1','target/release/reflexcore.exe'){
         Copy-Item -LiteralPath (Join-Path $root $f) -Destination (Join-Path $fixture $f)
     }
     $sources=@('Queue','Tray','Companion','CompanionHost','MenuStyle')|ForEach-Object{Join-Path $root ("tools/ReflexCore-"+$_+".cs")}
@@ -120,12 +120,12 @@ try{
             $hello=Invoke-Mcp 'initialize' @{protocolVersion='2025-06-18';capabilities=@{};clientInfo=@{name='test';version='1'}}
             Require ($hello.serverInfo.name -eq 'reflexcore') 'MCP server identity not found'
             Invoke-Mcp 'notifications/initialized' @{} -Notification
-            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 10) 'Wrong MCP tools'
+            Require ((Invoke-Mcp 'tools/list' @{}).tools.Count -eq 11) 'Wrong MCP tools'
             Require ((Invoke-Tool 'list_skills' @{}).isError) 'MCP did not honor the off switch'
             [IO.File]::WriteAllText((Join-Path $settings 'mcp.enabled'),'on')
             $catalog=(Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json
             $chain=@($catalog.compositions|Where-Object id -eq 'editor.derive_chain')
-            Require ($chain.Count -eq 1 -and $chain[0].steps.Count -eq 6 -and $chain[0].submission -ceq 'direct_cli') 'Incorrect composition discovery contract'
+            Require ($chain.Count -eq 1 -and $chain[0].steps.Count -eq 6 -and $chain[0].submission -ceq 'studio_approval') 'Incorrect composition discovery contract'
             $saved=@($catalog.skills|Where-Object id -ceq 'artifact.verify_saved_text')
             Require ($catalog.schema -ceq 'reflexcore.skill_catalog.v1' -and $saved.Count -eq 1 -and
                 $saved[0].bindings.adapter -ccontains 'notepad' -and $saved[0].bindings.adapter -ccontains 'winforms') 'Missing saved-text skill bindings'
@@ -148,6 +148,51 @@ try{
             }
             $mapping=@{reflexcore=$fixture;zxclaglab=$folder}
             [IO.File]::WriteAllText((Join-Path $settings 'mcp-projects.json'),($mapping|ConvertTo-Json -Compress))
+            if($Composition){
+                $copies=[IO.Directory]::CreateDirectory((Join-Path $folder 'composition')).FullName
+                foreach($mode in 'winforms-background','notepad'){
+                    $req=@{project='zxclaglab';goal='editor.derive_copy';editor=$mode;destination=('composition/'+ $mode+'.txt');suffix=' draft'}
+                    if($mode -eq 'winforms-background'){$req.goal='editor.derive_chain';$req.second_destination='composition/second.txt';$req.second_suffix=' final'}
+                    $reply=(Invoke-Tool 'submit_composition' $req).structuredContent
+                    $id=$reply.task_id
+                    Require ($reply.state -ceq 'pending_approval' -and !$store.Request($id,'approve')) 'Missing immutable approval gate'
+                    [void]$pump.Invoke($tray,@())
+                    Require (!(Test-Path (Join-Path $folder $req.destination))) 'Published before approval'
+                    $review=$store.ReviewComposition($id)
+                    Require (!$store.ApproveComposition($id,($review+' '))) 'Accepted changed review'
+                    Require ($store.ApproveComposition($id,$review)) 'Could not approve reviewed request'
+                    $r=Terminal-Job $id -Attempt
+                    Require ($r.verification -ceq 'verified' -and $r.editor -ceq $mode -and $r.goal -ceq $req.goal) ('Composition failed: '+$r.reason)
+                    $actual=(Invoke-Tool 'get_task_result' @{task_id=$id}).structuredContent.receipt
+                    Require ($actual.run_id -ceq $r.run_id -and $actual.published_outputs -eq $r.published_outputs) 'Foreign MCP result'
+                    if($mode -eq 'notepad'){
+                        $expected='ReflexCore '+[char]0x0416+[char]0x03A9+[char]::ConvertFromUtf32(0x1f600)
+                        $original=Join-Path $env:LOCALAPPDATA ('ReflexCore/runtime/fixtures/ReflexCore-VisionLoop-'+$r.run_id+'.txt')
+                    }else{
+                        $expected='ReflexCore verified 010'
+                        $original=Join-Path $temp ('ReflexCore-save-'+$r.run_id+'/saved.txt')
+                        Require ([IO.File]::ReadAllText((Join-Path $copies 'second.txt')) -ceq ($expected+' draft final')) 'Wrong second output'
+                    }
+                    Require ([IO.File]::ReadAllText($original) -ceq $expected -and [IO.File]::ReadAllText((Join-Path $folder $req.destination)) -ceq ($expected+' draft')) 'Original or copy mismatch'
+                    Write-Output ("Queued {0} verified {1} published outputs" -f $mode,$r.published_outputs)
+                }
+                $req.destination='composition/cancelled.txt'
+                $queued=(Invoke-Tool 'submit_composition' $req).structuredContent
+                Require ((Invoke-Tool 'cancel_task' @{task_id=$queued.task_id}).structuredContent.cancellation_requested) 'Composition did not accept cancellation'
+                $cancelResult=Terminal-Job $queued.task_id -Attempt
+                Require ($cancelResult.outcome -ceq 'cancelled' -and !(Test-Path (Join-Path $folder $req.destination))) 'Cancelled composition created an output'
+                $req.goal='unknown'
+                Require ((Invoke-Tool 'submit_composition' $req).isError) 'Unknown graph accepted'
+                $req.goal='editor.derive_copy'
+                $req.destination='../outside.txt'
+                Require ((Invoke-Tool 'submit_composition' $req).isError) 'MCP escaped scope'
+                $req.destination='changed.txt'
+                $id=(Invoke-Tool 'submit_composition' $req).structuredContent.task_id
+                Require ($store.ApproveComposition($id,$store.ReviewComposition($id))) 'Approval missing'
+                [IO.File]::AppendAllText((Join-Path $fixture "data/private/handoff/$id.json"),' ')
+                $rejected=Terminal-Job $id -Attempt
+                Require ($rejected.verification -ne 'verified' -and !(Test-Path (Join-Path $folder 'changed.txt'))) 'Changed input executed'
+            }
             $projects=(Invoke-Tool 'list_projects' @{}).content[0].text|ConvertFrom-Json
             Require ($projects.projects.Count -eq 2) 'MCP project discovery failed'
             Require ((Invoke-Tool 'submit_handoff_check' @{folder='.';checklist='checklist.json';report='unknown.json'}).isError) 'MCP chose an ambiguous project'

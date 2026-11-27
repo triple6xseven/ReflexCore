@@ -311,6 +311,16 @@ namespace ReflexCore.Control
             Action<string> command=delegate(string action){
                 if(jobs.SelectedItems.Count==0){notice.Text="Select a task in the queue.";return;}
                 string id=(string)jobs.SelectedItems[0].Tag;
+                if(action=="approve"){
+                    try{
+                        var reviewed=queue.ReviewComposition(id);
+                        if(reviewed!=null){
+                            if(MessageBox.Show(this,CompositionReview(reviewed),"Approve composition",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
+                            notice.Text=queue.ApproveComposition(id,reviewed)?"Approved this composition.":"Request changed. Review it again.";
+                            return;
+                        }
+                    }catch(Exception){notice.Text="Request unavailable or already approved.";return;}
+                }
                 notice.Text=queue.Request(id,action)?"Request sent to the task supervisor.":"The task status has changed.";
             };
             AddButton(agent,"CANCEL SELECTED",18,514,182,32,()=>command("cancel"),false);
@@ -337,6 +347,11 @@ namespace ReflexCore.Control
                     return;
                 }
                 var receipt=row.Receipt;
+                if(row.Task=="composition"){
+                    resultText.Text=row.State+" · "+(receipt==null?(row.Progress??"Awaiting terminal evidence"):receipt.verification)+Environment.NewLine+
+                        "Published copies: "+(receipt!=null && receipt.published_outputs.HasValue?receipt.published_outputs.ToString():"unknown");
+                    return;
+                }
                 if(receipt!=null && receipt.skill!=null){
                     resultText.Text="Saved text verified on disk · "+receipt.skill.adapter+Environment.NewLine+
                         receipt.skill.skill_id+" v"+receipt.skill.skill_version;
@@ -384,7 +399,7 @@ namespace ReflexCore.Control
                 if(!jobs.Visible)return;
                 try{
                     var rows=queue.Snapshot();
-                    string signature=String.Join("|",rows.Select(row=>row.Id+"/"+row.State+"/"+row.Verification+"/"+row.Reason).ToArray());
+                    string signature=String.Join("|",rows.Select(row=>row.Id+"/"+row.State+"/"+row.Progress+"/"+row.Verification+"/"+row.Reason).ToArray());
                     if(signature==lastSnapshot)return;
                     string selected=jobs.SelectedItems.Count>0?(string)jobs.SelectedItems[0].Tag:"";
                     string topId=jobs.TopItem==null?null:(string)jobs.TopItem.Tag;
@@ -399,8 +414,8 @@ namespace ReflexCore.Control
                             string hour=DateTime.TryParseExact(row.Id.Substring(0,17),"yyyyMMddHHmmssfff",
                                 System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.AssumeUniversal|System.Globalization.DateTimeStyles.AdjustToUniversal,out created)
                                 ?created.ToLocalTime().ToString("dd.MM HH:mm:ss"):"—";
-                            string task=row.Task=="uia-background"?"UI Automation (background)":row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":row.Task=="handoff"?"Verify a handoff folder":row.Task=="rename"?"Change file extensions":"Local task";
-                            string state=row.State=="pending"?"Pending":row.State=="running"?"Running":
+                            string task=row.Task=="composition"?"Compose text":row.Task=="uia-background"?"UI Automation (background)":row.Task=="uia"?"UI Automation":row.Task=="notepad"?"Notepad":row.Task=="visual"?"Notepad + model":row.Task=="handoff"?"Verify a handoff folder":row.Task=="rename"?"Change file extensions":"Local task";
+                            string state=row.State=="pending"?(row.Task=="composition"?"Pending approval":"Pending"):row.State=="running"?"Running":
                                 row.State=="stopping"?"Stopping":row.State=="completed"?(row.Verification=="verified"?"Verified":"Finished without verification"):
                                 row.State=="cancelled"?(row.Verification=="unknown"?"Cancelled · effect unknown":"Cancelled"):
                                 row.State=="interrupted"?"Interrupted":row.Reason=="focus_lost"?"Failed · focus lost":"Failed";
@@ -603,6 +618,45 @@ namespace ReflexCore.Control
             }catch{}
         }
         string PowerShellExe(){return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");}
+        static string CompositionReview(string json){
+            var value=new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<ReflexCore.Bridge.CompositionInput>(json);
+            var chain=value.goal=="editor.derive_chain";
+            return "Editor: "+value.editor+Environment.NewLine+
+                "1. Create the source document.   2. Verify the saved text."+Environment.NewLine+
+                "3. Append "+new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(value.suffix)+Environment.NewLine+
+                "4. Verify and publish: "+value.destination+
+                (chain?Environment.NewLine+"5. Append "+new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(value.second_suffix)+Environment.NewLine+
+                "6. Verify and publish: "+value.second_destination:"")+Environment.NewLine+Environment.NewLine+
+                "Permissions: create source, read and verify, consume snapshot, derive, publish. Existing files are protected."+Environment.NewLine+
+                "Graph v1 · 60 seconds · 8192 bytes per copy";
+        }
+        void ComposeText(){
+            var theme=ReflexThemeCatalog.Load();
+            using(var dialog=new Form{Text="Compose a text copy",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(540,290),BackColor=theme.Bg,ForeColor=theme.Text}){
+                var rows=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,Padding=new Padding(12)};
+                dialog.Controls.Add(rows);
+                var editor=new ComboBox{Width=490,DropDownStyle=ComboBoxStyle.DropDownList};
+                editor.Items.AddRange(new object[]{"winforms-background","winforms","notepad"});editor.SelectedIndex=0;
+                var chain=new CheckBox{Text="Create a second copy from the verified first copy",AutoSize=true};
+                var first=new TextBox{Width=490};var second=new TextBox{Width=490,Enabled=false};
+                chain.CheckedChanged+=delegate{second.Enabled=chain.Checked;};
+                rows.Controls.Add(new Label{Text="Source editor",AutoSize=true});rows.Controls.Add(editor);rows.Controls.Add(chain);
+                rows.Controls.Add(new Label{Text="Text to append to the first copy",AutoSize=true});rows.Controls.Add(first);
+                rows.Controls.Add(new Label{Text="Additional text for the second copy",AutoSize=true});rows.Controls.Add(second);
+                var submit=new Button{Text="Choose destinations and queue for review",Width=490,Height=34,BackColor=theme.Card,ForeColor=theme.Text};
+                rows.Controls.Add(submit);
+                submit.Click+=delegate{
+                    using(var save=new System.Windows.Forms.SaveFileDialog{Filter="Text files (*.txt)|*.txt",Title="Choose a new first copy"}){
+                        if(save.ShowDialog(dialog)!=DialogResult.OK)return;
+                        var input=new ReflexCore.Bridge.CompositionInput{version=1,goal=chain.Checked?"editor.derive_chain":"editor.derive_copy",editor=(string)editor.SelectedItem,destination=save.FileName,suffix=first.Text};
+                        if(chain.Checked){save.Title="Choose a new second copy in the same folder";save.FileName="";if(save.ShowDialog(dialog)!=DialogResult.OK)return;input.second_destination=save.FileName;input.second_suffix=second.Text;}
+                        try{queue.SubmitComposition(input);dialog.Close();MessageBox.Show(this,"Select the pending composition in the Agent queue and choose Approve selected.","Composition queued");}
+                        catch(Exception){MessageBox.Show(dialog,"Check both suffixes and select distinct new .txt files in one folder.","Invalid composition");}
+                    }
+                };
+                dialog.ShowDialog(this);
+            }
+        }
         void ShowSkillLibrary()
         {
             var theme=ReflexThemeCatalog.Load();
@@ -640,6 +694,8 @@ namespace ReflexCore.Control
                 summary.Dock=DockStyle.Fill;
                 header.Controls.Add(summary);
                 header.Controls.Add(chooseData);
+                var compose=new Button{Dock=DockStyle.Right,Width=130,Text="Compose text",FlatStyle=FlatStyle.Flat,BackColor=theme.Card,ForeColor=theme.Text};
+                compose.Click+=delegate{ComposeText();};header.Controls.Add(compose);
                 dialog.Controls.Add(header);
                 grid.SelectionChanged+=delegate {
                     detail.Text="";

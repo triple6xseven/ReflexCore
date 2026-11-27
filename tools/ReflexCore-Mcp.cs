@@ -143,6 +143,7 @@ namespace ReflexCore.Bridge
         {
             return new[]{
                 Tool("list_skills","Inspect executable editor bindings, verification requirements and experimental movement skills.",new[]{"skills","compositions","bounded_replay_statistics","memory_state","memory_source","workflows","handoff_feedback"}),
+                Tool("submit_composition","Queue a text composition for exact Studio approval. Output names are project-relative .txt files.",new[]{"task_id","state","next_action"},new[]{"project","goal","editor","destination","suffix"},new[]{"second_destination","second_suffix"},false),
                 Tool("list_projects","Discover configured projects and locally saved handoff presets. A preset can be run without entering paths.",new[]{"projects"}),
                 Tool("submit_handoff_check","Submit a handoff check for Studio approval. All paths are relative to the selected project.",new[]{"task_id","state","next_action"},
                     new[]{"folder","checklist","report"},new[]{"project"},false),
@@ -167,6 +168,13 @@ namespace ReflexCore.Bridge
                     return new {projects=Projects().OrderBy(item=>item.Key,StringComparer.OrdinalIgnoreCase)
                         .Select(item=>new {project=item.Key,capability="verify_handoff",available=Directory.Exists(item.Value),
                             presets=PresetNames(presets,item.Key)}).ToArray()};
+                case "submit_composition":
+                    if(args.Keys.Any(k=>!new[]{"project","goal","editor","destination","suffix","second_destination","second_suffix"}.Contains(k)))throw new ArgumentException("Unknown composition field.");
+                    var baseDir=ProjectRoot(StringArg(args,"project"),Projects());
+                    var input=new CompositionInput{version=1,goal=StringArg(args,"goal"),editor=StringArg(args,"editor"),suffix=StringArg(args,"suffix"),destination=Scoped(baseDir,StringArg(args,"destination"),true)};
+                    if(args.ContainsKey("second_destination"))input.second_destination=Scoped(baseDir,StringArg(args,"second_destination"),true);
+                    if(args.ContainsKey("second_suffix"))input.second_suffix=StringArg(args,"second_suffix");
+                    return new {task_id=queue.SubmitComposition(input),state="pending_approval",next_action="approve_in_studio"};
                 case "submit_saved_handoff":
                     return SubmitSaved(StringArg(args,"project"),StringArg(args,"preset"));
                 case "submit_handoff_check":
@@ -197,12 +205,13 @@ namespace ReflexCore.Bridge
                 case "cancel_task":
                     var id=StringArg(args,"task_id");
                     if(!QueueStore.ValidId(id))throw new ArgumentException("Invalid task ID.");
-                    var row=queue.Snapshot().FirstOrDefault(item=>item.Id==id && (item.Task=="handoff" ||
+                    var row=queue.Snapshot().FirstOrDefault(item=>item.Id==id && (item.Task=="handoff" || item.Task=="composition" ||
                         (name=="get_task_result" && item.Receipt!=null && item.Receipt.skill!=null &&
                          ((item.Receipt.skill.adapter=="winforms" && (item.Task=="uia" || item.Task=="uia-background")) ||
                           (item.Receipt.skill.adapter=="notepad" && (item.Task=="notepad" || item.Task=="visual"))))));
                     if(row==null)throw new ArgumentException("Task unavailable for this operation.");
                     if(name=="cancel_task")return new {task_id=id,cancellation_requested=queue.Request(id,"cancel")};
+                    if(row.Task=="composition")return new {task_id=id,state=row.State=="pending"?"pending_approval":row.State,next_action=row.State=="pending"?"approve_in_studio":row.Receipt==null?"wait_for_status":"review_result",receipt=row.Receipt};
                     if(row.Task!="handoff")return new {task_id=id,state=row.State,next_action="review_result",
                         receipt=row.Receipt,workflow=new {id=row.Receipt.skill.skill_id,version=row.Receipt.skill.skill_version}};
                     string state=row.State;
