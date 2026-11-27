@@ -36,12 +36,29 @@ $reader = [Func[string,string,string,System.Collections.Generic.Dictionary[strin
         $launcherPin=Join-Path (Get-DevGit $root @('rev-parse','--absolute-git-dir')) 'reflex-observer/active-v2'
         $targetPin=Join-Path $target.private 'reflex-observer/active-v2'
         if([IO.File]::ReadAllText($launcherPin) -cne [IO.File]::ReadAllText($targetPin)){throw 'Installed observer differs from the launcher observer'}
-        $packet = & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -Worktree $target.root -RequireGuard -ObserverArgs @('resume',$session,$scope) | ConvertFrom-Json
+        $observerArguments=@('resume',$session,$scope)
+        if($request.ContainsKey('memory_topic')){
+            $topic=$request['memory_topic']
+            if($topic -isnot [string] -or $topic -cnotmatch '^[A-Za-z0-9-]{1,64}$'){throw 'Invalid engineering memory topic'}
+            $operation='recall'
+            if($request.ContainsKey('memory_history')){
+                if($request['memory_history'] -cne 'yes'){throw 'Use memory_history=yes to request historical records'}
+                $operation='recall-history'
+            }
+            $observerArguments=@($operation,$topic,$scope)
+            if($request.ContainsKey('since_commit')){
+                if($request['since_commit'] -isnot [string] -or $request['since_commit'] -cnotmatch '^[a-f0-9]{40}$'){throw 'Invalid comparison commit'}
+                $observerArguments+=@($request['since_commit'])
+            }
+        }elseif($request.ContainsKey('since_commit') -or $request.ContainsKey('memory_history')){
+            throw 'A comparison commit requires a memory topic'
+        }
+        $packet = & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -Worktree $target.root -RequireGuard -ObserverArgs $observerArguments | ConvertFrom-Json
         $expectedTree=Get-DevHash ('\\?\'+$target.private)
         if($packet.tree -and $packet.tree -cne $expectedTree){throw 'Observer returned a foreign worktree identity'}
         $scopeInfo=@{tree=$expectedTree;head=$target.head;branch=$target.branch;historical=$target.historical}
         $packet | Add-Member -NotePropertyName binding -NotePropertyValue $scopeInfo
-        if($name -in 'get_development_context','get_validation_evidence'){
+        if(!$request.ContainsKey('memory_topic') -and $name -in 'get_development_context','get_validation_evidence'){
             $evidence=$null
             try { $evidence=& (Join-Path $root 'tools/Measure-DevBuild.ps1') -Action Check -Worktree $target.root | ConvertFrom-Json } catch {}
             if(!$evidence){$evidence=@{build='unknown';worktree_recovery_test='unknown'}}

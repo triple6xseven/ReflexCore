@@ -1,4 +1,7 @@
 //! Worktree-local recovery observations for the developer bridge.
+#[path = "engineering_memory.rs"]
+mod engineering_memory;
+
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -15,6 +18,7 @@ const COMMON: &[&str] = &["AGENTS.md", "Cargo.toml", "Cargo.lock", "docs/ROADMAP
 const BRIDGE: &[&str] = &[
     "src/main.rs",
     "src/dev_context.rs",
+    "src/engineering_memory.rs",
     "src/bin/reflex-observer.rs",
     "src/hook_arrival.rs",
     "tools/Invoke-DevObserver.ps1",
@@ -144,6 +148,38 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         "universal" => UNIVERSAL,
         _ => return Err("Unknown component".into()),
     };
+    if matches!(action.as_str(), "remember" | "recall" | "recall-history") {
+        if !engineering_memory::valid_topic(session) || (action != "remember" && rest.len() > 1) {
+            return Err("Invalid engineering memory topic or arguments".into());
+        }
+        let root = git_path("--show-toplevel")?;
+        if fs::canonicalize(".")? != root {
+            return Err("Run from the worktree root".into());
+        }
+        let dir = git_path("--absolute-git-dir")?;
+        let tree = format!("{:x}", Sha256::digest(dir.as_os_str().as_encoded_bytes()));
+        let observed = revision(&root, files)?;
+        if revision(&root, files)? != observed {
+            return Err("Uncertain: memory inputs changed".into());
+        }
+        let common = String::from_utf8(git(&[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ])?)?;
+        let common = fs::canonicalize(common.trim())?;
+        let packet = engineering_memory::run(
+            action,
+            session,
+            rest,
+            &common.join("reflex-engineering-memory-v1.sqlite"),
+            &tree,
+            component,
+            &observed,
+        )?;
+        println!("{packet}");
+        return Ok(());
+    }
     let event = match (action.as_str(), rest) {
         ("status" | "resume", []) => None,
         ("pending-ci", [commit, run])
