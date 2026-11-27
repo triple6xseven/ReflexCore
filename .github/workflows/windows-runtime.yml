@@ -12,6 +12,9 @@ jobs:
       - name: Qualify worktree-scoped development recovery
         shell: powershell
         run: ./tasks/Test-DevContext.ps1 -Executable ./target/release/reflexcore.exe
+      - name: Check registry build provenance over MCP
+        shell: powershell
+        run: ./tasks/Test-DevRegistry.ps1
       - name: Check fixture and report correlation
         shell: powershell
         run: |

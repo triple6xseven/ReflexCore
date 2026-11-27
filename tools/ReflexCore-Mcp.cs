@@ -12,19 +12,25 @@ namespace ReflexCore.Bridge
     {
         readonly string root, settings;
         readonly QueueStore queue;
+        readonly Func<string> inspectBuild;
+        readonly bool developerTools;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=20};
         bool initialized, ready;
 
-        McpServer(string project)
+        McpServer(string project,Func<string> inspect,bool developer)
         {
             root=project;
+            inspectBuild=inspect;
+            developerTools=developer;
             settings=Path.Combine(root,"data","settings");
             queue=new QueueStore(root);
         }
 
-        public static void Run(string project)
+        public static void Run(string project) { Run(project,null,false); }
+
+        public static void Run(string project,Func<string> inspect,bool developer)
         {
-            var server=new McpServer(project);
+            var server=new McpServer(project,inspect,developer);
             var line=new StringBuilder();
             int next;
             while((next=Console.In.Read())!=-1)
@@ -139,7 +145,7 @@ namespace ReflexCore.Bridge
                 annotations=new {readOnlyHint=readOnly,destructiveHint=false,openWorldHint=false}};
         }
 
-        static object[] Tools()
+        object[] Tools()
         {
             return new[]{
                 Tool("list_skills","Inspect executable editor bindings, verification requirements and experimental movement skills.",new[]{"skills","compositions","bounded_replay_statistics","memory_state","memory_source","workflows","handoff_feedback"}),
@@ -155,13 +161,16 @@ namespace ReflexCore.Bridge
                 Tool("list_combat_runs","Discover measured offline combat trials. Results use engine evidence, with no visual detector in the loop.",new[]{"runs"}),
                 Tool("get_combat_run","Read the stage and evidence for a specific offline combat trial.",new[]{"run"},new[]{"run_id"}),
                 Tool("compare_combat_runs","Compare a completed baseline and candidate from the same controlled scenario and suite.",
-                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})};
+                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile"})} : new object[0]).ToArray();
         }
 
         object Call(string name,Dictionary<string,object> args)
         {
             switch(name)
             {
+                case "get_validation_evidence":
+                    if(!developerTools || args.Count!=0)throw new ArgumentException("Unsupported tool or arguments.");
+                    return new {build=BuildStatus(),profile="release"};
                 case "list_skills": return ReadRegistry();
                 case "list_projects":
                     var presets=Presets();
@@ -332,7 +341,28 @@ namespace ReflexCore.Bridge
             return path;
         }
 
+        string BuildStatus()
+        {
+            if(inspectBuild==null)return "unknown";
+            try {
+                var state=inspectBuild();
+                return state=="matching" || state=="stale" ? state : "unknown";
+            } catch { return "unknown"; }
+        }
+
         object ReadRegistry()
+        {
+            var checkout=Path.Combine(root,".git");
+            if(!File.Exists(checkout) && !Directory.Exists(checkout))return ReadRegistryCore();
+            var exe=Path.Combine(root,"target","release","reflexcore.exe");
+            if(!File.Exists(exe))throw new ArgumentException("Build unknown. Run tools/Measure-DevBuild.ps1 -Action Build.");
+            using(var pin=new FileStream(exe,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+                var state=BuildStatus();
+                if(state!="matching")throw new ArgumentException("Build "+state+". Run tools/Measure-DevBuild.ps1 -Action Build.");
+                return ReadRegistryCore();
+            }
+        }
+        object ReadRegistryCore()
         {
             var memoryRoot=root;
             var config=new FileInfo(Path.Combine(settings,"mcp-memory-root.txt"));
