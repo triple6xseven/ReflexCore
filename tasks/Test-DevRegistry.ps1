@@ -28,6 +28,10 @@ try {
     $handle.Dispose()
     $record = .\tools\Measure-DevBuild.ps1 -Action Build | ConvertFrom-Json
     if ($record.build -ne 'matching') { throw 'Build evidence unavailable' }
+    $proof = .\tools\Measure-DevBuild.ps1 -Action VerifyRecovery | ConvertFrom-Json
+    if ($proof.worktree_recovery_test -ne 'verified') { throw 'Recovery fixture evidence missing' }
+    $current = @(Calls -Developer)
+    if ($current[2].result.structuredContent.worktree_recovery_test -ne 'verified') { throw 'MCP did not return verified fixture evidence' }
     $default = @(Calls)
     if (!$default[0].result.serverInfo -or !$default[1].result.tools) { throw ('Handshake failed: ' + ($default[0] | ConvertTo-Json -Compress)) }
     if ($default[1].result.tools.name -contains 'get_validation_evidence') { throw 'Unexpected developer schema' }
@@ -35,7 +39,7 @@ try {
     if (!$default[3].result.structuredContent.skills) { throw ('Matched registry missing: ' + $default[3].result.content[0].text) }
     [IO.File]::WriteAllText($probe,'// Owned stale-source fixture.')
     $changed = @(Calls -Developer)
-    if ($changed[1].result.tools.name -notcontains 'get_validation_evidence' -or $changed[2].result.structuredContent.build -ne 'stale' -or !$changed[3].result.isError -or $changed[3].result.content[0].text -notlike 'Build stale.*') { throw 'Stale registry result accepted' }
+    if ($changed[1].result.tools.name -notcontains 'get_validation_evidence' -or $changed[2].result.structuredContent.build -ne 'stale' -or $changed[2].result.structuredContent.worktree_recovery_test -ne 'stale' -or !$changed[3].result.isError -or $changed[3].result.content[0].text -notlike 'Build stale.*') { throw 'Stale registry result accepted' }
     'PASS: default schema, matched release, optional evidence and stale registry rejection.'
 } finally {
     if ([IO.File]::Exists($probe)) { [IO.File]::Delete($probe) }

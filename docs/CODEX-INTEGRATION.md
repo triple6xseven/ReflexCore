@@ -47,7 +47,7 @@ Enable DeveloperTools on the existing MCP launcher to discover get_development_c
 
 ## Acceptance and continuation
 
-- DI-1: worktree and session isolation, schema migration, bounded declaration and observations, per-input changes, independent release provenance. Verified test receipts and per-operation IDs remain open.
+- DI-1: worktree and session isolation, schema migration, bounded declaration and observations, per-input changes, independent release provenance. The worktree recovery fixture has a run-specific receipt bound to the exact local build stamp and verifier script. Other test suites do not yet publish receipts.
 - DI-2: a project-scoped install/inspect/remove mechanism and a stable observer. PowerShell handler and missing-final-event behavior have been exercised with fixture payloads. Actual Desktop delivery, compaction and interruption require an interactive trusted project. A subscriber limit was never deliberately exhausted.
 - DI-3: explicit managed account limit reads; desktop turn events, persisted observations, token usage, managed resume and forecast remain open.
 - DI-4: four opt-in developer tools and three source plugin skills. The primary profile still has 0.2.0. The installed Codex CLI added the local marketplace and installed 0.3.0 with all five skills into an isolated profile. Runtime selection of the upgraded skills has not been verified. No duplicate MCP registration is required.
@@ -55,4 +55,7 @@ Enable DeveloperTools on the existing MCP launcher to discover get_development_c
 
 The deterministic acceptance script tasks/Test-DevResume.ps1 uses a real MCP process and an isolated Git repository with no main executable. It declares a task, changes source, observes a test start, omits its completion, and retrieves the declared next step from a fresh client. Two warm-host / cold-server observations took 1595 and 1627 ms; packet sizes differed across revisions. These figures include PowerShell startup and C# compilation. After adding current release provenance, a cold MCP call took 1580 ms and the packet was 894 bytes, with zero model requests by the bridge. The fixture also covers disabled MCP, a foreign observer pointer and ambiguous sessions.
 
-**Next:** open a disposable trusted worktree in Desktop, review its project hooks and verify delivered mutation, shell, Stop, Interrupt and compaction events against the observer history. Then qualify real tool-call IDs and bind independent test receipts into the same recovery packet. Until then, treat missing end events as unknown. The independent cognitive-runtime roadmap remains authoritative.
+**Next:** open a disposable trusted worktree in Desktop, review its project hooks and verify delivered mutation, shell, Stop, Interrupt and compaction events against the observer history. Then qualify real tool-call IDs. The packet already includes the dedicated worktree recovery fixture verdict. Until then, treat missing end events as unknown. The independent cognitive-runtime roadmap remains authoritative.
+
+
+Run "tools/Measure-DevBuild.ps1 -Action VerifyRecovery" after an explicit release build to execute the two-worktree fixture. Both developer evidence and recovery tools expose worktree_recovery_test. It is verified only for a matching build and verifier. Missing, malformed or interrupted evidence is unknown. Changes to the source or verifier invalidate the receipt. Reading evidence never starts the fixture.

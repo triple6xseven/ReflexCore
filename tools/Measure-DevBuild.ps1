@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-param([ValidateSet('Build','Check')][string]$Action='Check')
+param([ValidateSet('Build','Check','VerifyRecovery')][string]$Action='Check')
 $ErrorActionPreference='Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Push-Location $root
@@ -43,5 +43,45 @@ try {
         $state='stale'
         if ($r.v -eq 1 -and $r.tree -eq $tree -and $r.source -eq $before -and $r.head -eq $head -and $r.compiler -eq $compiler -and $r.binary -eq (Get-FileHash $binary).Hash -and (Revision) -eq $before) { $state='matching' }
     }
-    [pscustomobject]@{schema=1;profile='release';build=$state} | ConvertTo-Json -Compress
+    $receipt = Join-Path $private 'reflex-dev-recovery-test-v1.json'
+    $verifier = Join-Path $root 'tasks/Test-DevContext.ps1'
+    function SaveReceipt($record) {
+        $tmp = $receipt + '.' + [guid]::NewGuid().ToString('N')
+        try {
+            [IO.File]::WriteAllText($tmp,($record | ConvertTo-Json -Compress))
+            if ([IO.File]::Exists($receipt)) { [IO.File]::Replace($tmp,$receipt,($receipt+'.previous')) }
+            else { [IO.File]::Move($tmp,$receipt) }
+        } finally { if ([IO.File]::Exists($tmp)) { [IO.File]::Delete($tmp) } }
+    }
+    if ($Action -eq 'VerifyRecovery') {
+        if ($state -ne 'matching') { throw 'Build the current release before qualification' }
+        $pins = New-Object 'System.Collections.Generic.List[System.IO.FileStream]'
+        try {
+            $pins.Add([IO.File]::Open(($receipt+'.lock'),'OpenOrCreate','Write','None'))
+            foreach ($file in @($stamp,$binary,$verifier)) { $pins.Add([IO.File]::Open($file,'Open','Read','Read')) }
+            $proof = [ordered]@{schema=1;run=[guid]::NewGuid().ToString('N');state='unknown';stamp=(Get-FileHash $stamp).Hash;verifier=(Get-FileHash $verifier).Hash}
+            SaveReceipt $proof
+            $locked = Get-Content -Raw $stamp | ConvertFrom-Json
+            if ($locked.v -ne 1 -or $locked.tree -ne $tree -or $locked.profile -ne 'release' -or $locked.compiler -ne $compiler -or
+                $locked.binary -ne (Get-FileHash $binary).Hash -or $locked.source -ne $before -or $before -ne (Revision) -or
+                $locked.head -ne $head -or $head -ne (& git rev-parse HEAD)) { throw 'Build changed before qualification' }
+            $result = @(& $verifier -Executable $binary)
+            if ($result.Count -ne 1 -or $result[0] -cne 'PASS: interrupted operation, dirty and indexed input, scope, session and worktree isolation.') { throw 'Recovery fixture did not complete its independent assertions' }
+            if ($before -ne (Revision) -or $head -ne (& git rev-parse HEAD)) { throw 'Source changed during qualification' }
+            $proof.state='verified'
+            SaveReceipt $proof
+        } finally { foreach ($pin in $pins) { $pin.Dispose() } }
+    }
+    $qualification='unknown'
+    if ([IO.File]::Exists($receipt)) {
+        try {
+            if ((Get-Item $receipt).Length -gt 2048) { throw 'Invalid receipt' }
+            $q=Get-Content -Raw $receipt | ConvertFrom-Json
+            if ($q.schema -eq 1 -and $q.run -cmatch '^[a-f0-9]{32}$' -and $q.state -eq 'verified') {
+                $qualification='stale'
+                if ($state -eq 'matching' -and $q.stamp -eq (Get-FileHash $stamp).Hash -and $q.verifier -eq (Get-FileHash $verifier).Hash) { $qualification='verified' }
+            }
+        } catch { $qualification='unknown' }
+    }
+    [pscustomobject]@{schema=1;profile='release';build=$state;worktree_recovery_test=$qualification} | ConvertTo-Json -Compress
 } finally { Pop-Location }

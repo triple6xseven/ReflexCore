@@ -171,7 +171,7 @@ namespace ReflexCore.Bridge
                     new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task in a local component.",new[]{"packet"},null,new[]{"component","session"}),
                     Tool("get_checkpoint","Inspect a local recovery checkpoint.",new[]{"packet"},null,new[]{"component","session"}),
                     Tool("get_usage_status","Read official usage windows on demand.",new[]{"packet"}),
-                    Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile"})} : new object[0]).ToArray();
+                    Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile","worktree_recovery_test"})} : new object[0]).ToArray();
         }
 
         object Call(string name,Dictionary<string,object> args)
@@ -190,11 +190,15 @@ namespace ReflexCore.Bridge
                     var packet=readDeveloper(name,session,devScope);
                     if(packet==null || Encoding.UTF8.GetByteCount(packet)>4096)throw new ArgumentException("Recovery packet unavailable.");
                     var recovered=Object(json.DeserializeObject(packet));
-                    if(name=="get_development_context")recovered["release_build"]=BuildStatus();
+                    if(name=="get_development_context") {
+                        var evidence=BuildEvidence();
+                        recovered["release_build"]=evidence["build"];
+                        recovered["worktree_recovery_test"]=evidence["worktree_recovery_test"];
+                    }
                     return new {packet=recovered};
                 case "get_validation_evidence":
                     if(!developerTools || args.Count!=0)throw new ArgumentException("Unsupported tool or arguments.");
-                    return new {build=BuildStatus(),profile="release"};
+                    return BuildEvidence();
                 case "list_skills": return ReadRegistry();
                 case "list_projects":
                     var presets=Presets();
@@ -365,15 +369,19 @@ namespace ReflexCore.Bridge
             return path;
         }
 
-        string BuildStatus()
+        Dictionary<string,object> BuildEvidence()
         {
-            if(inspectBuild==null)return "unknown";
+            var evidence=new Dictionary<string,object>{{"build","unknown"},{"profile","release"},{"worktree_recovery_test","unknown"}};
+            if(inspectBuild==null)return evidence;
             try {
-                var state=inspectBuild();
-                return state=="matching" || state=="stale" ? state : "unknown";
-            } catch { return "unknown"; }
+                var record=Object(json.DeserializeObject(inspectBuild()));
+                var build=Get(record,"build") as string;
+                var test=Get(record,"worktree_recovery_test") as string;
+                if(build=="matching" || build=="stale")evidence["build"]=build;
+                if(test=="stale" || (build=="matching" && test=="verified"))evidence["worktree_recovery_test"]=test;
+            } catch { }
+            return evidence;
         }
-
         object ReadRegistry()
         {
             var checkout=Path.Combine(root,".git");
@@ -381,7 +389,7 @@ namespace ReflexCore.Bridge
             var exe=Path.Combine(root,"target","release","reflexcore.exe");
             if(!File.Exists(exe))throw new ArgumentException("Build unknown. Run tools/Measure-DevBuild.ps1 -Action Build.");
             using(var pin=new FileStream(exe,FileMode.Open,FileAccess.Read,FileShare.Read)) {
-                var state=BuildStatus();
+                var state=(string)BuildEvidence()["build"];
                 if(state!="matching")throw new ArgumentException("Build "+state+". Run tools/Measure-DevBuild.ps1 -Action Build.");
                 return ReadRegistryCore();
             }
