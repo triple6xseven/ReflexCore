@@ -132,6 +132,7 @@ pub(super) fn run(
                 topic,
                 action == "recall-history"
             ])?;
+            let mut seen_local = false;
             while let Some(row) = rows.next()? {
                 let kind: String = row.get(1)?;
                 let dependency_json: String = row.get(4)?;
@@ -143,7 +144,7 @@ pub(super) fn run(
                 let origin_tree: String = row.get(8)?;
                 let status = if origin_tree != tree {
                     "historical"
-                } else if !records.is_empty() {
+                } else if seen_local {
                     "superseded"
                 } else if kind == "invalidation" {
                     "invalidated"
@@ -158,6 +159,7 @@ pub(super) fn run(
                 } else {
                     "uncertain"
                 };
+                seen_local |= origin_tree == tree;
                 records.push(json!({"id":row.get::<_,i64>(0)?,"kind":kind,"statement":row.get::<_,String>(2)?,
                     "reference":row.get::<_,String>(3)?,"origin_tree":origin_tree,"commit":recorded_commit,"source_revision":row.get::<_,String>(7)?,"created_and_validated_unix":row.get::<_,i64>(6)?,
                     "dependencies":dependencies.keys().collect::<Vec<_>>(),"status":status}));

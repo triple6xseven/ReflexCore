@@ -49,9 +49,12 @@ try {
     GitOk @('checkout','-q','--ignore-other-worktrees','fixture')
     Require ((Memory recall proof universal).records.Count -eq 0) 'Shared branch leaked worktree memory'
     Require ((Memory recall-history proof universal).records[0].status -ceq 'historical') 'Foreign worktree record was not treated as history'
+    $null=Memory remember proof universal decision 'Keep this as a distinct observation.' docs/UNIVERSAL-SKILL-RUNTIME.md
  }finally{Pop-Location}
  GitOk @('add','docs')
  GitOk @('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','affected')
+ $history=(Memory recall-history proof universal).records
+ Require ($history[0].status -ceq 'historical' -and $history[1].status -ceq 'active') 'Foreign history superseded the local decision'
  $changes=(Memory recall proof universal $base).changes
  Require ($changes.affected -contains 'docs/UNIVERSAL-SKILL-RUNTIME.md' -and $changes.commits.Count -eq 1) 'Scoped commit range lost changed component evidence'
  $sizeAfter=(Get-Item -LiteralPath $db).Length
