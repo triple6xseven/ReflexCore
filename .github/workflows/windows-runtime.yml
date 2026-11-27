@@ -20,6 +20,7 @@ jobs:
             ./tasks/Test-DevBuildIsolation.ps1
             ./tasks/Test-DevResume.ps1
             ./tasks/Test-HookIngress.ps1
+            ./tasks/Test-ManagedEvents.ps1
           } catch {
             Write-Host ("::error::{0} (line {1})" -f $_.Exception.Message,$_.InvocationInfo.ScriptLineNumber)
             throw

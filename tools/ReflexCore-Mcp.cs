@@ -17,6 +17,8 @@ namespace ReflexCore.Bridge
         readonly bool developerTools, separateRuntime;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=20};
         bool initialized, ready;
+        readonly Dictionary<string,Dictionary<string,string>> recoveryCache=new Dictionary<string,Dictionary<string,string>>();
+        readonly Queue<string> recoveryOrder=new Queue<string>();
 
         McpServer(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read,bool legacyRuntime)
         {
@@ -202,13 +204,7 @@ namespace ReflexCore.Bridge
                         string revision;
                         using(var sha=System.Security.Cryptography.SHA256.Create())
                             revision=BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(json.Serialize(recovered)))).Replace("-","").ToLowerInvariant();
-                        recovered["context_revision"]=revision;
-                        if(args.ContainsKey("known_revision")) {
-                            var known=StringArg(args,"known_revision");
-                            if(!System.Text.RegularExpressions.Regex.IsMatch(known,@"\A[0-9a-f]{64}\z"))
-                                throw new ArgumentException("Invalid recovery revision.");
-                            if(known==revision)return new {packet=new {state="unchanged",context_revision=revision}};
-                        }
+                        return new {packet=AdaptiveRecovery(recovered,revision,args)};
                     }
                     return new {packet=recovered};
                 case "get_validation_evidence":
@@ -221,6 +217,7 @@ namespace ReflexCore.Bridge
                         .Select(item=>new {project=item.Key,capability="verify_handoff",available=Directory.Exists(item.Value),
                             presets=PresetNames(presets,item.Key)}).ToArray()};
                 case "submit_composition":
+                    if(separateRuntime)throw new ArgumentException("Text composition requires a matching Studio queue and worker installation.");
                     if(args.Keys.Any(k=>!new[]{"project","goal","editor","destination","suffix","second_destination","second_suffix"}.Contains(k)))throw new ArgumentException("Unknown composition field.");
                     var baseDir=ProjectRoot(StringArg(args,"project"),Projects());
                     var input=new CompositionInput{version=1,goal=StringArg(args,"goal"),editor=StringArg(args,"editor"),suffix=StringArg(args,"suffix"),destination=Scoped(baseDir,StringArg(args,"destination"),true)};
@@ -384,6 +381,30 @@ namespace ReflexCore.Bridge
             return path;
         }
 
+        object AdaptiveRecovery(Dictionary<string,object> recovered,string revision,Dictionary<string,object> args)
+        {
+            var current=recovered.ToDictionary(entry=>entry.Key,entry=>json.Serialize(entry.Value));
+            Dictionary<string,string> previous=null;
+            if(args.ContainsKey("known_revision")) {
+                var known=StringArg(args,"known_revision");
+                if(!System.Text.RegularExpressions.Regex.IsMatch(known,@"\A[0-9a-f]{64}\z"))
+                    throw new ArgumentException("Invalid recovery revision.");
+                if(known==revision)return new {state="unchanged",context_revision=revision};
+                recoveryCache.TryGetValue(known,out previous);
+            }
+            if(!recoveryCache.ContainsKey(revision)) {
+                if(recoveryOrder.Count==8)recoveryCache.Remove(recoveryOrder.Dequeue());
+                recoveryCache.Add(revision,current);
+                recoveryOrder.Enqueue(revision);
+            }
+            recovered["context_revision"]=revision;
+            if(previous==null || !new[]{"scope","tree","session_key"}.All(key=>current.ContainsKey(key) && previous.ContainsKey(key) && current[key]==previous[key]))
+                return recovered;
+            var changes=recovered.Where(item=>item.Key!="context_revision" && (!previous.ContainsKey(item.Key) || previous[item.Key]!=current[item.Key])).ToDictionary(item=>item.Key,item=>item.Value);
+            var removed=previous.Keys.Where(key=>!current.ContainsKey(key)).OrderBy(key=>key,StringComparer.Ordinal).ToArray();
+            var delta=new {state="changed",context_revision=revision,changes,removed};
+            return json.Serialize(delta).Length<json.Serialize(recovered).Length ? (object)delta : recovered;
+        }
         Dictionary<string,object> BuildEvidence()
         {
             var evidence=new Dictionary<string,object>{{"build","unknown"},{"profile","release"},{"worktree_recovery_test","unknown"}};
@@ -399,7 +420,7 @@ namespace ReflexCore.Bridge
         }
         object ReadRegistry()
         {
-            if(separateRuntime)return ReadRegistryCore();
+            if(separateRuntime)throw new ArgumentException("The separate runtime registry has no compatible build provenance. Use get_validation_evidence for the developer worktree.");
             var checkout=Path.Combine(root,".git");
             if(!File.Exists(checkout) && !Directory.Exists(checkout))return ReadRegistryCore();
             var exe=Path.Combine(root,"target","release","reflexcore.exe");

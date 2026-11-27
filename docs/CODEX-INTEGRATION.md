@@ -45,18 +45,9 @@ The separate native observer is built from the shared context module, probed for
 
 Enable DeveloperTools on the existing MCP launcher to discover get_development_context, get_checkpoint, get_validation_evidence and get_usage_status. The first two return a scoped, bounded packet. get_development_context additionally checks current release provenance. The default component is bridge; request mcp for MCP-specific tasks. Automatic selection requires exactly one declared session in that component. Evidence without a matching independent verifier is unknown. Declare a new next step when the objective changes. Source freshness covers listed inputs and their ancestor AGENTS.md files. A change outside the known dependency boundary needs independent inspection.
 
-## Acceptance and continuation
-
-- DI-1: worktree and session isolation, schema migration, bounded declaration and observations, per-input changes, independent release provenance. The worktree recovery fixture has a run-specific receipt bound to the exact local build stamp and verifier script. Other test suites do not yet publish receipts.
-- DI-2: a project-scoped install/inspect/remove mechanism and a stable observer. PowerShell handler and missing-final-event behavior have been exercised with fixture payloads. Actual Desktop delivery, compaction and interruption require an interactive trusted project. A subscriber limit was never deliberately exhausted.
-- DI-3: explicit managed account limit reads; desktop turn events, persisted observations, token usage, managed resume and forecast remain open.
-- DI-4: four opt-in developer tools and three source plugin skills. The primary profile still has 0.2.0. The installed Codex CLI added the local marketplace and installed 0.3.0 with all five skills into an isolated profile. Runtime selection of the upgraded skills has not been verified. No duplicate MCP registration is required.
-- DI-5: no Studio monitor yet. No measured subscription savings or general A/B productivity result.
+## Earlier Windows fixture measurements
 
 The deterministic acceptance script tasks/Test-DevResume.ps1 uses a real MCP process and an isolated Git repository with no main executable. It declares a task, changes source, observes a test start, omits its completion, and retrieves the declared next step from a fresh client. Two warm-host / cold-server observations took 1595 and 1627 ms; packet sizes differed across revisions. These figures include PowerShell startup and C# compilation. After adding current release provenance, a cold MCP call took 1580 ms and the packet was 894 bytes, with zero model requests by the bridge. The fixture also covers disabled MCP, a foreign observer pointer and ambiguous sessions.
-
-**Next:** open a disposable trusted worktree in Desktop, review its project hooks and verify delivered mutation, shell, Stop, Interrupt and compaction events against the observer history. Then qualify real tool-call IDs. The packet already includes the dedicated worktree recovery fixture verdict. Until then, treat missing end events as unknown. The independent cognitive-runtime roadmap remains authoritative.
-
 
 Run "tools/Measure-DevBuild.ps1 -Action VerifyRecovery" after an explicit release build to execute the two-worktree fixture. Both developer evidence and recovery tools expose worktree_recovery_test. It is verified only for a matching build and verifier. Missing, malformed or interrupted evidence is unknown. Changes to the source or verifier invalidate the receipt. Reading evidence never starts the fixture.
 
@@ -88,10 +79,16 @@ Usage reads default to the local snapshot and report age. The two-minute thresho
 
 The installed connection measured 2623 ms and 1064 serialized packet bytes for a cold recovery. A warm unchanged reply took 925 ms and returned 107 bytes. A warm cache read took 144 ms. These are individual measurements with zero additional model turns. Component CPU costs, private memory and token savings remain unmeasured.
 
-## DI status
+## Current DI status
 
-- DI-1 has worktree-scoped checkpoints, release provenance, verified fixture evidence and pending CI identity. Terminal CI reconciliation remains open. The prior run 46072684420 was in progress at the continuation check.
+- DI-1 has worktree-scoped checkpoints, release provenance, verified fixture evidence and pending CI identity. GitHub Actions run 46072684420 completed successfully on attempt 1 for d2c14202a3d20f950429d6e0c6447555d7bf4f04. Run 46073391351 for 1a1989db120f9975b1585336321b10bb56516d4b was in progress on attempt 1 at the continuation check. The worktree-local CI observation file retains both results. MCP joins those observations only on the exact commit and run ID. Retrieval performs no network polling.
 - DI-2 has optional native Desktop diagnostics. Live event delivery remains unverified.
-- DI-3 has official usage reads and one observed managed thread-start notification. Real turn, plan, token and exhaustion notifications and explicit thread restoration remain unqualified.
-- DI-4 has an installed single MCP registration, updated plugin, cached usage and a revision-aware unchanged acknowledgement. Changed results still return the complete bounded packet.
+- DI-3 has official usage lookup and a bounded managed turn probe. The authorized single ephemeral turn delivered thread/started, turn/started, thread/tokenUsage/updated, account/rateLimits/updated and turn/completed. The probe recorded a completed turn and 22261 total tokens as reported by the server. No plan update or interruption was delivered in that turn. Classification tests cover temporary rate limiting, context exhaustion, and authoritative usage-limit exhaustion. The reducer retains a confirmed exhaustion classification when a subsequent generic failure arrives. Private turn receipts are written after each accepted lifecycle event, without a model-generated summary.
+- DI-4 includes installed plugin 0.3.1, single MCP registration, cached usage and bounded deltas. The source plugin 0.3.2 extends checkpoint guidance. A full packet is returned when the previous revision is unavailable, the selected worktree or session changes, or the delta would be larger. The installed registration returned 107 bytes in 917 ms for an unchanged packet and 335 bytes in 949 ms for a changed declaration. These are single warm examples. CPU, peak memory and phase attribution remain open.
 - DI-5 Studio monitoring remains open.
+
+Run tools/Read-DevUsage.ps1 -Action QualifyTurn only for an explicit live qualification. It sends one fixed prompt in an ephemeral managed thread. Normal usage refresh, cached reads, and recovery send no model requests. The listener is bounded to the owned connection and prompts no second turn.
+
+A split runtime root continues to serve the installed project mappings and handoff queue. The catalog and text composition require compatible runtime evidence and queue contracts. The split launcher now rejects those calls instead of using developer evidence for the installed runtime. Keep the registry independent until runtime provenance can be verified against its own build.
+
+Next, automate one-shot CI observation refresh and profile native and PowerShell phases before optimizing the warm path. Qualify interruption, plan updates and installed runtime compatibility separately from the one-turn smoke.
