@@ -14,7 +14,9 @@ jobs:
         run: ./tasks/Test-DevContext.ps1 -Executable ./target/release/reflexcore.exe
       - name: Check registry build provenance over MCP
         shell: powershell
-        run: ./tasks/Test-DevRegistry.ps1
+        run: |
+          ./tasks/Test-DevRegistry.ps1
+          ./tasks/Test-DevBuildIsolation.ps1
       - name: Check fixture and report correlation
         shell: powershell
         run: |
