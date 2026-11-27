@@ -6,6 +6,9 @@ if(!$claim){return}
 if($claim -cnotmatch '^[0-9]{17}-[0-9a-f]{32}\.job$'){throw 'Invalid queue task ID'}
 $id=[IO.Path]::GetFileNameWithoutExtension($claim)
 $run=$Evidence.run_id
+if($null -ne $env:REFLEXCORE_EDITOR_RUN -and $run -cne $env:REFLEXCORE_EDITOR_RUN){
+    throw 'Saved-text evidence belongs to a different editor attempt'
+}
 if($run -cnotmatch '^[a-f0-9]{32}$' -or $Evidence.skill_id -cne 'artifact.verify_saved_text' -or
    $Evidence.adapter -cne 'notepad' -or $Evidence.outcome -cne 'verified'){throw 'Missing Notepad skill evidence'}
 $running=Join-Path (Split-Path $PSScriptRoot -Parent) 'data/bridge/running'

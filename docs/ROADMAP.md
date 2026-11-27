@@ -16,9 +16,11 @@ Move exact saved-text verification behind a capability contract. Keep the foregr
 Notepad supervisor and the owned background WinForms adapter responsible for their
 own mutations. A negative or ambiguous observation must stop progression.
 
-**C. Skill Composition Engine** will map typed outputs to Goal edges with bounded
-steps, deadlines and cancellation. **D. Skill Discovery and Acquisition** will
+**C. Skill Composition Engine** now binds the editor's verified save to the queue
+attempt that requested it. The next Goal edge must recheck the saved artifact
+before it authorizes a second skill. Steps, deadlines and cancellation stay
+bounded. **D. Skill Discovery and Acquisition** will
 admit discovered candidates only after fixture validation and operator approval.
 **E. Skill Memory and Compatibility** will namespace experience by binding and
 verifier compatibility. **F. Skill SDK and Ecosystem** will validate versioned
-manifests against explicitly trusted adapters. Review transfer evidence before C.
+manifests against explicitly trusted adapters.

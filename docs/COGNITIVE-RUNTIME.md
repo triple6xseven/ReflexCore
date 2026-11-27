@@ -10,6 +10,10 @@ primitive. A fresh successful observation supplies the queue receipt. Studio
 and MCP read that receipt and catalog. See the [protocol and transfer experiments](UNIVERSAL-SKILL-RUNTIME.md)
 and the [engineering roadmap](ROADMAP.md).
 
+For queued editor saves, the supervisor assigns the attempt ID before dispatch.
+Its terminal decision consumes evidence from that exact attempt and editor. The
+same per-task lock orders an accepted stop and publication of the terminal state.
+
 ## 0.8 measurement milestone
 
 ### Native execution sessions

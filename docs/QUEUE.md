@@ -14,6 +14,18 @@ The terminal manifest retains its original two header lines and can contain a th
 
 ## Windows acceptance
 
+For the built-in WinForms saved-text and Notepad jobs, the tray assigns a new
+run ID when it claims the job. A verified history entry requires the expected
+task, run, editor and versioned disk-readback evidence, plus successful worker
+exit. If cancellation is accepted before publication, the queue records the
+cancellation even if the file has already been saved. Paths and document text
+stay out of terminal receipts.
+
+The foreground Notepad jobs ask Windows to pass activation permission to the
+specific worker. The editor must still find one visible matching document and
+observe it in the foreground before sending input. The background WinForms
+job never requests foreground permission.
+
 Run tasks/Test-Queue.ps1 for recovery, fresh approval, cross-process exclusion, failure, cancellation, stop-all and bounded history. With a release executable, `-UiaFixture` runs the single owned WinForms Goal and checks the verified receipt. `Measure-TaskStop.ps1` compares the stop handler and terminal latency with a synthetic worker, using `-SourceRoot` for an older checkout. With a release executable, -AllowInput also executes actual WinForms and Unicode Notepad fixtures. Add -VisualCancellation to cancel a real model request and check the resulting empty file. Cancelled visible fixtures remain in the local fixtures directory for inspection. The Studio -UiSmoke exercises the queue buttons against an isolated temporary store.
 
 ## Folder workflows

@@ -679,6 +679,7 @@ namespace ReflexCore.Bridge
         private readonly System.Windows.Forms.Timer tick;
         private Process active;
         private string activeJob;
+        private EditorAttempt activeEditor;
         private readonly QueueStore queue;
         private bool cooperativeOnly;
         private bool cancelled, forceStopStarted, stopTimedOut;
@@ -697,6 +698,8 @@ namespace ReflexCore.Bridge
         private static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+        [DllImport("user32.dll")]
+        private static extern bool AllowSetForegroundWindow(int processId);
 
         private readonly bool isolated;
         public TrayWindow(string rootPath,bool isolated=false)
@@ -1130,6 +1133,9 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                         psi.EnvironmentVariables["REFLEX_HANDOFF_LAUNCH_US"]=((DateTime.UtcNow-epoch).Ticks/10).ToString();
                     }
                     psi.WorkingDirectory = root;
+                    activeEditor=EditorAttempt.ForScript(name);
+                    psi.EnvironmentVariables.Remove("REFLEXCORE_EDITOR_RUN");
+                    if(activeEditor!=null)psi.EnvironmentVariables["REFLEXCORE_EDITOR_RUN"]=activeEditor.RunId;
                     psi.UseShellExecute = false;
                     psi.CreateNoWindow = true;
                     psi.WindowStyle = ProcessWindowStyle.Hidden;
@@ -1140,6 +1146,9 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     active.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { /* Discard private output. */ };
                     active.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { /* Discard private output. */ };
                     if (!active.Start()) throw new Exception("Task process could not start");
+                    // Windows can transfer the caller's foreground permission to this worker only.
+                    // The editor still has to observe its exact document in the foreground.
+                    if(name=="notepad-save.ps1" || name=="notepad-visual.ps1")AllowSetForegroundWindow(active.Id);
                     active.BeginOutputReadLine();
                     active.BeginErrorReadLine();
                     SetState("running", -1, "Agent started (Ctrl+Alt+P stops)");
@@ -1149,6 +1158,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 {
                     if(activeJob!=null)queue.Finish(activeJob,"failed");
                     activeJob = null;
+                    activeEditor = null;
                     if (active != null)
                     {
                         try
@@ -1173,7 +1183,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                 toast.Display("No supervised job running");
                 return;
             }
-            if(active.HasExited)return;
+            if(active.HasExited && activeEditor==null)return;
             if(cancelled)return;
             queue.Request(QueueStore.IdOf(activeJob),"cancel");
             cancelled = true;
@@ -1248,33 +1258,21 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
             if (active != null)
             {
                 if(!active.HasExited && !cancelled && queue.Requested(activeJob,"cancel"))StopJob();
+                if(cancelled && !active.HasExited && !queue.Requested(activeJob,"cancel"))
+                    queue.Request(QueueStore.IdOf(activeJob),"cancel");
                 PollStop();
                 if (active.HasExited)
                 {
                     int code = active.ExitCode;
                     if(stopHelper!=null){stopHelper.Dispose();stopHelper=null;}
-                    active.Dispose();
-                    active = null;
                     bool verified=false;
                     string terminal=code==0?"completed":"failed";
-                    if(activeJob!=null){
-                        TaskReceipt receipt=queue.ReadWorkerReceipt(activeJob);
-                        verified=code==0 && receipt!=null && receipt.outcome=="verified" && receipt.verification=="verified";
-                        cancelled=cancelled || (code!=0 && queue.Requested(activeJob,"cancel"));
-                        terminal=verified?"completed":cancelled?"cancelled":code==0?"completed":"failed";
-                        if(!verified && cancelled && (receipt==null || receipt.outcome!="cancelled")){
-                            string id=QueueStore.IdOf(activeJob);
-                            receipt=new TaskReceipt {
-                                schema="reflexcore.task.receipt.v1",task_id=id,run_id=id,stage="queue",outcome="cancelled",
-                                verification=code==2&&!forceStopStarted?"not_confirmed":"unknown",
-                                reason=forceStopStarted||stopTimedOut?"cleanup_unconfirmed":code==2?"operator_cancelled":"cancelled_effect_unknown"
-                            };
-                        } else if(!verified && !cancelled && receipt!=null) {
-                            if(receipt.outcome=="unverified" || receipt.outcome=="partial")terminal="completed";
-                            else if(receipt.outcome=="verified" || receipt.outcome=="cancelled")receipt=null;
-                        }
-                        queue.Finish(activeJob,terminal,receipt);
-                    }
+                    if(activeJob!=null)
+                        terminal=queue.FinishWorker(activeJob,activeEditor,code,cancelled,forceStopStarted||stopTimedOut,out verified);
+                    if(terminal==null)return; // A concurrent queue decision owns the lock. Retry on the next tick.
+                    active.Dispose();
+                    active=null;
+                    activeEditor=null;
                     activeJob = null;
                     if (terminal=="cancelled") SetState("stopped", -1, "Agent stopped; see the task receipt");
                     else if (terminal=="completed") SetState("completed", code, verified?"Agent result verified":"Agent finished without verification");

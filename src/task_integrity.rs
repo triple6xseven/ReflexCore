@@ -59,6 +59,22 @@ pub(crate) fn task_id() -> Option<String> {
     job_id(&manifest).map(str::to_owned)
 }
 
+pub(crate) fn editor_run_id() -> Result<String> {
+    if std::env::var_os("REFLEXCORE_QUEUE_MANIFEST").is_some() {
+        if let Some(value) = std::env::var_os("REFLEXCORE_EDITOR_RUN") {
+            let run = value.into_string().map_err(|_| Fault::PreconditionFailed)?;
+            if task_id().is_none()
+                || run.len() != 56
+                || !run.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+            {
+                return Err(Fault::PreconditionFailed.into());
+            }
+            return Ok(run);
+        }
+    }
+    Ok(run_id())
+}
+
 fn job_id(manifest: &str) -> Option<&str> {
     let id = manifest.strip_suffix(".job")?;
     let (stamp, nonce) = id.split_once('-')?;

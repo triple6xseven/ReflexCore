@@ -104,6 +104,10 @@ $env:REFLEXCORE_UIA_WORKER='session'
 Unit and protocol checks run unattended. See [measurements](BENCHMARKS.md)
 for the comparison method, sample sizes and limitations.
 
+Run `tasks/Test-Queue.ps1` to exercise the editor decision without input.
+Add `-AllowInput` on an unlocked desktop to compare both queued Unicode files
+to their expected text after the history entries are published.
+
 ## Research decisions
 
 The following sources informed the design. No upstream code, packages, weights or
@@ -129,19 +133,43 @@ WDK interface, threat model, signing, recovery and independent review.
 
 ## Continuation
 
+### First composition boundary
+
+The editor workflows now share the transition from verified saved text to a
+verified queue result. Before launching a worker, the supervisor creates a fresh
+attempt ID and retains the expected editor locally. The worker receives the ID
+in its private process environment. WinForms uses it for the existing UIA
+exchange, artifact and evidence. Notepad uses it for its document token and
+readback. Direct CLI runs still generate their own IDs.
+
+To commit success, the supervisor requires the original task and attempt,
+the expected editor, skill/adapter/verifier v1, a valid readback measurement,
+a verified effect and successful worker exit. A self-consistent receipt from a
+different attempt cannot complete this transition. Incompatible or absent
+evidence after exit zero is retained as unverified. A stop acknowledged before
+commit wins even after the worker exits. The history then records cancellation
+with an unknown effect if the save may already have happened. A per-task mutex
+orders the two decisions. Tray retries a contended commit on its next tick.
+
+The contract provides correlation between trusted local components. The attempt
+ID is visible to the worker and provides no authentication against a compromised
+worker. Historical receipt formats and independent CLI usage remain supported.
+Restart recovery marks abandoned claims interrupted.
+
 The public Actions API records a successful [Windows runtime build for the base
 commit efa3436](https://github.com/triple6xseven/ReflexCore/actions/runs/45867783309).
+The published [A/B checkpoint also passed Windows CI](https://github.com/triple6xseven/ReflexCore/actions/runs/45905594907).
 The workflow triggers on push and pull request with read-only repository
 contents permission. Administrative Actions settings returned HTTP 401 through
 the unauthenticated API. This branch adds unattended binding checks. UI focus,
 disk saves through actual editors, and in-flight fault probes need an interactive
 desktop and were run separately.
 
-**Next implementation task (C)**. Teach one existing Goal edge to consume a typed
-saved-text receipt. Check its run, capability and verifier version; block the
-next mutation on cancelled, missing, stale or incompatible evidence. Test the
-same two-step composition with both editor bindings and a deliberately foreign
-receipt. Reuse the existing Goal/Flow cancellation budget.
+**Next implementation task (C)**. Use the same typed proof as the input to a
+second separately authorized skill in a bounded Goal. Recheck the artifact's
+current state before that skill can mutate it. Test replacement of the file
+between the two skills, stop propagation and fresh recovery. The current shared
+transition ends at the queue result; general multi-skill scheduling is still open.
 
 **D** will collect read-only discovery candidates from UIA or approved schemas.
 Admission progresses from discovered to candidate, validated, approved and

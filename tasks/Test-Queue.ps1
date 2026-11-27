@@ -28,7 +28,10 @@ function Wait-Verified($id){
         if(Is-State $id 'failed'){
             $row=$store.Snapshot()|Where-Object Id -ceq $id
             $flow=Join-Path $fixture 'data/flow_last_run.json'
-            if(Test-Path -LiteralPath $flow){Write-Host ([IO.File]::ReadAllText($flow))}
+            if($row.Task -in 'uia','uia-background' -and (Test-Path -LiteralPath $flow)){
+                $last=[IO.File]::ReadAllText($flow)|ConvertFrom-Json
+                Write-Host ("Last fixture Flow: {0}, {1}/{2} steps" -f $last.outcome,$last.completed_steps,$last.total_steps)
+            }
             $detail=Join-Path $fixture 'fixture-stage'
             if(Test-Path -LiteralPath $detail){throw ('Fixture failed at '+[IO.File]::ReadAllText($detail))}
             throw ('Queued fixture exited unsuccessfully: '+$row.Reason)
@@ -127,6 +130,51 @@ Start-Sleep -Seconds 30
     Assert-Queue (@($store.Snapshot() | Where-Object State -eq 'cancelled').Count -le 100) 'History exceeded display limit'
     Assert-Queue ($store.Snapshot().Count -eq 100) 'Unrelated file consumed a history slot'
     Write-Output 'Queue passed restart recovery, approval, single worker, active and pending cancellation, failure, stop-all and history retention.'
+    # Exercise the terminal transition through the normal worker/Tray boundary.
+    # These synthetic jobs publish proposed receipts and never touch an editor.
+    Put-Task 'agent-background' @'
+$project=Split-Path $PSScriptRoot -Parent
+$case=[IO.File]::ReadAllText((Join-Path $project 'editor-case'))
+$id=[IO.Path]::GetFileNameWithoutExtension($env:REFLEXCORE_QUEUE_MANIFEST)
+$run=$env:REFLEXCORE_EDITOR_RUN
+if($run -cnotmatch '\A[0-9a-f]{56}\z'){throw 'Missing supervisor attempt'}
+if($case -eq 'foreign'){$run='f'*56}
+$skill=@{schema='reflexcore.skill.evidence.v1';run_id=$run;skill_id='artifact.verify_saved_text';skill_version=1
+    adapter='winforms';adapter_version=1;verifier_version=1;outcome='verified';readback_us=1}
+if($case -eq 'version'){$skill.verifier_version=2}
+if($case -eq 'wrong-editor'){$skill.adapter='notepad'}
+if($case -eq 'malformed'){$skill.Remove('readback_us')}
+if($case -eq 'bad-type'){$skill.readback_us='1'}
+if($case -eq 'bad-object'){$skill.readback_us=@{}}
+$receipt=@{schema='reflexcore.task.receipt.v1';task_id=$id;run_id=$run;stage='goal'
+    outcome='verified';verification='verified';reason='verified_goal';skill=$skill}
+if($case -eq 'missing'){$receipt.Remove('skill')}
+if($case -eq 'contradictory'){$receipt.Remove('skill');$receipt.outcome='unverified'}
+$path=Join-Path $project "data/bridge/running/$id.receipt.json"
+[IO.File]::WriteAllText($path,($receipt|ConvertTo-Json -Compress))
+if($case -eq 'failed-exit'){exit 7}
+'@
+    foreach($case in 'foreign','version','missing','wrong-editor','malformed','bad-type','bad-object','contradictory','failed-exit','cancel-after-exit','valid'){
+        [IO.File]::WriteAllText((Join-Path $fixture 'editor-case'),$case)
+        $id=$store.Submit('agent-background',$true)
+        Wait-Queue {Test-Path -LiteralPath (Join-Path $bridge "running/$id.job")} 'Editor job did not start'
+        if($case -eq 'cancel-after-exit'){
+            $process=$type.GetField('active',[Reflection.BindingFlags]'Instance,NonPublic').GetValue($tray)
+            Assert-Queue ($process.WaitForExit(10000) -and $process.ExitCode -eq 0) 'Fixture did not publish its candidate result'
+            Assert-Queue ($store.Request($id,'cancel')) 'Stop was not accepted before terminal commit'
+        }
+        $state=if($case -eq 'cancel-after-exit'){'cancelled'}elseif($case -eq 'failed-exit'){'failed'}else{'completed'}
+        Wait-Queue {Is-State $id $state} 'Editor attempt did not reach the expected terminal state'
+        $entry=$store.Snapshot()|Where-Object Id -ceq $id
+        if($case -eq 'valid'){
+            Assert-Queue ($entry.Verification -ceq 'verified' -and $entry.Receipt.skill.adapter -ceq 'winforms') 'Matching evidence was lost'
+            Assert-Queue (!$store.Request($id,'cancel')) 'Terminal editor accepted a stop request'
+        }else{
+            Assert-Queue ($entry.Verification -ceq 'unknown' -and !$entry.Receipt.skill) ('Invalid editor evidence advanced: '+$case)
+            if($case -eq 'foreign'){Assert-Queue ($entry.Receipt.run_id -cne ('f'*56)) 'Foreign attempt escaped into history'}
+        }
+    }
+    Write-Output 'Editor gate accepted the matching attempt and rejected foreign, incompatible, incomplete and cancelled results.'
     if($UiaFixture){
         $binaryDir=[IO.Directory]::CreateDirectory((Join-Path $fixture 'target/release'))
         Copy-Item -LiteralPath (Join-Path $root 'target/release/reflexcore.exe') -Destination $binaryDir.FullName
@@ -170,6 +218,9 @@ $project=Split-Path $PSScriptRoot -Parent
 try{$result=& (Join-Path $project 'tools/ReflexCore-VisionLoop.ps1') -Action DemoNotepad -AllowInput -TestFixture -UnicodeFixture}
 catch{
     $stage=switch -Regex ($_.Exception.Message){
+        'foreground_unavailable|target_unavailable|ambiguous_target' {$matches[0];break}
+        'OS editor identity' {'identify_editor';break}
+        'ownership could not' {'editor_owner';break}
         'focus|foreground|identity' {'ownership';break}
         'disk|readback' {'verification';break}
         'empty|editor' {'editor';break}
@@ -198,6 +249,10 @@ if(!$result.verified -or $result.schema -cne 'reflexcore.notepad.result.v1'){thr
         foreach($receipt in $receipts){
             Assert-Queue ($receipt.verification -ceq 'verified' -and $receipt.skill.adapter -ceq 'notepad' -and
                 $receipt.skill.run_id -ceq $receipt.run_id -and $receipt.skill.skill_id -ceq 'artifact.verify_saved_text') 'Uncorrelated Notepad receipt'
+            $folder=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ReflexCore/runtime/fixtures'
+            $file=Join-Path $folder ('ReflexCore-VisionLoop-'+$receipt.run_id+'.txt')
+            $expected='ReflexCore '+[char]0x0416+[char]0x03A9+[char]::ConvertFromUtf32(0x1f600)
+            Assert-Queue ([string]::Equals([IO.File]::ReadAllText($file),$expected,[StringComparison]::Ordinal)) 'Queued Notepad file mismatch'
         }
         $results=[IO.File]::ReadAllLines((Join-Path $fixture 'evidence'))
         Assert-Queue ($results.Count -eq 2 -and $results[0] -cmatch '^verified [01] 0$' -and $results[1] -ceq 'verified 1 0') 'Queued skill memory or readback failed'

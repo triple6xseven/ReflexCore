@@ -414,7 +414,7 @@ pub fn run(args: &[String]) -> Result<()> {
             [execute, mode] if execute == "--execute" && mode == "--background" => true,
             _ => return Err("Usage: agent verified-demo --execute [--background]".into()),
         };
-        let run_id = crate::task_integrity::run_id();
+        let run_id = crate::task_integrity::editor_run_id()?;
         let result = crate::flow::verified_demo(background, &run_id);
         let fault = result.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
             .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));

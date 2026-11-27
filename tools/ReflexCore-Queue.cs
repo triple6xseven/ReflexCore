@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace ReflexCore.Bridge
@@ -57,7 +59,17 @@ namespace ReflexCore.Bridge
         public int adapter_version {get;set;}
         public int verifier_version {get;set;}
         public string outcome {get;set;}
-        public long readback_us {get;set;}
+        public long? readback_us {get;set;}
+        internal static bool HasWireTypes(object raw)
+        {
+            var fields=raw as IDictionary<string,object>;
+            object value;
+            if(fields==null || !fields.TryGetValue("readback_us",out value) ||
+                !(value is int || value is long))return false;
+            foreach(string key in new[]{"skill_version","adapter_version","verifier_version"})
+                if(!fields.TryGetValue(key,out value) || !(value is int))return false;
+            return true;
+        }
         internal bool Matches(TaskReceipt receipt)
         {
             return schema=="reflexcore.skill.evidence.v1" && run_id==receipt.run_id &&
@@ -66,6 +78,31 @@ namespace ReflexCore.Bridge
                 receipt.outcome=="verified" && receipt.verification=="verified" &&
                 ((adapter=="winforms" && receipt.stage=="goal" && receipt.reason=="verified_goal") ||
                  (adapter=="notepad" && receipt.stage=="notepad" && receipt.reason=="disk_readback"));
+        }
+    }
+    internal sealed class EditorAttempt
+    {
+        public readonly string RunId;
+        readonly string adapter;
+        EditorAttempt(string adapter,int bytes)
+        {
+            this.adapter=adapter;
+            var nonce=new byte[bytes];
+            using(var random=RandomNumberGenerator.Create())random.GetBytes(nonce);
+            RunId=BitConverter.ToString(nonce).Replace("-","").ToLowerInvariant();
+        }
+        internal static EditorAttempt ForScript(string script)
+        {
+            // Preserve the existing run ID formats for UIA exchange and Notepad document tokens.
+            if(script=="agent-background.ps1")return new EditorAttempt("winforms",28);
+            if(script=="notepad-save.ps1" || script=="notepad-visual.ps1")return new EditorAttempt("notepad",16);
+            return null;
+        }
+        internal bool Accepts(TaskReceipt receipt)
+        {
+            if(receipt.run_id!=RunId)return false;
+            if(receipt.outcome!="verified")return receipt.verification!="verified" && receipt.skill==null;
+            return receipt.skill!=null && receipt.skill.adapter==adapter && receipt.skill.Matches(receipt);
         }
     }
     public sealed class TaskReceipt
@@ -180,6 +217,19 @@ namespace ReflexCore.Bridge
         public bool Request(string id,string command)
         {
             string marker=Marker(id,command);
+            return UnderDecisionLock(id,()=>RequestLocked(id,command,marker));
+        }
+        // Studio and Tray can run in different processes. Order a stop acknowledgement
+        // against publication of the terminal job, including when the worker just exited.
+        static T UnderDecisionLock<T>(string id,Func<T> operation)
+        {
+            using(var mutex=new Mutex(false,@"Local\ReflexCoreQueueDecision-"+id)){
+                try { if(!mutex.WaitOne(50))return default(T); } catch(AbandonedMutexException) { }
+                try { return operation(); } finally { mutex.ReleaseMutex(); }
+            }
+        }
+        bool RequestLocked(string id,string command,string marker)
+        {
             string name=id+".job";
             if(!File.Exists(Path.Combine(bridge,"pending",name)) &&
                 !(command=="cancel" && File.Exists(Path.Combine(bridge,"running",name))))return false;
@@ -200,7 +250,11 @@ namespace ReflexCore.Bridge
         static TaskReceipt ParseReceipt(string json,string id)
         {
             try {
-                var value=new JavaScriptSerializer { MaxJsonLength=1024,RecursionLimit=4 }.Deserialize<TaskReceipt>(json);
+                var serializer=new JavaScriptSerializer { MaxJsonLength=1024,RecursionLimit=4 };
+                var fields=serializer.DeserializeObject(json) as IDictionary<string,object>;
+                object raw;
+                if(fields==null || (fields.TryGetValue("skill",out raw) && raw!=null && !SkillEvidence.HasWireTypes(raw)))return null;
+                var value=serializer.ConvertToType<TaskReceipt>(fields);
                 if(value==null || value.schema!="reflexcore.task.receipt.v1" || value.task_id!=id ||
                     (value.run_id!=id && !Regex.IsMatch(value.run_id??"",@"\A(?:[a-f0-9]{32}|[a-f0-9]{56})\z")) ||
                     !new[]{"goal","notepad","queue","handoff","rename"}.Contains(value.stage) ||
@@ -211,8 +265,15 @@ namespace ReflexCore.Bridge
                 return value.skill==null || value.skill.Matches(value)?value:null;
             } catch(ArgumentException) { return null; }
               catch(InvalidOperationException) { return null; }
+              catch(Exception error) {
+                // The .NET Framework converter can wrap scalar conversion failures in System.Exception.
+                var cause=error.GetBaseException();
+                if(cause is FormatException || cause is OverflowException || cause is InvalidCastException ||
+                    cause is NullReferenceException || cause is NotSupportedException)return null;
+                throw;
+              }
         }
-        internal TaskReceipt ReadWorkerReceipt(string claim)
+        TaskReceipt ReadWorkerReceipt(string claim,EditorAttempt attempt)
         {
             string kind=ReadKind(claim);
             if(kind=="local")return null;
@@ -222,6 +283,7 @@ namespace ReflexCore.Bridge
                 if(!file.Exists || file.Length>1024 || (file.Attributes&FileAttributes.ReparsePoint)!=0)return null;
                 var value=ParseReceipt(File.ReadAllText(path),IdOf(claim));
                 if(value==null)return null;
+                if(attempt!=null && !attempt.Accepts(value))return null;
                 if(kind=="handoff" && value.stage=="handoff" && value.run_id==IdOf(claim) &&
                    value.metrics!=null && value.metrics.model_calls==0 &&
                    (value.outcome!="verified" || (value.verification=="verified" && value.reason=="disk_readback")))return value;
@@ -232,6 +294,38 @@ namespace ReflexCore.Bridge
                 if((kind=="notepad" || kind=="visual") && value.stage=="notepad" && value.reason=="disk_readback")return value;
             } catch(IOException) { }
             return null;
+        }
+        internal string FinishWorker(string path,EditorAttempt attempt,int code,bool stopping,bool forced,out bool verified)
+        {
+            string id=IdOf(path);
+            bool confirmed=false;
+            string state=UnderDecisionLock(id,()=>{
+                TaskReceipt receipt=ReadWorkerReceipt(path,attempt);
+                bool cancelled=stopping || ((attempt!=null || code!=0) && Requested(path,"cancel"));
+                confirmed=code==0 && receipt!=null && receipt.outcome=="verified" && receipt.verification=="verified" &&
+                    (attempt==null || !cancelled);
+                string terminal=confirmed?"completed":cancelled?"cancelled":code==0?"completed":"failed";
+                if(!confirmed && cancelled && (receipt==null || receipt.outcome!="cancelled")){
+                    receipt=new TaskReceipt {
+                        schema="reflexcore.task.receipt.v1",task_id=id,run_id=attempt==null?id:attempt.RunId,stage="queue",outcome="cancelled",
+                        verification=code==2&&!forced?"not_confirmed":"unknown",
+                        reason=forced?"cleanup_unconfirmed":code==2?"operator_cancelled":"cancelled_effect_unknown"
+                    };
+                } else if(!confirmed && !cancelled && receipt!=null){
+                    if(receipt.outcome=="unverified" || receipt.outcome=="partial")terminal="completed";
+                    else if(receipt.outcome=="verified" || receipt.outcome=="cancelled")receipt=null;
+                }
+                if(attempt!=null && !cancelled && receipt==null){
+                    receipt=new TaskReceipt {schema="reflexcore.task.receipt.v1",task_id=id,run_id=attempt.RunId,
+                        stage="queue",outcome=code==0?"unverified":"failed",verification="unknown",
+                        reason=code==0?"no_effect_evidence":"process_failed"};
+                }
+                if(attempt!=null && receipt!=null && receipt.outcome=="failed")terminal="failed";
+                Finish(path,terminal,receipt);
+                return terminal;
+            });
+            verified=confirmed;
+            return state;
         }
         public void Finish(string path,string state) { Finish(path,state,null); }
         internal void Finish(string path,string state,TaskReceipt receipt)

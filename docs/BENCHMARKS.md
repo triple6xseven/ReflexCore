@@ -512,3 +512,32 @@ cargo test --locked --release measure_binding -- --ignored --nocapture
   release Rust suite passed locally (127 tests and one separately run microbenchmark).
   A separate queue test retained two distinct Notepad receipts tied to their
   original runs and independently reported zero model calls.
+
+### Supervised editor receipt acceptance
+
+On Windows 11, the queue started two foreground Notepad workers. The test
+reopened both files after the terminal entries appeared and matched the expected
+Unicode text in 2/2. Both receipts referenced distinct supervisor-assigned
+runs. The second worker reused the saved method. Both reported zero model calls.
+The standalone Unicode check also passed once with external readback.
+
+Earlier queued attempts stopped before typing when the worker could not
+activate the owned document. The tray now asks Windows to pass its activation
+permission to the specific foreground worker. The worker still requires a
+unique visible target in the foreground. A separate background test detected a
+foreground change during one attempt; the source of that change was not
+identified. These are functional checks. The timing comparison above measures
+the earlier A/B checkpoint.
+
+The final background pass verified WinForms disk output with the original
+foreground window at each poll. Eleven synthetic queue cases exercised the
+commit decision. Only the matching receipt from a successful worker received
+verified status. The cases included cancellation after exit, incompatible or
+foreign evidence, malformed fields and worker failure after staging a receipt.
+The last valid job completed after all the rejected cases.
+
+```powershell
+.\tasks\Test-Queue.ps1
+.\tasks\Test-Queue.ps1 -AllowInput
+.\tasks\Test-Queue.ps1 -UiaFixture
+```

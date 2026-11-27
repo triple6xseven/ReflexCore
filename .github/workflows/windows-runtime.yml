@@ -32,3 +32,6 @@ jobs:
         # The visible fixture and its in-flight fault tests need an unlocked desktop.
         shell: powershell
         run: ./tools/ReflexCore-ControlCenter.ps1 -SelfTest
+      - name: Check queue recovery and editor receipt decisions
+        shell: powershell
+        run: ./tasks/Test-Queue.ps1

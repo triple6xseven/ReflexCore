@@ -20,7 +20,6 @@ namespace ReflexCore.VisionLoop
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
-        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
@@ -85,26 +84,35 @@ namespace ReflexCore.VisionLoop
         }
         public static bool ActivateNewDemoWindow(string token, int timeoutMs)
         {
-            if (!IsValidWindowToken(token) || timeoutMs < 100 || timeoutMs > 30000) return false;
+            return ActivateDemoTarget(token,timeoutMs)=="ready";
+        }
+        public static string ActivateDemoTarget(string token, int timeoutMs)
+        {
+            if (!IsValidWindowToken(token) || timeoutMs < 100 || timeoutMs > 30000) return "invalid_target";
             Stopwatch clock=Stopwatch.StartNew();
+            bool observed=false;
             do
             {
                 IntPtr candidate=IntPtr.Zero;
+                int matches=0;
                 EnumWindows(delegate(IntPtr hwnd, IntPtr unused)
                 {
-                    if (Allowed(hwnd,token)) { candidate=hwnd; return false; }
-                    return true;
+                    if (Allowed(hwnd,token)) { candidate=hwnd; matches++; }
+                    return matches<2;
                 },IntPtr.Zero);
+                if(matches>1)return "ambiguous_target";
                 if (candidate != IntPtr.Zero)
                 {
-                    ShowWindow(candidate,9); // SW_RESTORE; never minimize existing windows
-                    SetForegroundWindow(candidate);
-                    Thread.Sleep(120);
-                    if (Allowed(GetForegroundWindow(),token)) return true;
+                    if(!observed && GetForegroundWindow()!=candidate){
+                        SetForegroundWindow(candidate);
+                        Thread.Sleep(120);
+                    }
+                    observed=true;
+                    if (GetForegroundWindow()==candidate && Allowed(candidate,token)) return "ready";
                 }
                 Thread.Sleep(180);
             } while(clock.ElapsedMilliseconds < timeoutMs);
-            return false;
+            return observed ? "foreground_unavailable" : "target_unavailable";
         }
         // Secondary independent OS evidence. Never use this alone to authorize
         // arbitrary applications; Allowed() already verifies the exact foreground

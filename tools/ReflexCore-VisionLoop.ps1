@@ -537,7 +537,10 @@ try {
         if($bound.schema -cne 'reflexcore.skill.binding.v1' -or $bound.skill_id -cne 'artifact.verify_saved_text' -or
            $bound.skill_version -ne 1 -or $bound.binding.adapter -cne 'notepad' -or
            $bound.binding.contract_version -ne 1){throw 'Incompatible Notepad binding'}
-        $skillRun=[guid]::NewGuid().ToString('N')
+        $skillRun=if($env:REFLEXCORE_QUEUE_MANIFEST -and $null -ne $env:REFLEXCORE_EDITOR_RUN){
+            if($env:REFLEXCORE_EDITOR_RUN -cnotmatch '\A[0-9a-f]{32}\z'){throw 'Invalid editor run identity'}
+            $env:REFLEXCORE_EDITOR_RUN
+        }else{[guid]::NewGuid().ToString('N')}
         $token='ReflexCore-VisionLoop-'+$skillRun+'.txt'
         if(-not [ReflexCore.VisionLoop.Host]::IsValidWindowToken($token)){throw 'Demo token generation rejected'}
         $desktop=if($TestFixture){[IO.Directory]::CreateDirectory((Join-Path $runtime 'fixtures')).FullName}else{[Environment]::GetFolderPath('Desktop')}
@@ -549,8 +552,9 @@ try {
         $notepad=Join-Path $env:WINDIR 'System32\notepad.exe'
         if(-not [IO.File]::Exists($notepad)) {throw 'Windows Notepad executable not found'}
         Write-Stage 'observing'
-        [void](Start-Process -FilePath $notepad -ArgumentList @('"'+$ownedPath+'"') -WorkingDirectory ([Environment]::SystemDirectory) -PassThru)
-        if(-not [ReflexCore.VisionLoop.Host]::ActivateNewDemoWindow($token,15000)) {throw 'Cannot securely identify and focus the unique Notepad demo window; no keys were sent'}
+        Start-Process -FilePath $notepad -ArgumentList @('"'+$ownedPath+'"') -WorkingDirectory ([Environment]::SystemDirectory) -WindowStyle Normal
+        $activation=[ReflexCore.VisionLoop.Host]::ActivateDemoTarget($token,15000)
+        if($activation -cne 'ready'){throw ('Cannot securely identify and focus the Notepad demo window: '+$activation)}
         Require-NotStopped
         if($Route -eq 'Visual'){
             Write-Stage 'capturing'

@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.8.3 universal skill foundation
 
+- Bind queued WinForms and Notepad success to the supervisor's expected editor
+  and launch ID. Missing or foreign evidence leaves a save unverified. An
+  accepted stop before terminal publication also wins after worker exit.
+
 - WinForms and Notepad now share a bounded native verifier for the exact text
   saved to their own output. The background WinForms save can use one isolated
   UIA worker throughout the Goal. Notepad checks the installed binding before
