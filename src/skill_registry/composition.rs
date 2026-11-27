@@ -16,6 +16,7 @@ enum Port {
     Derived,
     Checked,
 }
+#[derive(Clone, Copy)]
 struct Step {
     id: &'static str,
     version: u8,
@@ -63,27 +64,52 @@ const GRAPH: [Step; 4] = [
         permissions: READ | PUBLISH,
     },
 ];
+const CHAIN: [Step; 6] = [
+    GRAPH[0],
+    GRAPH[1],
+    GRAPH[2],
+    GRAPH[3],
+    Step {
+        from: Some(3),
+        input: Some(Port::Checked),
+        ..GRAPH[2]
+    },
+    Step {
+        from: Some(4),
+        ..GRAPH[3]
+    },
+];
 fn preflight(graph: &[Step], grants: u8) -> Result<()> {
-    if graph.len() != GRAPH.len() {
-        return Err("Unsupported composition size".into());
+    if !(2..=8).contains(&graph.len()) || graph.last().map(|s| s.output) != Some(Port::Checked) {
+        return Err("Invalid terminal port or size".into());
     }
-    for (i, (s, registered)) in graph.iter().zip(&GRAPH).enumerate() {
-        if s.id != registered.id
-            || s.version != registered.version
-            || s.output != registered.output
-            || s.input != registered.input
+    for (i, s) in graph.iter().enumerate() {
+        let registered = GRAPH
+            .iter()
+            .find(|r| r.id == s.id && r.version == s.version)
+            .ok_or("Unknown skill or version")?;
+        let snapshot_input = registered.output == Port::Derived && s.input == Some(Port::Checked);
+        if s.output != registered.output
+            || (!snapshot_input && s.input != registered.input)
             || s.permissions != registered.permissions
             || grants & s.permissions != s.permissions
-            || s.from != registered.from
-            || s.from
-                .is_some_and(|j| j >= i || Some(graph[j].output) != s.input)
+            || s.from != i.checked_sub(1)
+            || s.input != i.checked_sub(1).map(|j| graph[j].output)
         {
             return Err("Incompatible or unauthorized skill edge".into());
         }
     }
     Ok(())
 }
-
+pub(crate) fn catalog() -> Vec<serde_json::Value> {
+    [("editor.derive_copy",&GRAPH[..]),("editor.derive_chain",&CHAIN[..])].into_iter().map(|(id,steps)|
+        serde_json::json!({"id":id,"version":1,"submission":"direct_cli","adapters":["winforms","winforms-background","notepad"],
+            "permissions":["create","verify","consume","derive","publish"],
+            "outputs":steps.iter().filter(|s|s.output==Port::Checked).count(),
+            "steps":steps.iter().map(|s|serde_json::json!({"skill":s.id,"version":s.version,"depends_on":s.from,
+                "input":s.input.map(|p|format!("{p:?}")),"output":format!("{:?}",s.output)})).collect::<Vec<_>>()})
+    ).collect()
+}
 struct Staging {
     file: std::fs::File,
     path: PathBuf,
@@ -150,8 +176,10 @@ enum Boundary {
 }
 
 pub(crate) struct Plan {
+    graph: &'static [Step],
+    second: Option<(PathBuf, String)>,
     stop_path: PathBuf,
-    published: std::cell::Cell<bool>,
+    published: std::cell::Cell<u8>,
     #[cfg(test)]
     probe: Option<Box<dyn Fn(Boundary)>>,
     binding: &'static Binding,
@@ -186,7 +214,7 @@ impl Plan {
             _ => {}
         }
         if Instant::now() >= self.deadline
-            || self.grants & GRAPH[index].permissions != GRAPH[index].permissions
+            || self.grants & self.graph[index].permissions != self.graph[index].permissions
         {
             return Err("Composition deadline or permission rejected".into());
         }
@@ -197,20 +225,32 @@ impl Plan {
             Document,
             Live(saved_text::VerifiedArtifact<'a>),
             Derived(Evidence<'a>, Staging, (u32, u32, u32), String),
-            Checked(Evidence<'a>),
+            Checked(Evidence<'a>, String),
         }
         let mut value = Value::Document;
-        for (index, step) in GRAPH.iter().enumerate().skip(1) {
+        let mut outputs = std::iter::once((&self.output, &self.suffix))
+            .chain(self.second.iter().map(|(p, s)| (p, s)));
+        let mut dest = &self.output;
+        for (index, step) in self.graph.iter().enumerate().skip(1) {
             self.check(index)?;
             value = match (step.output, value) {
                 (Port::LiveText, Value::Document) => Value::Live(self.binding.artifact(run, text)?),
-                (Port::Derived, Value::Live(source)) => {
-                    self.boundary(Boundary::SourceVerified, index)?;
-                    let (proof, snapshot) = source.consume(run, self.adapter)?;
-                    if !self.binding.matches_snapshot(&snapshot, text) {
-                        return Err("Snapshot invalidated".into());
-                    }
-                    let expected = [text, self.suffix.as_str()].concat();
+                (Port::Derived, input) => {
+                    let (proof, mut expected) = match input {
+                        Value::Live(source) => {
+                            self.boundary(Boundary::SourceVerified, index)?;
+                            let (proof, bytes) = source.consume(run, self.adapter)?;
+                            if !self.binding.matches_snapshot(&bytes, text) {
+                                return Err("Snapshot invalidated".into());
+                            }
+                            (proof, text.to_owned())
+                        }
+                        Value::Checked(proof, verified_text) => (proof, verified_text),
+                        _ => return Err("Missing verified source".into()),
+                    };
+                    let (path, suffix) = outputs.next().ok_or("Output budget exhausted")?;
+                    dest = path;
+                    expected.push_str(suffix);
                     self.check(index)?;
                     let (writer, identity) = self.create(&expected)?;
                     Value::Derived(proof, writer, identity, expected)
@@ -218,19 +258,19 @@ impl Plan {
                 (Port::Checked, Value::Derived(proof, mut writer, identity, expected)) => {
                     self.verify_output(&writer.path, identity, &expected)?;
                     self.boundary(Boundary::Publish, index)?;
-                    writer.publish(&self.output)?;
-                    self.published.set(true);
+                    writer.publish(dest)?;
+                    self.published.set(self.published.get() + 1);
                     self.boundary(Boundary::Published, index)?;
-                    self.verify_output(&self.output, identity, &expected)?;
+                    let snapshot = self.verify_output(dest, identity, &expected)?;
                     self.check(index)?;
                     drop(writer);
-                    Value::Checked(proof)
+                    Value::Checked(proof, snapshot)
                 }
                 _ => return Err("Invalid skill input".into()),
             };
         }
         match value {
-            Value::Checked(proof) => Ok(proof),
+            Value::Checked(proof, _) => Ok(proof),
             _ => Err("Incomplete composition".into()),
         }
     }
@@ -269,7 +309,12 @@ impl Plan {
             .map_err(|_| "Derived sync uncertain")?;
         Ok((writer, identity))
     }
-    fn verify_output(&self, path: &Path, identity: (u32, u32, u32), expected: &str) -> Result<()> {
+    fn verify_output(
+        &self,
+        path: &Path,
+        identity: (u32, u32, u32),
+        expected: &str,
+    ) -> Result<String> {
         let reader =
             local_files::open(path, true, 7).map_err(|_| "Derived readback unavailable")?;
         self.boundary(Boundary::Readback, 3)?;
@@ -284,7 +329,7 @@ impl Plan {
         if observed != expected.as_bytes() {
             return Err("Derived contents differ".into());
         }
-        Ok(())
+        Ok(String::from_utf8(observed).map_err(|_| "Invalid derived encoding")?)
     }
 }
 pub(crate) fn run(args: &[String]) -> Result<()> {
@@ -302,6 +347,13 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         "winforms-background" => (Adapter::Winforms, true),
         _ => return Err("Unsupported editor".into()),
     };
+    let (second, flags) = match flags {
+        [then, path, value, rest @ ..] if then == "--then" => {
+            (Some((Path::new(path), value)), rest)
+        }
+        _ => (None, flags),
+    };
+    let graph: &[Step] = if second.is_some() { &CHAIN } else { &GRAPH };
     let mut grants = 0;
     for flag in flags {
         grants |= match flag.as_str() {
@@ -313,7 +365,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             _ => return Err("Unknown permission".into()),
         };
     }
-    preflight(&GRAPH, grants)?;
+    preflight(graph, grants)?;
     let binding = saved_text::bind(saved_text::ID, 1, adapter, background)?;
     if suffix.is_empty() || suffix.len() > 4096 {
         return Err("Invalid suffix size".into());
@@ -324,9 +376,25 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         return Err("Output already exists".into());
     }
     scope.require_ntfs()?;
+    let second = if let Some((path, value)) = second {
+        let (_pin, path) = local_files::target(path).map_err(|_| "Invalid second destination")?;
+        if value.is_empty()
+            || value.len() + suffix.len() > 4096
+            || path.parent() != output.parent()
+            || path.try_exists()?
+            || path.to_string_lossy().to_uppercase() == output.to_string_lossy().to_uppercase()
+        {
+            return Err("Invalid second destination or budget".into());
+        }
+        Some((path, value.clone()))
+    } else {
+        None
+    };
     let plan = Plan {
+        graph,
+        second,
         stop_path: "data/bridge/global-stop.signal".into(),
-        published: false.into(),
+        published: 0.into(),
         #[cfg(test)]
         probe: None,
         binding,
@@ -390,13 +458,13 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         );
         println!(
             "{}",
-            serde_json::json!({"schema":"reflexcore.composed_goal.v1","run_id":run,"goal":"editor.derive_copy","version":1,"adapter":adapter,"outcome":if cancelled{"cancelled"}else{"failed"},"derived_effect":if plan.published.get(){"published"}else{"not_published"}})
+            serde_json::json!({"schema":"reflexcore.composed_goal.v1","run_id":run,"goal":if plan.second.is_some(){"editor.derive_chain"}else{"editor.derive_copy"},"version":1,"adapter":adapter,"outcome":if cancelled{"cancelled"}else{"failed"},"published_outputs":plan.published.get(),"derived_effect":if plan.published.get()>0{"published"}else{"not_published"}})
         );
         return Err(error);
     }
     println!(
         "{}",
-        serde_json::json!({"schema":"reflexcore.composed_goal.v1","goal":"editor.derive_copy","version":1,"run_id":run,"adapter":adapter,"outcome":"verified","steps":GRAPH.iter().map(|s|(s.id,s.version)).collect::<Vec<_>>() })
+        serde_json::json!({"schema":"reflexcore.composed_goal.v1","goal":if plan.second.is_some(){"editor.derive_chain"}else{"editor.derive_copy"},"version":1,"run_id":run,"adapter":adapter,"outcome":"verified","published_outputs":plan.published.get(),"steps":graph.iter().map(|s|(s.id,s.version)).collect::<Vec<_>>() })
     );
     Ok(())
 }
@@ -426,8 +494,10 @@ mod tests {
             let (scope, path) = local_files::target(&output).unwrap();
             let marker = stop.clone();
             let plan = Plan {
+                graph: &GRAPH,
+                second: None,
                 stop_path: stop.clone(),
-                published: false.into(),
+                published: 0.into(),
                 probe: Some(Box::new(move |stage| {
                     if stage == at {
                         std::thread::scope(|s| {
@@ -461,7 +531,7 @@ mod tests {
             ));
             assert_eq!(original.exists(), !matches!(at, Launch | EditorAction));
             assert_eq!(output.exists(), matches!(at, Published | Terminal));
-            assert_eq!(output.exists(), plan.published.get());
+            assert_eq!(output.exists(), plan.published.get() > 0);
             drop(plan);
             if output.exists() {
                 assert_eq!(
@@ -486,8 +556,10 @@ mod tests {
         let output = root.join("result.txt");
         let (scope, path) = local_files::target(&output).unwrap();
         let mut plan = Plan {
+            graph: &GRAPH,
+            second: None,
             stop_path: root.join("stop"),
-            published: false.into(),
+            published: 0.into(),
             probe: None,
             binding: saved_text::bind(saved_text::ID, 1, Adapter::Winforms, true).unwrap(),
             adapter: Adapter::Winforms,

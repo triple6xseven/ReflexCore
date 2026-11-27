@@ -246,3 +246,41 @@ boundaries; the WinForms producer retains its existing per-action deadlines.
 Queue stop ordering has not been qualified for the new workflow. Next checkpoint:
 add cooperative interruption probes at each dispatch and publication boundary,
 worker-crash recovery, and a paired resource benchmark before Studio/MCP submission.
+
+## Sequential reuse and cancellation checkpoint
+
+Two built-in plans now share a bounded sequential interpreter. The longer plan
+adds derive and verify nodes consuming the preceding verified UTF-8 snapshot.
+The intermediate stays published. Both destinations must be fresh distinct
+names in the same pinned directory. The sum of the two suffix lengths is at
+most 4096 UTF-8 bytes. No new editor-specific code or additional operation
+was needed for the second plan. The validator resolves operations by skill ID
+and version, requires a linear single-use dependency and checks port types
+and grants. Arbitrary user graphs are outside the CLI contract.
+
+```powershell
+$tag = [guid]::NewGuid().ToString('N')
+$a = Join-Path $env:TEMP "$tag-a.txt"
+$b = Join-Path $env:TEMP "$tag-b.txt"
+.\target\release\reflexcore.exe agent compose-text winforms-background $a ' draft' --then $b ' reviewed' --create --verify --consume --derive --publish
+.\tasks\Test-TextComposition.ps1 -Chain -AllowInput
+cargo test --locked composition::tests
+```
+
+Cancellation probes place an isolated stop marker at ten boundaries in the
+same native path used for dispatch, staging and publication. The test joins
+the marker writer before execution resumes. A synthetic producer exercises
+the editor-action boundary; the ten cases do not simulate a blocked live UIA
+provider. Stop is cooperative between bounded writes and around readback,
+sync and rename. An in-flight synchronous OS operation can finish. CLI
+failure receipts report the count of already published outputs. Process death
+may leave private staging or preclude a terminal receipt. There is no wildcard
+cleanup of staging remnants and no automatic replay.
+
+Next Phase C checkpoint: bind an immutable queue approval to graph version,
+editor, suffixes, exact destinations and attempt, drive real step progress in
+Studio and serialize accepted cancellation against terminal publication.
+Measure paired resource usage and qualify crash recovery before closing C.
+Phase D begins only after C acceptance, with read-only candidate discovery;
+admission needs a versioned operation with declared ports, capabilities,
+adapter restrictions, verifier and independently validated fixture evidence.

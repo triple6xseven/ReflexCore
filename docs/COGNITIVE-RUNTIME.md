@@ -137,3 +137,5 @@ The background fixture uses the current unlocked Windows session. It does not ad
 Run `tasks/Test-Queue.ps1 -UiaFixture` after building the release executable. The test compares the foreground window at each poll and requires a verified receipt from the background fixture.
 
 The direct compose-text Goal passes a private verified source through a fixed four-step plan. Publication uses a newly created staging file and a no-replace rename by handle. See the [composition checkpoint](UNIVERSAL-SKILL-RUNTIME.md).
+
+Verified derived UTF-8 snapshots can feed a further transform in the same process. Each move consumes its predecessor; a historical receipt cannot replace that input.

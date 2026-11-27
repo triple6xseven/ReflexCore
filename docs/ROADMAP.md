@@ -26,3 +26,5 @@ verifier compatibility. **F. Skill SDK and Ecosystem** will validate versioned
 manifests against explicitly trusted adapters.
 
 Phase C now includes a direct executable verify-and-derive Goal for both editor bindings. Queue integration remains pending.
+
+Phase C checkpoint: two sequential plans reuse typed operations across both editor bindings. Studio submission, approved MCP execution and paired resource evaluation remain open.

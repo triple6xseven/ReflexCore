@@ -2,6 +2,7 @@
 
 ## Unreleased — 0.8.3 universal skill foundation
 
+- Support a second verified copy from a verified intermediate with the same sequential executor. Expose composition descriptors through read-only MCP discovery.
 - Add a direct verified text-copy composition with explicit permissions and no-overwrite publication.
 - Add opt-in, single-use NTFS source validation for saved-text fixture transfers.
 

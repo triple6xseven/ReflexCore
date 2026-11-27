@@ -124,6 +124,8 @@ try{
             Require ((Invoke-Tool 'list_skills' @{}).isError) 'MCP did not honor the off switch'
             [IO.File]::WriteAllText((Join-Path $settings 'mcp.enabled'),'on')
             $catalog=(Invoke-Tool 'list_skills' @{}).content[0].text|ConvertFrom-Json
+            $chain=@($catalog.compositions|Where-Object id -eq 'editor.derive_chain')
+            Require ($chain.Count -eq 1 -and $chain[0].steps.Count -eq 6 -and $chain[0].submission -ceq 'direct_cli') 'Incorrect composition discovery contract'
             $saved=@($catalog.skills|Where-Object id -ceq 'artifact.verify_saved_text')
             Require ($catalog.schema -ceq 'reflexcore.skill_catalog.v1' -and $saved.Count -eq 1 -and
                 $saved[0].bindings.adapter -ccontains 'notepad' -and $saved[0].bindings.adapter -ccontains 'winforms') 'Missing saved-text skill bindings'

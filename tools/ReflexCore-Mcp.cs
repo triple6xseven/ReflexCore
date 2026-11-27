@@ -132,7 +132,7 @@ namespace ReflexCore.Bridge
             var properties=fields.ToDictionary(field=>field,field=>new {type="string"});
             foreach(var field in optional??new string[0])properties.Add(field,new {type="string"});
             var resultProperties=output.ToDictionary(key=>key,key=>new {type=
-                new[]{"projects","skills","bounded_replay_statistics","workflows","runs"}.Contains(key)?(object)"array":
+                new[]{"projects","skills","compositions","bounded_replay_statistics","workflows","runs"}.Contains(key)?(object)"array":
                 key=="cancellation_requested"?"boolean":new[]{"handoff_feedback","run","baseline","candidate"}.Contains(key)?"object":key=="receipt"?new[]{"object","null"}:(object)"string"});
             return new {name,description,inputSchema=new {type="object",required=fields,additionalProperties=false,properties},
                 outputSchema=new {type="object",required=output,properties=resultProperties},
@@ -142,7 +142,7 @@ namespace ReflexCore.Bridge
         static object[] Tools()
         {
             return new[]{
-                Tool("list_skills","Inspect executable editor bindings, verification requirements and experimental movement skills.",new[]{"skills","bounded_replay_statistics","memory_state","memory_source","workflows","handoff_feedback"}),
+                Tool("list_skills","Inspect executable editor bindings, verification requirements and experimental movement skills.",new[]{"skills","compositions","bounded_replay_statistics","memory_state","memory_source","workflows","handoff_feedback"}),
                 Tool("list_projects","Discover configured projects and locally saved handoff presets. A preset can be run without entering paths.",new[]{"projects"}),
                 Tool("submit_handoff_check","Submit a handoff check for Studio approval. All paths are relative to the selected project.",new[]{"task_id","state","next_action"},
                     new[]{"folder","checklist","report"},new[]{"project"},false),

@@ -412,6 +412,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             let reliability = crate::agent::memory::lab_reliability()?;
             println!("{}", serde_json::to_string_pretty(&serde_json::json!({
                 "schema": "reflexcore.skill_catalog.v1",
+                "compositions": skill_registry::composition::catalog(),
                 "skills": skill_registry::SKILLS.iter().map(|s| s.catalog_entry()).collect::<Vec<_>>(),
                 "bounded_replay_statistics": reliability.into_iter().map(|(environment, skill, trials, verified)| {
                     serde_json::json!({"environment": environment, "skill": skill, "version": 1, "trials": trials, "verified_one_pulse": verified})

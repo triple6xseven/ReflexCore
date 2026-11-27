@@ -545,3 +545,5 @@ The last valid job completed after all the rejected cases.
 ### Text composition acceptance
 
 With the session worker selected, one interactive Windows pass per mode took 949 ms (foreground WinForms), 997 ms (background WinForms) and 2236 ms (Notepad), measured from the harness including external file checks. All three originals and UTF-8 derived copies matched. The background foreground-window probe sampled every 30 ms. These single observations do not establish tail latency, resource use or a speedup. An initial PowerShell 5.1 harness failed to obtain the background exit code through Start-Process; the corrected harness owns the Process instance. See tasks/Test-TextComposition.ps1.
+
+Sequential reuse functional cohort (one Windows run per plan and binding, session worker selected). Four steps: foreground WinForms 927 ms, background WinForms 988 ms, Notepad 2280 ms. Six steps: 1352, 1171 and 2749 ms respectively. All six included independent source and output checks; the background probe sampled foreground ownership. The longer plan performs additional work. These are individual observations, not a paired manual baseline or latency percentiles.
