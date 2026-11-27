@@ -16,6 +16,7 @@ const BRIDGE: &[&str] = &[
     "src/main.rs",
     "src/dev_context.rs",
     "src/bin/reflex-observer.rs",
+    "src/hook_arrival.rs",
     "tools/Invoke-DevObserver.ps1",
     "tools/Record-DevHook.ps1",
     "tools/Set-DevHooks.ps1",
@@ -285,11 +286,29 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         _ => "changed",
     };
     if action == "resume" {
+        let mut arrivals = Vec::<(String, i64)>::new();
+        let journal = dir.join("reflex-hook-arrivals.sqlite");
+        if journal.exists() {
+            let db =
+                Connection::open_with_flags(journal, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            if db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='journal' AND type='table')",
+                [],
+                |r| r.get::<_, bool>(0),
+            )? {
+                let mut q = db.prepare(
+                    "SELECT kind,at_ms FROM journal WHERE session=?1 ORDER BY rowid DESC LIMIT 12",
+                )?;
+                arrivals = q
+                    .query_map([&session], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+            }
+        }
         println!(
             "{}",
             json!({"v":2,"scope":component,"tree":tree,"session_key":session,"revision":rev,"checkpoint":freshness,
             "declared":declared.map(|(objective,next,base)|json!({"objective":objective,"next":next,"source_changed_since_declaration":base!=rev})),
-            "last_observed_return":last_returned,"unresolved_operation_classes":in_flight,"changed_inputs_since_declaration":changed,"recent_events_newest_first":history,"effect":"unknown","references":files,"verified_evidence":null})
+            "native_hook_arrivals":arrivals,"last_observed_return":last_returned,"unresolved_operation_classes":in_flight,"changed_inputs_since_declaration":changed,"recent_events_newest_first":history,"effect":"unknown","references":files,"verified_evidence":null})
         );
         return Ok(());
     }
