@@ -610,6 +610,86 @@ fn execute(args: &[String], claim: Option<&Claim>) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn abrupt_composition_exit() {
+        use Boundary::*;
+        const NAME: &str = "skill_registry::composition::tests::abrupt_composition_exit";
+        if let Ok(run) = std::env::var("REFLEX_TEST_CRASH_RUN") {
+            let root = saved_text::winforms_folder(&run).unwrap();
+            let (scope, output) = local_files::target(&root.join("first.txt")).unwrap();
+            let boundary = std::env::var("REFLEX_TEST_CRASH_BOUNDARY").unwrap();
+            let seen = std::cell::Cell::new(0);
+            let second = root.join("second.txt");
+            let plan = Plan {
+                progress: None,
+                graph: &CHAIN,
+                second: Some((second, "B".into())),
+                stop_path: root.join("stop"),
+                published: 0.into(),
+                probe: Some(Box::new(move |stage| {
+                    if format!("{stage:?}") == boundary
+                        || (stage == Publish && boundary == "SecondPublish" && seen.get() == 1)
+                    {
+                        std::process::exit(73);
+                    }
+                    if stage == Publish {
+                        seen.set(seen.get() + 1);
+                    }
+                })),
+                binding: saved_text::bind(saved_text::ID, 1, Adapter::Winforms, true).unwrap(),
+                adapter: Adapter::Winforms,
+                grants: 31,
+                deadline: Instant::now() + Duration::from_secs(60),
+                started: std::time::SystemTime::now(),
+                _scope: scope,
+                output,
+                suffix: "A".into(),
+            };
+            plan.boundary(Launch, 0).unwrap();
+            plan.check_editor().unwrap();
+            std::fs::write(root.join("saved.txt"), "source").unwrap();
+            plan.finish(&run, "source").unwrap();
+            plan.boundary(Terminal, 5).unwrap();
+            return;
+        }
+        for (stage, count) in [
+            ("Launch", 0),
+            ("EditorAction", 0),
+            ("SourceVerified", 0),
+            ("StageWrite", 0),
+            ("Published", 1),
+            ("SecondPublish", 1),
+            ("Terminal", 2),
+            ("Recovery", 2),
+        ] {
+            let run = task_integrity::run_id();
+            let root = saved_text::winforms_folder(&run).unwrap();
+            std::fs::create_dir(&root).unwrap();
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME])
+                .env("REFLEX_TEST_CRASH_RUN", &run)
+                .env("REFLEX_TEST_CRASH_BOUNDARY", stage)
+                .stdout(Stdio::null())
+                .status()
+                .unwrap();
+            assert_eq!(
+                status.code(),
+                Some(if stage == "Recovery" { 0 } else { 73 })
+            );
+            for (index, (name, expected)) in [("first.txt", "sourceA"), ("second.txt", "sourceAB")]
+                .iter()
+                .enumerate()
+            {
+                let p = root.join(name);
+                assert_eq!(p.exists(), index < count);
+                if p.exists() {
+                    assert_eq!(std::fs::read_to_string(p).unwrap(), *expected);
+                }
+            }
+            // This uniquely created directory contains only this test's fixtures.
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
     fn stop_at_each_boundary_preserves_actual_effects() {
         use Boundary::*;
         for at in [

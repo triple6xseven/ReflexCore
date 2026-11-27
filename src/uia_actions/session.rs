@@ -16,7 +16,7 @@ use windows::Win32::System::Threading::CREATE_NO_WINDOW;
 const LIMIT: usize = 262144;
 const VERSION: u8 = 1;
 
-fn contain(worker: &Child) -> Result<OwnedHandle> {
+pub(crate) fn contain(worker: &Child) -> Result<OwnedHandle> {
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::JobObjects::*;
     // The kernel closes this non-inheritable handle even on supervisor crash.

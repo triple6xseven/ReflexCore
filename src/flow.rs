@@ -389,11 +389,11 @@ fn fixture_window(pid: Option<u32>) -> Option<String> {
     crate::observer::find_window_handle("ReflexCore Test Window", pid)
 }
 
-struct FixtureProcess(Child);
+struct FixtureProcess { child: Child, _job: std::os::windows::io::OwnedHandle }
 impl Drop for FixtureProcess {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -415,7 +415,7 @@ fn demo(execute: bool, count: usize) -> Result<()> {
     }
     let started = Instant::now();
     let (fixture, hwnd) = start_fixture(None, false)?;
-    execute_flow(&flow, Some((&hwnd, fixture.0.id())), Some(started.elapsed().as_micros()))
+    execute_flow(&flow, Some((&hwnd, fixture.child.id())), Some(started.elapsed().as_micros()))
 }
 
 fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixtureProcess, String)> {
@@ -444,13 +444,21 @@ fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixturePro
     if let Some(path) = save_to {
         command.env("REFLEXCORE_FIXTURE_SAVE_PATH", path);
     }
-    let child = command.spawn()?;
-    let mut fixture = FixtureProcess(child);
+    let mut child = command.spawn()?;
+    let job = match crate::uia_actions::session::contain(&child) {
+        Ok(job) => job,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
+    let mut fixture = FixtureProcess { child, _job: job };
     let started = Instant::now();
     let hwnd = loop {
         task_integrity::check_cancel()?;
-        if let Some(hwnd) = fixture_window(Some(fixture.0.id())) { break hwnd; }
-        if fixture.0.try_wait()?.is_some() {
+        if let Some(hwnd) = fixture_window(Some(fixture.child.id())) { break hwnd; }
+        if fixture.child.try_wait()?.is_some() {
             return Err("Windows Forms test fixture exited before opening".into());
         }
         if started.elapsed() > Duration::from_secs(10) {
@@ -546,7 +554,7 @@ pub(crate) fn verified_demo<'a>(background: bool, run: &'a str, composition: Opt
     artifact.1 = composition.is_some();
     let path = artifact.path();
     let (fixture, hwnd) = start_fixture(Some(&path), background)?;
-    let owned = (&*hwnd, fixture.0.id());
+    let owned = (&*hwnd, fixture.child.id());
     let flow = parse_flow(include_str!("../examples/smoke_flow.json"))?;
     let expected = flow.steps[0].value.as_deref().ok_or("Missing fixture text")?;
     let mut session = if std::env::var("REFLEXCORE_UIA_WORKER").as_deref() == Ok("session") {
