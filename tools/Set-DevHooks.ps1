@@ -6,9 +6,11 @@ $dir=Join-Path $root '.codex'
 $file=Join-Path $dir 'hooks.json'
 $script=Join-Path $PSScriptRoot 'Record-DevHook.ps1'
 $command='powershell.exe -NoProfile -NonInteractive -File "'+$script+'" -Worktree "'+$root+'"'
-$handler=[ordered]@{type='command';command=$command;timeout=8}
+
 $config=[ordered]@{}
 foreach($event in 'PreToolUse','PostToolUse','PreCompact','Interrupt','Stop'){
+    $timeout = if ($event -eq 'Interrupt') { 3 } else { 8 }
+    $handler=[ordered]@{type='command';command=$command;timeout=$timeout}
     $item=[ordered]@{hooks=@($handler)}
     if($event -like '*ToolUse'){$item.matcher='^(apply_patch|Edit|Write|Bash)$'}
     $config[$event]=@($item)
