@@ -563,3 +563,13 @@ Windows 11 Pro build 26300 on a Ryzen 5 4600H with 7.37 GiB visible RAM. Five pa
 - Harness CPU p50 was 343.8 ms for direct and 453.1 ms for queue. PowerShell and the Windows process sampler add overhead. CPU represents observed process handles and can miss very short-lived descendants. Private memory is the peak of concurrent samples, not the sum of per-process peaks. At five runs per arm nearest-rank p95 is the maximum. These results characterize the queue path, not a speedup claim or the independently orchestrated baseline.
 
 Reproduce with Windows PowerShell 5.1 using tasks/Test-Handoff.ps1 -CompareComposition -Sessions 5. Release executable SHA-256 was 9e34e479c2538affd75f99b5e79e0793f2ce7a3b75b2e9e6ca5b5a078d3bcdec.
+
+## Phase C manual orchestration versus graph
+
+Thirty alternating pairs ran on the Ryzen 5 4600H Windows 11 workstation with 7.37 GiB visible RAM. Both arms used one release executable, the same background WinForms editor, identical input and suffixes, and identical cancellation, authority, durable staging, exclusive rename and independent readback. The benchmark-only manual branch uses explicit source consumption followed by two fixed create-and-verify sequences. It bypasses graph interpretation. The measured interval includes process startup, editor work, source verification, two publications, receipt and external file checks. It uses no model calls.
+
+- Manual: 30/30 verified. Latency p50/p95/max 1344.6/1603.2/1924.8 ms. Observed worker CPU p50 1140.6 ms, harness CPU p50 406.3 ms. Concurrent sample private memory p50/max 78.6/116.7 MiB.
+- Graph: 30/30 verified. Latency p50/p95/max 1352.1/1558.2/1583.7 ms. Observed worker CPU p50 1062.5 ms, harness CPU p50 390.6 ms. Concurrent sample private memory p50/max 78.9/80.2 MiB.
+- The median wall-clock difference was 7.5 ms. The measurements do not establish a general speed advantage. The largest manual memory observation was an outlier. Worker measurements use sampled process-tree membership and can miss short-lived processes. Harness CPU includes the CIM sampler. At 30 runs, nearest-rank p99 is the maximum. The earlier direct-versus-queue comparison remains a separate experiment.
+
+Build with cargo build --release --locked --features composition-benchmark. Reproduce using Windows PowerShell 5.1 and tasks/Test-Handoff.ps1 -CompareManualComposition -Sessions 30 -MetricsFile with a fresh local output path. The test requires the arm marker in each receipt and verifies both outputs externally. Executable SHA-256 was 637525db623062d8130b3052ef2d6af1178bd3b07fd3033e0d0fc59c9c8e57f7.

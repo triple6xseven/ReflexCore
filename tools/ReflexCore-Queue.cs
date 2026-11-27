@@ -420,6 +420,9 @@ namespace ReflexCore.Bridge
             return state;
         }
         public void Finish(string path,string state) { Finish(path,state,null); }
+#if REFLEX_QUEUE_COMMIT_FIXTURE
+        public static Action<string> BeforeFixtureTerminalMove;
+#endif
         internal void Finish(string path,string state,TaskReceipt receipt)
         {
             if(!File.Exists(path))return;
@@ -444,6 +447,9 @@ namespace ReflexCore.Bridge
                     } finally { File.Delete(staging); }
                 }
             }
+#if REFLEX_QUEUE_COMMIT_FIXTURE
+            if(BeforeFixtureTerminalMove!=null)BeforeFixtureTerminalMove(id);
+#endif
             File.Move(path,dest);
             if(ValidId(id))DeleteMarker(HandoffInput(id));
             DeleteMarker(Path.ChangeExtension(path,"receipt.json"));

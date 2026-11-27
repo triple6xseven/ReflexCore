@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([switch]$CrashComposition,[switch]$CompareComposition,[switch]$NotepadFocus,[switch]$Benchmark,[switch]$Mcp,[switch]$Composition,[ValidateRange(1,20)][int]$Sessions=4,
+param([switch]$CrashComposition,[switch]$CrashDuringTerminalMove,[switch]$CompareComposition,[switch]$CompareManualComposition,[switch]$NotepadFocus,[switch]$Benchmark,[switch]$Mcp,[switch]$Composition,[ValidateRange(1,30)][int]$Sessions=4,
       [ValidateRange(1,30)][int]$WarmRuns=5,[string]$MetricsFile,[switch]$RequireOllamaStopped)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
@@ -75,7 +75,21 @@ try{
     }
     $sources=@('Queue','Tray','Companion','CompanionHost','MenuStyle')|ForEach-Object{Join-Path $root ("tools/ReflexCore-"+$_+".cs")}
     $assembly=Join-Path $fixture 'QueueFixture.dll'
-    Add-Type -Path $sources -OutputAssembly $assembly -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll,System.Management.dll,System.Web.Extensions.dll
+    $references=@('System.Windows.Forms.dll','System.Drawing.dll','System.Core.dll','System.Management.dll','System.Web.Extensions.dll')
+    if($CrashDuringTerminalMove){
+        $compilerParameters=New-Object CodeDom.Compiler.CompilerParameters
+        $compilerParameters.CompilerOptions='/define:REFLEX_QUEUE_COMMIT_FIXTURE'
+        $compilerParameters.OutputAssembly=$assembly
+        $compilerParameters.ReferencedAssemblies.AddRange([string[]]$references)
+        [void]$compilerParameters.ReferencedAssemblies.Add('System.dll')
+        $compiler=New-Object Microsoft.CSharp.CSharpCodeProvider
+        try{
+            $compiled=$compiler.CompileAssemblyFromFile($compilerParameters,[string[]]$sources)
+            if($compiled.Errors.HasErrors){throw ($compiled.Errors -join [Environment]::NewLine)}
+        }finally{$compiler.Dispose()}
+    }else{
+        Add-Type -Path $sources -OutputAssembly $assembly -ReferencedAssemblies $references
+    }
     $null=[Reflection.Assembly]::Load([IO.File]::ReadAllBytes($assembly))
     $workflowSources=@('ExtensionRename','HandoffDraft','FolderWorkflow')|ForEach-Object{Join-Path $root ("tools/ReflexCore-"+$_+".cs")}
     Add-Type -Path $workflowSources -ReferencedAssemblies @($assembly,'System.Web.Extensions.dll')
@@ -83,7 +97,7 @@ try{
     $type=[ReflexCore.Bridge.TrayHost].Assembly.GetType('ReflexCore.Bridge.TrayWindow',$true)
     $constructor=$type.GetConstructor([type[]]@([string],[bool]))
     $pump=$type.GetMethod('Pump',[Reflection.BindingFlags]'Instance,NonPublic')
-    if($CrashComposition){
+    if($CrashComposition -or $CrashDuringTerminalMove){
         $childScript=@'
 $ErrorActionPreference='Stop'
 $root=$env:REFLEX_C_CRASH_FIXTURE
@@ -105,9 +119,16 @@ if(!$queue.ApproveComposition($id,$queue.ReviewComposition($id))){throw 'Review 
 [void]$type.GetMethod('Pump',$private).Invoke($tray,@())
 $worker=$type.GetField('active',$private).GetValue($tray)
 if(!$worker -or !$worker.WaitForExit(25000) -or $worker.ExitCode){throw 'Owned worker did not finish'}
-[IO.File]::WriteAllText((Join-Path $root 'boundary.tmp'),$id)
-[IO.File]::Move((Join-Path $root 'boundary.tmp'),(Join-Path $root 'boundary.txt'))
-Start-Sleep -Seconds 35
+$pause=[Action[string]]{
+    param([string]$jobId)
+    [IO.File]::WriteAllText((Join-Path $root 'boundary.tmp'),$jobId)
+    [IO.File]::Move((Join-Path $root 'boundary.tmp'),(Join-Path $root 'boundary.txt'))
+    Start-Sleep -Seconds 35
+}
+if($env:REFLEX_C_CRASH_TERMINAL -eq '1'){
+    [ReflexCore.Bridge.QueueStore]::BeforeFixtureTerminalMove=$pause
+    [void]$type.GetMethod('Pump',$private).Invoke($tray,@())
+}else{$pause.Invoke($id)}
 '@
         $ps=Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell/v1.0/powershell.exe'
         $args64=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childScript))
@@ -115,6 +136,7 @@ Start-Sleep -Seconds 35
         $launch.UseShellExecute=$false
         $launch.CreateNoWindow=$true
         $launch.EnvironmentVariables['REFLEX_C_CRASH_FIXTURE']=$fixture
+        $launch.EnvironmentVariables['REFLEX_C_CRASH_TERMINAL']=[string][int][bool]$CrashDuringTerminalMove
         $supervisor=[Diagnostics.Process]::Start($launch)
         try {
             $boundary=Join-Path $fixture 'boundary.txt'
@@ -130,6 +152,12 @@ Start-Sleep -Seconds 35
             Require ((Test-Path -LiteralPath $claim) -and (Test-Path -LiteralPath $worker)) 'Worker completion evidence missing'
             $proof=Get-Content -Raw -LiteralPath $worker | ConvertFrom-Json
             Require ($proof.task_id -ceq $id -and $proof.outcome -ceq 'verified' -and $proof.published_outputs -eq 2) 'Unexpected worker evidence'
+            if($CrashDuringTerminalMove){
+                $manifest=[IO.File]::ReadAllLines($claim)
+                Require ($manifest.Count -eq 3) 'Supervisor did not stage the terminal receipt'
+                $staged=$manifest[2]|ConvertFrom-Json
+                Require ($staged.run_id -ceq $proof.run_id -and $staged.verification -ceq 'verified') 'Staged terminal evidence does not match the attempt'
+            }
             Require (@(Get-ChildItem -LiteralPath (Join-Path $bridge 'queue-history') -Filter "$id.*").Count -eq 0) 'Receipt already committed'
             Require ([IO.File]::ReadAllText((Join-Path $folder 'first.txt')) -ceq 'ReflexCore verified 010 draft') 'First published output differs'
             Require ([IO.File]::ReadAllText((Join-Path $folder 'second.txt')) -ceq 'ReflexCore verified 010 draft final') 'Second published output differs'
@@ -177,11 +205,12 @@ Start-Sleep -Seconds 35
         Write-Output ("Notepad foreground qualification verified staged and final outputs in {0} ms." -f $clock.ElapsedMilliseconds)
         return
     }
-    if($CompareComposition){
+    if($CompareComposition -or $CompareManualComposition){
         $rows=New-Object System.Collections.ArrayList
         $hostProcess=[Diagnostics.Process]::GetCurrentProcess()
+        $arms=if($CompareManualComposition){@('manual','graph')}else{@('direct','queued')}
         for($pair=0;$pair -lt $Sessions;$pair++){
-            $modes=if($pair%2){@('queued','direct')}else{@('direct','queued')}
+            $modes=if($pair%2){@($arms[1],$arms[0])}else{$arms}
             foreach($mode in $modes){
                 $tag=[guid]::NewGuid().ToString('N')
                 $first=Join-Path $folder ($tag+'-first.txt')
@@ -217,6 +246,8 @@ Start-Sleep -Seconds 35
                         $launch.UseShellExecute=$false
                         $launch.CreateNoWindow=$true
                         $launch.RedirectStandardOutput=$true
+                        $launch.EnvironmentVariables.Remove('REFLEXCORE_COMPOSITION_BENCH')
+                        if($mode -eq 'manual'){$launch.EnvironmentVariables['REFLEXCORE_COMPOSITION_BENCH']='manual'}
                         $proc=[Diagnostics.Process]::Start($launch)
                         $output=$proc.StandardOutput.ReadToEndAsync()
                     }
@@ -255,20 +286,27 @@ Start-Sleep -Seconds 35
                         Require ($proc.ExitCode -eq 0) 'Direct worker failed'
                         $proof=($output.GetAwaiter().GetResult().TrimEnd() -split "\r?\n")[-1]|ConvertFrom-Json
                         Require ($proof.outcome -ceq 'verified' -and $proof.steps.Count -eq 6) 'Direct receipt differs'
+                        if($CompareManualComposition){
+                            Require ($proof.orchestration -ceq $mode) 'Build with --features composition-benchmark and verify the selected arm'
+                        }
                     }
                     Require ([IO.File]::ReadAllText($first) -ceq 'ReflexCore verified 010 draft') 'First result differs'
                     Require ([IO.File]::ReadAllText($second) -ceq 'ReflexCore verified 010 draft final') 'Second result differs'
                     $hostProcess.Refresh()
                     [void]$rows.Add([ordered]@{pair=$pair;mode=$mode;elapsed_ms=[Math]::Round($clock.Elapsed.TotalMilliseconds,1);worker_cpu_ms=$cpu;
                         host_cpu_ms=($hostProcess.TotalProcessorTime.TotalMilliseconds-$hostCpu);
-                        peak_concurrent_private_bytes=$peak;samples=$samples;observed_processes=$observed.Count;verified=$true})
+                        peak_concurrent_private_bytes=$peak;samples=$samples;observed_processes=$observed.Count;verified=$true;run_id=$proof.run_id})
                 } finally {
                     if($proc -and !$proc.HasExited){$proc.Kill();[void]$proc.WaitForExit(5000)}
                     foreach($p in $observed.Values){$p.Dispose()}
                 }
             }
         }
-        ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress
+        $json=ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress
+        if($MetricsFile){
+            $writer=[IO.StreamWriter]::new([IO.File]::Open($MetricsFile,'CreateNew','Write','None'))
+            try{$writer.Write($json)}finally{$writer.Dispose()}
+        }else{$json}
         return
     }
     $unicode=([char]0x96ea).ToString()+'.txt'

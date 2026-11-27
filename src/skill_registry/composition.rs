@@ -233,6 +233,10 @@ impl Plan {
         Ok(())
     }
     pub(crate) fn finish<'a>(&self, run: &'a str, text: &str) -> Result<Evidence<'a>> {
+        #[cfg(feature = "composition-benchmark")]
+        if self.manual_benchmark() {
+            return self.finish_manually(run, text);
+        }
         enum Value<'a> {
             Document,
             Live(saved_text::VerifiedArtifact<'a>),
@@ -268,15 +272,8 @@ impl Plan {
                     let (writer, identity) = self.create(index, &expected)?;
                     Value::Derived(proof, writer, identity, expected)
                 }
-                (Port::Checked, Value::Derived(proof, mut writer, identity, expected)) => {
-                    self.verify_output(index, &writer.path, identity, &expected)?;
-                    self.boundary(Boundary::Publish, index)?;
-                    writer.publish(dest)?;
-                    self.published.set(self.published.get() + 1);
-                    self.boundary(Boundary::Published, index)?;
-                    let snapshot = self.verify_output(index, dest, identity, &expected)?;
-                    self.check(index)?;
-                    drop(writer);
+                (Port::Checked, Value::Derived(proof, writer, identity, expected)) => {
+                    let snapshot = self.publish_checked(index, dest, writer, identity, &expected)?;
                     Value::Checked(proof, snapshot)
                 }
                 _ => return Err("Invalid skill input".into()),
@@ -287,6 +284,55 @@ impl Plan {
             _ => Err("Incomplete composition".into()),
         }
     }
+    fn publish_checked(
+        &self,
+        index: usize,
+        destination: &Path,
+        mut writer: Staging,
+        identity: (u32, u32, u32),
+        expected: &str,
+    ) -> Result<String> {
+        self.verify_output(index, &writer.path, identity, expected)?;
+        self.boundary(Boundary::Publish, index)?;
+        writer.publish(destination)?;
+        self.published.set(self.published.get() + 1);
+        self.boundary(Boundary::Published, index)?;
+        let snapshot = self.verify_output(index, destination, identity, expected)?;
+        self.check(index)?;
+        Ok(snapshot)
+    }
+
+    #[cfg(feature = "composition-benchmark")]
+    fn manual_benchmark(&self) -> bool {
+        self.adapter == Adapter::Winforms
+            && self.progress.is_none()
+            && self.second.is_some()
+            && std::env::var_os("REFLEXCORE_COMPOSITION_BENCH").as_deref() == Some(std::ffi::OsStr::new("manual"))
+    }
+
+    #[cfg(feature = "composition-benchmark")]
+    fn finish_manually<'a>(&self, run: &'a str, text: &str) -> Result<Evidence<'a>> {
+        let (second_path, second_suffix) = self.second.as_ref().ok_or("Missing second output")?;
+        self.check(1)?;
+        let source = self.binding.artifact(run, text)?;
+        self.boundary(Boundary::SourceVerified, 2)?;
+        let (proof, bytes) = source.consume(run, self.adapter)?;
+        if !self.binding.matches_snapshot(&bytes, text) {
+            return Err("Snapshot invalidated".into());
+        }
+        let first = format!("{text}{}", self.suffix);
+        self.check(2)?;
+        let (first_stage, first_id) = self.create(2, &first)?;
+        self.check(3)?;
+        let intermediate = self.publish_checked(3, &self.output, first_stage, first_id, &first)?;
+        let second = format!("{intermediate}{second_suffix}");
+        self.check(4)?;
+        let (second_stage, second_id) = self.create(4, &second)?;
+        self.check(5)?;
+        self.publish_checked(5, second_path, second_stage, second_id, &second)?;
+        Ok(proof)
+    }
+
     fn create(&self, index: usize, expected: &str) -> Result<(Staging, (u32, u32, u32))> {
         let path = self
             .output
@@ -560,7 +606,7 @@ fn execute(args: &[String], claim: Option<&Claim>) -> Result<()> {
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            plan.finish(&run, "ReflexCore ЖΩ😀")?;
+            plan.finish(&run, "ReflexCore Ð–Î©ðŸ˜€")?;
         }
         plan.boundary(Boundary::Terminal, graph.len() - 1)
     })();
@@ -600,10 +646,14 @@ fn execute(args: &[String], claim: Option<&Claim>) -> Result<()> {
         );
         return Err(error);
     }
-    println!(
-        "{}",
-        serde_json::json!({"schema":"reflexcore.composed_goal.v1","goal":if plan.second.is_some(){"editor.derive_chain"}else{"editor.derive_copy"},"version":1,"run_id":run,"adapter":adapter,"outcome":"verified","published_outputs":plan.published.get(),"steps":graph.iter().map(|s|(s.id,s.version)).collect::<Vec<_>>() })
-    );
+    let receipt = serde_json::json!({"schema":"reflexcore.composed_goal.v1","goal":if plan.second.is_some(){"editor.derive_chain"}else{"editor.derive_copy"},"version":1,"run_id":run,"adapter":adapter,"outcome":"verified","published_outputs":plan.published.get(),"steps":graph.iter().map(|s|(s.id,s.version)).collect::<Vec<_>>() });
+    #[cfg(feature = "composition-benchmark")]
+    let receipt = {
+        let mut receipt = receipt;
+        receipt["orchestration"] = serde_json::json!(if plan.manual_benchmark() { "manual" } else { "graph" });
+        receipt
+    };
+    println!("{receipt}");
     Ok(())
 }
 #[cfg(test)]

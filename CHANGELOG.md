@@ -2,6 +2,8 @@
 
 ## Unreleased — 0.8.3 universal skill foundation
 
+- Qualify interruption during terminal receipt commitment and measure a feature-gated, independently orchestrated end-to-end baseline.
+
 - Submit single- and double-copy editor compositions through Studio or MCP, review the immutable request, and track the attempt through the queue. Cover abrupt worker exit and contain the owned WinForms fixture.
 
 - Support a second verified copy from a verified intermediate with the same sequential executor. Expose composition descriptors through read-only MCP discovery.

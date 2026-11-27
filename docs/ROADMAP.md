@@ -25,10 +25,8 @@ admit discovered candidates only after fixture validation and operator approval.
 verifier compatibility. **F. Skill SDK and Ecosystem** will validate versioned
 manifests against explicitly trusted adapters.
 
-Phase C now includes a direct executable verify-and-derive Goal for both editor bindings. Queue integration remains pending.
+## Phase C qualification and the next implementation
 
-Phase C checkpoint: two sequential plans reuse typed operations across both editor bindings. Studio submission, approved MCP execution and paired resource evaluation remain open.
+Studio and MCP approvals, immutable attempts, the Notepad consent boundary, and the runtime's readback evidence have passed interactive qualification. Both supervisor crash intervals and the independent editor-to-readback benchmark are documented in UNIVERSAL-SKILL-RUNTIME.md and BENCHMARKS.md. Final release acceptance uses the exact published Windows CI result.
 
-## Phase C approved composition checkpoint
-
-Finish phase C qualification with full editor-to-receipt paired timing, process-tree resources and supervisor loss at terminal commit. For phase D, begin with read-only inspection of an unfamiliar application. Admit a proposed binding to the registry only after testing its typed ports, capability restrictions and independent effect verifier on a held-out fixture.
+The first Phase D executable checkpoint is read-only candidate discovery. Add a CLI entry that consumes a bounded descriptor from an owned unfamiliar-application fixture. Emit a candidate with its verified application binding, typed inputs and outputs, required capabilities and verifier identity. A fixture with an ambiguous application, an undeclared capability or an absent verifier must be rejected. The command must neither register a candidate nor enqueue work. Admission and execution remain later steps.
