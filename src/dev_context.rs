@@ -103,7 +103,14 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         _ => return Err("Unknown component".into()),
     };
     let event = match (action.as_str(), rest) {
-        ("status", []) => None,
+        ("status" | "resume", []) => None,
+        ("declare", [objective, next])
+            if [objective, next]
+                .iter()
+                .all(|v| !v.is_empty() && v.len() <= 320 && !v.chars().any(char::is_control)) =>
+        {
+            None
+        }
         ("record", [e])
             if matches!(
                 e.as_str(),
@@ -113,6 +120,10 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
                     | "interrupt"
                     | "build-started"
                     | "test-started"
+                    | "build-returned"
+                    | "test-returned"
+                    | "turn-ended"
+                    | "usage-limit"
             ) =>
         {
             Some(e)
@@ -125,23 +136,66 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     }
     let dir = git_path("--absolute-git-dir")?;
     let tree = format!("{:x}", Sha256::digest(dir.as_os_str().as_encoded_bytes()));
-    let session = format!("{:x}", Sha256::digest(session.as_bytes()));
+    let auto = action == "resume" && session == "auto";
+    let mut session = format!("{:x}", Sha256::digest(session.as_bytes()));
     let rev = revision(&root, files)?;
     if revision(&root, files)? != rev {
         return Err("Uncertain: inputs changed during observation".into());
     }
     let db_path = dir.join("reflex-dev-context-v1.sqlite");
     let mut previous = None;
-    if event.is_some() || db_path.exists() {
+    let mut declared: Option<(String, String, String)> = None;
+    let mut history = Vec::<String>::new();
+    if event.is_some() || action == "declare" || db_path.exists() {
         let mut db = Connection::open(db_path)?;
         db.busy_timeout(std::time::Duration::from_secs(2))?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS checkpoint(tree TEXT, session TEXT, component TEXT, revision TEXT, event TEXT, PRIMARY KEY(tree,session,component));")?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version > 2 {
+            return Err("Unsupported checkpoint schema".into());
+        }
+        if version < 2 {
+            tx.execute_batch("CREATE TABLE IF NOT EXISTS intent(tree TEXT, session TEXT, component TEXT, objective TEXT, next TEXT, baseline TEXT, PRIMARY KEY(tree,session,component));
+                CREATE TABLE IF NOT EXISTS observation(id INTEGER PRIMARY KEY, tree TEXT, session TEXT, component TEXT, revision TEXT, event TEXT);
+                PRAGMA user_version=2;")?;
+        }
+        if auto {
+            let mut q =
+                tx.prepare("SELECT session FROM intent WHERE tree=?1 AND component=?2 LIMIT 2")?;
+            let ids = q
+                .query_map(params![tree, component], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            if ids.len() != 1 {
+                println!(
+                    "{}",
+                    json!({"v":2,"checkpoint":if ids.is_empty() {"absent"} else {"ambiguous"}})
+                );
+                return Ok(());
+            }
+            session = ids[0].clone();
+        }
+        if action == "declare" {
+            tx.execute(
+                "INSERT OR REPLACE INTO intent VALUES(?1,?2,?3,?4,?5,?6)",
+                params![tree, session, component, rest[0], rest[1], rev],
+            )?;
+            tx.execute("DELETE FROM intent WHERE rowid IN (SELECT rowid FROM intent ORDER BY rowid DESC LIMIT -1 OFFSET 256)",[])?;
+        }
         if let Some(e) = event {
+            tx.execute("INSERT INTO observation(tree,session,component,revision,event) SELECT ?1,?2,?3,?4,?5 WHERE NOT EXISTS(SELECT 1 FROM (SELECT revision,event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 ORDER BY id DESC LIMIT 1) WHERE revision=?4 AND event=?5)",params![tree,session,component,rev,e])?;
+            tx.execute("DELETE FROM observation WHERE id IN (SELECT id FROM observation ORDER BY id DESC LIMIT -1 OFFSET 1024)",[])?;
             tx.execute("INSERT INTO checkpoint VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tree,session,component) DO UPDATE SET revision=excluded.revision,event=excluded.event WHERE revision<>excluded.revision OR event<>excluded.event", params![tree,session,component,rev,e])?;
             tx.execute("DELETE FROM checkpoint WHERE rowid IN (SELECT rowid FROM checkpoint ORDER BY rowid DESC LIMIT -1 OFFSET 256)", [])?;
         }
         previous = tx.query_row("SELECT revision,event FROM checkpoint WHERE tree=?1 AND session=?2 AND component=?3",params![tree,session,component],|r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
+        if action == "resume" {
+            declared=tx.query_row("SELECT objective,next,baseline FROM intent WHERE tree=?1 AND session=?2 AND component=?3",params![tree,session,component],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+            let mut q=tx.prepare("SELECT event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 ORDER BY id DESC LIMIT 12")?;
+            history = q
+                .query_map(params![tree, session, component], |r| r.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+        }
         tx.commit()?;
     }
     let freshness = match &previous {
@@ -149,6 +203,15 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         Some((r, _)) if r == &rev => "matching",
         _ => "changed",
     };
+    if action == "resume" {
+        println!(
+            "{}",
+            json!({"v":2,"scope":component,"tree":tree,"session_key":session,"revision":rev,"checkpoint":freshness,
+            "declared":declared.map(|(objective,next,base)|json!({"objective":objective,"next":next,"source_changed_since_declaration":base!=rev})),
+            "recent_events_newest_first":history,"effect":"unknown","references":files,"verified_evidence":null})
+        );
+        return Ok(());
+    }
     println!(
         "{}",
         json!({"v":1,"tree":tree,"scope":component,"revision":rev,"checkpoint":freshness,"last_event":previous.map(|(_,e)|e),"effect":"unknown"})

@@ -10,15 +10,24 @@ try {
     $root = [IO.Path]::GetFullPath($Worktree)
     if (!$event.cwd -or [IO.Path]::GetFullPath($event.cwd) -ne $root) { return }
     if ($event.session_id -notmatch '^[A-Za-z0-9-]{1,64}$') { return }
+    $operation=$null
+    if ($event.tool_name -in 'apply_patch','Edit','Write') { $operation='mutation' }
+    if ($event.tool_name -in 'Bash','exec_command','shell_command') {
+        $command=$event.tool_input.command
+        if (!$command) { $command=$event.tool_input.cmd }
+        if ($command -match '^\s*cargo\s+(build|test)\b' -and $command -notmatch '[;&|<>\r\n]') { $operation=($command.Trim() -split '\s+')[1] }
+    }
     $kind = switch ($event.hook_event_name) {
-        'PreToolUse'  { if ($event.tool_name -in 'apply_patch','Edit','Write') { 'mutation-started' } }
-        'PostToolUse' { if ($event.tool_name -in 'apply_patch','Edit','Write') { 'mutation-returned' } }
+        'PreToolUse'  { if ($operation) { "$operation-started" } }
+        'PostToolUse' { if ($operation) { "$operation-returned" } }
         'PreCompact'  { 'compaction' }
+        'Stop' { 'turn-ended' }
+        'Interrupt' { 'interrupt' }
     }
     if (!$kind) { return }
     Push-Location -LiteralPath $root
     try {
-        & (Join-Path $root 'target/release/reflexcore.exe') dev-context record $event.session_id $Component $kind 2>$null | Out-Null
+        & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -ObserverArgs @('record',$event.session_id,$Component,$kind) 2>$null | Out-Null
     } finally { Pop-Location }
 } catch { }
 exit 0
