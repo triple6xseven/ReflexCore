@@ -10,7 +10,7 @@ function Fire($event,$tool,$inputData){
 }
 function Resume {
     $OutputEncoding=New-Object Text.UTF8Encoding($false)
-    $messages=@('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}','{"jsonrpc":"2.0","method":"notifications/initialized"}','{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_development_context","arguments":{}}}')
+    $messages=@('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}','{"jsonrpc":"2.0","method":"notifications/initialized"}',(@{jsonrpc='2.0';id=2;method='tools/call';params=@{name='get_development_context';arguments=@{cwd=$root;branch=(& git rev-parse --abbrev-ref HEAD)}}}|ConvertTo-Json -Depth 6 -Compress))
     $lines=$messages|powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/ReflexCore-Mcp.ps1 -DeveloperTools
     if($lines.Count -ne 2){throw 'Unexpected MCP transport'}
     ($lines[-1]|ConvertFrom-Json).result
@@ -18,7 +18,7 @@ function Resume {
 try {
     git init -q
     foreach($dir in 'src','tools','data/settings','.git/reflex-observer'){[void][IO.Directory]::CreateDirectory((Join-Path $root $dir))}
-    foreach($name in 'Record-DevHook.ps1','Invoke-DevObserver.ps1','ReflexCore-Mcp.ps1','ReflexCore-Mcp.cs','ReflexCore-Queue.cs','ReflexCore-McpLab.cs'){
+    foreach($name in 'Record-DevHook.ps1','ReflexCore-DevGuard.ps1','Invoke-DevObserver.ps1','ReflexCore-Mcp.ps1','ReflexCore-Mcp.cs','ReflexCore-Queue.cs','ReflexCore-McpLab.cs'){
         Copy-Item -LiteralPath (Join-Path $repo "tools/$name") -Destination tools
     }
     Set-Content src/main.rs 'fn main() {}'

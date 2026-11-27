@@ -11,6 +11,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("reflex.observer.2");
         return Ok(());
     }
+    if args.as_slice() == ["guard-protocol"] {
+        println!("reflex.guard.1");
+        return Ok(());
+    }
     if args.as_slice() == ["hook-protocol"] {
         println!("reflex.hook.1");
         return Ok(());

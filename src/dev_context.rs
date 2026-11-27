@@ -31,6 +31,24 @@ const MCP: &[&str] = &[
     "docs/MCP.md",
 ];
 
+const UNIVERSAL: &[&str] = &[
+    "src/agent.rs",
+    "src/flow.rs",
+    "src/skill_registry.rs",
+    "src/skill_registry/composition.rs",
+    "src/skill_registry/saved_text.rs",
+    "tools/ReflexCore-Queue.cs",
+    "tools/ReflexCore-Tray.cs",
+    "tools/ReflexCore-QueuedWorker.ps1",
+    "tools/ReflexCore-VisionHost.cs",
+    "tools/ReflexCore-VisionLoop.ps1",
+    "tasks/compose-text.ps1",
+    "tasks/Test-Handoff.ps1",
+    "tasks/Test-TextComposition.ps1",
+    "docs/UNIVERSAL-SKILL-RUNTIME.md",
+    "docs/BENCHMARKS.md",
+];
+
 fn git(args: &[&str]) -> Result<Vec<u8>> {
     let result = Command::new("git").args(args).output()?;
     if !result.status.success() {
@@ -54,12 +72,14 @@ fn revision(root: &Path, files: &[&str]) -> Result<(String, Inputs)> {
     for name in COMMON.iter().chain(files) {
         names.insert(name.to_string());
         for parent in Path::new(name).ancestors().skip(1) {
-            names.insert(
-                parent
-                    .join("AGENTS.md")
-                    .to_string_lossy()
-                    .replace(std::path::MAIN_SEPARATOR, "/"),
-            );
+            for instruction in ["AGENTS.md", "AGENTS.override.md"] {
+                names.insert(
+                    parent
+                        .join(instruction)
+                        .to_string_lossy()
+                        .replace(std::path::MAIN_SEPARATOR, "/"),
+                );
+            }
         }
     }
     let mut h = Sha256::new();
@@ -121,6 +141,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     let files = match component.as_str() {
         "bridge" => BRIDGE,
         "mcp" => MCP,
+        "universal" => UNIVERSAL,
         _ => return Err("Unknown component".into()),
     };
     let event = match (action.as_str(), rest) {

@@ -9,20 +9,57 @@ if($separateRuntime){
 [Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 Add-Type -Path @((Join-Path $PSScriptRoot 'ReflexCore-Queue.cs'),(Join-Path $PSScriptRoot 'ReflexCore-Mcp.cs'),(Join-Path $PSScriptRoot 'ReflexCore-McpLab.cs')) -ReferencedAssemblies 'System.Core.dll','System.Web.Extensions.dll'
+. (Join-Path $PSScriptRoot 'ReflexCore-DevGuard.ps1')
 $check = [Func[string]]{
     $record = & (Join-Path $root 'tools/Measure-DevBuild.ps1') -Action Check
     return $record
 }
-$reader = [Func[string,string,string,string]]{
-    param($name,$session,$scope)
+$reader = [Func[string,string,string,System.Collections.Generic.Dictionary[string,object],string]]{
+    param($name,$session,$scope,$request)
     if($name -eq 'get_usage_status'){
         $action=if($session -eq 'refresh'){'Usage'}else{'Cached'}
         return (& (Join-Path $root 'tools/Read-DevUsage.ps1') -Action $action)
     }
-    $packet = & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -ObserverArgs @('resume',$session,$scope) | ConvertFrom-Json
+    if(!$request.ContainsKey('cwd') -or !$request.ContainsKey('branch')){
+        throw [ArgumentException]::new('Provide the active session cwd and intended branch for development recovery.')
+    }
+    foreach($key in 'cwd','branch','preflight','historical_head'){
+        if($request.ContainsKey($key) -and ($request[$key] -isnot [string] -or $request[$key].Length -gt 512)){
+            throw [ArgumentException]::new('Invalid development binding.')
+        }
+    }
+    if($request.ContainsKey('preflight') -and $request['preflight'] -cne 'yes'){
+        throw [ArgumentException]::new('Use preflight=yes at a development boundary.')
+    }
+    try {
+        $target=Resolve-DevTarget $root $request
+        $launcherPin=Join-Path (Get-DevGit $root @('rev-parse','--absolute-git-dir')) 'reflex-observer/active-v2'
+        $targetPin=Join-Path $target.private 'reflex-observer/active-v2'
+        if([IO.File]::ReadAllText($launcherPin) -cne [IO.File]::ReadAllText($targetPin)){throw 'Installed observer differs from the launcher observer'}
+        $packet = & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -Worktree $target.root -RequireGuard -ObserverArgs @('resume',$session,$scope) | ConvertFrom-Json
+        $expectedTree=Get-DevHash ('\\?\'+$target.private)
+        if($packet.tree -and $packet.tree -cne $expectedTree){throw 'Observer returned a foreign worktree identity'}
+        $scopeInfo=@{tree=$expectedTree;head=$target.head;branch=$target.branch;historical=$target.historical}
+        $packet | Add-Member -NotePropertyName binding -NotePropertyValue $scopeInfo
+        if($name -in 'get_development_context','get_validation_evidence'){
+            $evidence=$null
+            try { $evidence=& (Join-Path $root 'tools/Measure-DevBuild.ps1') -Action Check -Worktree $target.root | ConvertFrom-Json } catch {}
+            if(!$evidence){$evidence=@{build='unknown';worktree_recovery_test='unknown'}}
+            $packet | Add-Member -NotePropertyName release_build -NotePropertyValue $evidence.build
+            $packet | Add-Member -NotePropertyName worktree_recovery_test -NotePropertyValue $evidence.worktree_recovery_test
+        }
+        if($request['preflight'] -ceq 'yes'){
+            $scopeInfo.preflight=Get-DevPreflight -Target $target -Launcher $root -Runtime $RuntimeRoot
+        }
+        $current=Resolve-DevTarget $root $request
+        if($current.private -ne $target.private -or $current.head -cne $target.head -or $current.branch -cne $target.branch){throw 'Worktree changed during recovery'}
+    } catch {
+        $message=$_.Exception.Message
+        if($message -notmatch '^(Development worktree|Current branch|Historical HEAD|Intended branch|Configured directory|Session directory|Installed observer|Observer returned|Worktree changed)'){ $message='Development binding, observer or evidence unavailable.' }
+        throw [ArgumentException]::new($message)
+    }
+    $private=$target.private
     if($packet.pending_ci.run_id -or $packet.session_key){
-        Push-Location $root
-        try {$private=& git rev-parse --absolute-git-dir 2>$null}finally{Pop-Location}
         if($private){
             if($packet.pending_ci.run_id){
                 $path=Join-Path $private 'reflex-ci-observations-v1.json'
