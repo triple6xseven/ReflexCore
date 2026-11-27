@@ -172,7 +172,7 @@ namespace ReflexCore.Bridge
                 Tool("list_combat_runs","Discover measured offline combat trials. Results use engine evidence, with no visual detector in the loop.",new[]{"runs"}),
                 Tool("get_combat_run","Read the stage and evidence for a specific offline combat trial.",new[]{"run"},new[]{"run_id"}),
                 Tool("compare_combat_runs","Compare a completed baseline and candidate from the same controlled scenario and suite.",
-                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task or compare a known recovery revision.",new[]{"packet"},null,new[]{"component","session","known_revision","cwd","branch","preflight","historical_head"}),
+                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task or compare a known recovery revision.",new[]{"packet"},null,new[]{"component","session","known_revision","cwd","branch","preflight","historical_head","memory_topic","since_commit","memory_history"}),
                     Tool("get_checkpoint","Inspect a local recovery checkpoint.",new[]{"packet"},null,new[]{"component","session","cwd","branch","preflight","historical_head"}),
                     Tool("get_usage_status","Read the local usage snapshot. Pass refresh to query the signed-in account.",new[]{"packet"},null,new[]{"refresh"}),
                     Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile","worktree_recovery_test","runtime_build","runtime_composition"},null,new[]{"cwd","branch","historical_head"})} : new object[0]).ToArray();
@@ -185,7 +185,7 @@ namespace ReflexCore.Bridge
                 case "get_development_context":
                 case "get_checkpoint":
                 case "get_usage_status":
-                    if(!developerTools || readDeveloper==null || args.Keys.Any(k=>name=="get_usage_status" ? k!="refresh" : !new[]{"component","session","cwd","branch","preflight","historical_head"}.Contains(k) && (name!="get_development_context" || k!="known_revision")))
+                    if(!developerTools || readDeveloper==null || args.Keys.Any(k=>name=="get_usage_status" ? k!="refresh" : !new[]{"component","session","cwd","branch","preflight","historical_head"}.Contains(k) && (name!="get_development_context" || (k!="known_revision" && k!="memory_topic" && k!="since_commit" && k!="memory_history"))))
                         throw new ArgumentException("Unsupported developer request.");
                     var devScope=args.ContainsKey("component")?StringArg(args,"component"):"bridge";
                     var session=args.ContainsKey("session")?StringArg(args,"session"):"auto";
