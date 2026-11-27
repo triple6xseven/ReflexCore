@@ -13,24 +13,26 @@ namespace ReflexCore.Bridge
         readonly string root, settings;
         readonly QueueStore queue;
         readonly Func<string> inspectBuild;
+        readonly Func<string,string,string,string> readDeveloper;
         readonly bool developerTools;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=20};
         bool initialized, ready;
 
-        McpServer(string project,Func<string> inspect,bool developer)
+        McpServer(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read)
         {
             root=project;
             inspectBuild=inspect;
+            readDeveloper=read;
             developerTools=developer;
             settings=Path.Combine(root,"data","settings");
             queue=new QueueStore(root);
         }
 
-        public static void Run(string project) { Run(project,null,false); }
+        public static void Run(string project) { Run(project,null,false,null); }
 
-        public static void Run(string project,Func<string> inspect,bool developer)
+        public static void Run(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read)
         {
-            var server=new McpServer(project,inspect,developer);
+            var server=new McpServer(project,inspect,developer,read);
             var line=new StringBuilder();
             int next;
             bool firstByte=true;
@@ -144,7 +146,7 @@ namespace ReflexCore.Bridge
             foreach(var field in optional??new string[0])properties.Add(field,new {type="string"});
             var resultProperties=output.ToDictionary(key=>key,key=>new {type=
                 new[]{"projects","skills","compositions","bounded_replay_statistics","workflows","runs"}.Contains(key)?(object)"array":
-                key=="cancellation_requested"?"boolean":new[]{"handoff_feedback","run","baseline","candidate"}.Contains(key)?"object":key=="receipt"?new[]{"object","null"}:(object)"string"});
+                key=="cancellation_requested"?"boolean":new[]{"handoff_feedback","run","baseline","candidate","packet"}.Contains(key)?"object":key=="receipt"?new[]{"object","null"}:(object)"string"});
             return new {name,description,inputSchema=new {type="object",required=fields,additionalProperties=false,properties},
                 outputSchema=new {type="object",required=output,properties=resultProperties},
                 annotations=new {readOnlyHint=readOnly,destructiveHint=false,openWorldHint=false}};
@@ -166,13 +168,28 @@ namespace ReflexCore.Bridge
                 Tool("list_combat_runs","Discover measured offline combat trials. Results use engine evidence, with no visual detector in the loop.",new[]{"runs"}),
                 Tool("get_combat_run","Read the stage and evidence for a specific offline combat trial.",new[]{"run"},new[]{"run_id"}),
                 Tool("compare_combat_runs","Compare a completed baseline and candidate from the same controlled scenario and suite.",
-                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile"})} : new object[0]).ToArray();
+                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task in a local component.",new[]{"packet"},null,new[]{"component","session"}),
+                    Tool("get_checkpoint","Inspect a local recovery checkpoint.",new[]{"packet"},null,new[]{"component","session"}),
+                    Tool("get_usage_status","Read official usage windows on demand.",new[]{"packet"}),
+                    Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile"})} : new object[0]).ToArray();
         }
 
         object Call(string name,Dictionary<string,object> args)
         {
             switch(name)
             {
+                case "get_development_context":
+                case "get_checkpoint":
+                case "get_usage_status":
+                    if(!developerTools || readDeveloper==null || args.Keys.Any(k=>name=="get_usage_status" || (k!="component" && k!="session")))
+                        throw new ArgumentException("Unsupported developer request.");
+                    var scope=args.ContainsKey("component")?StringArg(args,"component"):"bridge";
+                    var session=args.ContainsKey("session")?StringArg(args,"session"):"auto";
+                    if((scope!="mcp" && scope!="bridge") || !System.Text.RegularExpressions.Regex.IsMatch(session,@"\A[A-Za-z0-9-]{1,64}\z"))
+                        throw new ArgumentException("Invalid scope or session.");
+                    var packet=readDeveloper(name,session,scope);
+                    if(packet==null || Encoding.UTF8.GetByteCount(packet)>4096)throw new ArgumentException("Recovery packet unavailable.");
+                    return new {packet=Object(json.DeserializeObject(packet))};
                 case "get_validation_evidence":
                     if(!developerTools || args.Count!=0)throw new ArgumentException("Unsupported tool or arguments.");
                     return new {build=BuildStatus(),profile="release"};

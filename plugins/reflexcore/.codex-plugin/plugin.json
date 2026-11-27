@@ -1,6 +1,6 @@
 {
   "name": "reflexcore",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Run verified local release checks and inspect offline test evidence through ReflexCore MCP.",
   "skills": "./skills/",
   "requires_local_executor": true,

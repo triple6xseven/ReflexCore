@@ -8,4 +8,9 @@ $check = [Func[string]]{
     $record = & (Join-Path $root 'tools/Measure-DevBuild.ps1') -Action Check | ConvertFrom-Json
     return $record.build
 }
-[ReflexCore.Bridge.McpServer]::Run($root,$check,$DeveloperTools.IsPresent)
+$reader = [Func[string,string,string,string]]{
+    param($name,$session,$scope)
+    if($name -eq 'get_usage_status'){return (& (Join-Path $root 'tools/Read-DevUsage.ps1'))}
+    return (& (Join-Path $root 'tools/Invoke-DevObserver.ps1') -ObserverArgs @('resume',$session,$scope))
+}
+[ReflexCore.Bridge.McpServer]::Run($root,$check,$DeveloperTools.IsPresent,$reader)
