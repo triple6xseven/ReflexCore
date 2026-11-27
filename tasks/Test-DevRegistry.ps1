@@ -7,6 +7,7 @@ $marker = Join-Path $root 'data/settings/mcp.enabled'
 $owned = $false
 $probe = Join-Path $root ('src/dev-check-' + [guid]::NewGuid().ToString('N') + '.rs')
 function Calls([switch]$Developer) {
+    $OutputEncoding = New-Object Text.UTF8Encoding($false)
     $messages = @(
         '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}',
         '{"jsonrpc":"2.0","method":"notifications/initialized"}',
@@ -28,8 +29,9 @@ try {
     $record = .\tools\Measure-DevBuild.ps1 -Action Build | ConvertFrom-Json
     if ($record.build -ne 'matching') { throw 'Build evidence unavailable' }
     $default = @(Calls)
+    if (!$default[0].result.serverInfo -or !$default[1].result.tools) { throw ('Handshake failed: ' + ($default[0] | ConvertTo-Json -Compress)) }
     if ($default[1].result.tools.name -contains 'get_validation_evidence') { throw 'Unexpected developer schema' }
-    if (!$default[2].result.isError) { throw 'Disabled developer tool callable' }
+    if (!$default[2].result.isError) { throw ('Unexpected disabled tool response: ' + ($default[2] | ConvertTo-Json -Depth 4 -Compress)) }
     if (!$default[3].result.structuredContent.skills) { throw ('Matched registry missing: ' + $default[3].result.content[0].text) }
     [IO.File]::WriteAllText($probe,'// Owned stale-source fixture.')
     $changed = @(Calls -Developer)

@@ -33,8 +33,13 @@ namespace ReflexCore.Bridge
             var server=new McpServer(project,inspect,developer);
             var line=new StringBuilder();
             int next;
+            bool firstByte=true;
             while((next=Console.In.Read())!=-1)
             {
+                if(firstByte) {
+                    firstByte=false;
+                    if(next==0xfeff)continue;
+                }
                 if(next=='\n')
                 {
                     server.Handle(line.ToString());
