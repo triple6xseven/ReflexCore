@@ -8,7 +8,7 @@ run and checks ordinal text equality. The checker emits a typed receipt only
 after reading the complete bounded file. No model is involved. The operator's
 choice of editor determines which application actually performs the save.
 
-Use **Agent â†’ Skill library** to inspect the chosen binding, required capabilities,
+Use **Agent → Skill library** to inspect the chosen binding, required capabilities,
 foreground requirement and verified receipts retained locally. Selecting a
 completed editor job in the queue shows its skill and adapter. MCP clients can
 read the same catalog with `list_skills` and a retained result with
@@ -115,15 +115,15 @@ benchmark datasets were imported. Licensing notes refer to the referenced work.
 
 | Source | Decision used in this milestone |
 | --- | --- |
-| [Microsoft UFO](https://github.com/microsoft/UFO) Â· MIT | Keep application-specific UI ownership in the adapter. Bind the requested application explicitly. |
-| [Windows Agent Arena task evaluators](https://github.com/microsoft/WindowsAgentArena/blob/main/docs/Develop-Tasks.md) Â· MIT | Check resulting application state from an independent evaluator. Reopen the actual file in acceptance. |
-| [Voyager skill library](https://github.com/MineDojo/Voyager) Â· MIT | Give reusable methods stable catalog entries. Admission of newly discovered code remains a later, explicit step. |
-| [OpenAdapt Flow](https://github.com/OpenAdaptAI/OpenAdapt/tree/main/packages/flow) Â· MIT | Qualify a concrete operation separately from replay. A dispatched save needs disk evidence. |
-| [BehaviorTree.CPP](https://github.com/BehaviorTree/BehaviorTree.CPP) Â· MIT | Keep the observable precondition, bounded action and terminal result separate so composition can stop at an unfulfilled edge. |
-| [ROS 2 Actions, upstream documentation](https://github.com/ros2/ros2_documentation/blob/rolling/source/ROS-Framework/interfaces/About-Actions.rst) Â· CC BY 4.0 documentation | Keep cancellation and terminal results tied to the same goal identity. The documentation source is available at its relocated path. |
-| [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) Â· MIT | Keep infrastructure truncation or missing evidence outside the verified-success count. |
-| [MCP specification and license](https://github.com/modelcontextprotocol/modelcontextprotocol) Â· MIT/Apache-2.0 transition by contribution | Use structured discovery and versioned results. Retain Studio approval at the execution boundary. |
-| [Sutton, Precup and Singh, 1999](https://ics.uci.edu/~dechter/courses/ics-295/winter-2018/papers/Sutton-Precup-Singh-AIJ99.pdf) Â· published research, copyright Elsevier | Model eligibility and termination explicitly. The transferred method is deterministic. |
+| [Microsoft UFO](https://github.com/microsoft/UFO) · MIT | Keep application-specific UI ownership in the adapter. Bind the requested application explicitly. |
+| [Windows Agent Arena task evaluators](https://github.com/microsoft/WindowsAgentArena/blob/main/docs/Develop-Tasks.md) · MIT | Check resulting application state from an independent evaluator. Reopen the actual file in acceptance. |
+| [Voyager skill library](https://github.com/MineDojo/Voyager) · MIT | Give reusable methods stable catalog entries. Admission of newly discovered code remains a later, explicit step. |
+| [OpenAdapt Flow](https://github.com/OpenAdaptAI/OpenAdapt/tree/main/packages/flow) · MIT | Qualify a concrete operation separately from replay. A dispatched save needs disk evidence. |
+| [BehaviorTree.CPP](https://github.com/BehaviorTree/BehaviorTree.CPP) · MIT | Keep the observable precondition, bounded action and terminal result separate so composition can stop at an unfulfilled edge. |
+| [ROS 2 Actions, upstream documentation](https://github.com/ros2/ros2_documentation/blob/rolling/source/ROS-Framework/interfaces/About-Actions.rst) · CC BY 4.0 documentation | Keep cancellation and terminal results tied to the same goal identity. The documentation source is available at its relocated path. |
+| [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) · MIT | Keep infrastructure truncation or missing evidence outside the verified-success count. |
+| [MCP specification and license](https://github.com/modelcontextprotocol/modelcontextprotocol) · MIT/Apache-2.0 transition by contribution | Use structured discovery and versioned results. Retain Studio approval at the execution boundary. |
+| [Sutton, Precup and Singh, 1999](https://ics.uci.edu/~dechter/courses/ics-295/winter-2018/papers/Sutton-Precup-Singh-AIJ99.pdf) · published research, copyright Elsevier | Model eligibility and termination explicitly. The transferred method is deterministic. |
 
 Win32, UIA, known-folder discovery, file handles, Job Objects and local IPC cover
 the demonstrated task. A future read-only platform adapter can expose ETW resource
@@ -217,12 +217,12 @@ and `winforms-background`.
 
 ```powershell
 $path = Join-Path $env:TEMP ('derived-' + [guid]::NewGuid() + '.txt')
-.\target\release\reflexcore.exe agent compose-text winforms-background $path ' â€” reviewed' --create --verify --consume --derive --publish
+.\target\release\reflexcore.exe agent compose-text winforms-background $path ' — reviewed' --create --verify --consume --derive --publish
 .\tasks\Test-TextComposition.ps1 -AllowInput
 ```
 
-The only admitted plan is editor.create_document â†’ artifact.verify_saved_text
-â†’ artifact.derive_text â†’ artifact.verify_derived (all v1). Preflight checks
+The only admitted plan is editor.create_document → artifact.verify_saved_text
+→ artifact.derive_text → artifact.verify_derived (all v1). Preflight checks
 the complete ordered chain, grants, adapter capabilities, suffix budget and
 destination before launching the editor. Rust passes the private live source
 by value into the consumer. The consumer rechecks the pinned object, consumes
@@ -287,7 +287,7 @@ adapter restrictions, verifier and independently validated fixture evidence.
 
 ## Phase C approved composition checkpoint
 
-In Studio open Agent â†’ Skill Library â†’ Compose text. Choose an editor, destination and suffix. Enable the second copy to chain another verified output. Submit, select the pending task, then choose Approve selected and review its exact inputs. The queue shows progress and the terminal publication count when available.
+In Studio open Agent → Skill Library → Compose text. Choose an editor, destination and suffix. Enable the second copy to chain another verified output. Submit, select the pending task, then choose Approve selected and review its exact inputs. The queue shows progress and the terminal publication count when available.
 
 ## Phase C live acceptance checkpoint
 
