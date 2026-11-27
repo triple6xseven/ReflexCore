@@ -9,6 +9,9 @@ jobs:
       - uses: actions/checkout@v4
       - run: cargo test --locked
       - run: cargo build --release --locked
+      - name: Qualify worktree-scoped development recovery
+        shell: powershell
+        run: ./tasks/Test-DevContext.ps1 -Executable ./target/release/reflexcore.exe
       - name: Check fixture and report correlation
         shell: powershell
         run: |
