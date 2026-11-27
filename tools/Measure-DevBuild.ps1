@@ -35,7 +35,7 @@ try {
         $record = [ordered]@{v=1;tree=$tree;source=$before;head=$head;compiler=$compiler;profile='release';binary=(Get-FileHash $binary).Hash}
         $tmp = $stamp + '.' + [guid]::NewGuid().ToString('N')
         [IO.File]::WriteAllText($tmp,($record | ConvertTo-Json -Compress))
-        if ([IO.File]::Exists($stamp)) { [IO.File]::Replace($tmp,$stamp,$null) } else { [IO.File]::Move($tmp,$stamp) }
+        if ([IO.File]::Exists($stamp)) { [IO.File]::Replace($tmp,$stamp,($stamp + '.previous')) } else { [IO.File]::Move($tmp,$stamp) }
     }
     $state='unknown'
     if ((Test-Path -LiteralPath $stamp) -and (Test-Path -LiteralPath $binary)) {
