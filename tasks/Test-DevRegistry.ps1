@@ -16,7 +16,7 @@ function Calls([switch]$Developer) {
     )
     $flags = @()
     if ($Developer) { $flags += '-DeveloperTools' }
-    $lines = $messages | powershell.exe -NoProfile -File tools/ReflexCore-Mcp.ps1 @flags
+    $lines = $messages | powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/ReflexCore-Mcp.ps1 @flags
     if ($LASTEXITCODE -or $lines.Count -ne 4) { throw 'Unexpected MCP response sequence' }
     $lines | ForEach-Object { $_ | ConvertFrom-Json }
 }

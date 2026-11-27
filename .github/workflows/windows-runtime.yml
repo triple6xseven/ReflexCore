@@ -15,8 +15,13 @@ jobs:
       - name: Check registry build provenance over MCP
         shell: powershell
         run: |
-          ./tasks/Test-DevRegistry.ps1
-          ./tasks/Test-DevBuildIsolation.ps1
+          try {
+            ./tasks/Test-DevRegistry.ps1
+            ./tasks/Test-DevBuildIsolation.ps1
+          } catch {
+            Write-Host ("::error::{0} (line {1})" -f $_.Exception.Message,$_.InvocationInfo.ScriptLineNumber)
+            throw
+          }
       - name: Check fixture and report correlation
         shell: powershell
         run: |
