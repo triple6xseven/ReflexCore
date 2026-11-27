@@ -59,3 +59,5 @@ Use submit_composition for a supported editor and output paths relative to a con
 Developer checkpoints and the optional build provenance check are documented in [Codex integration](CODEX-INTEGRATION.md).
 
 In a Git development checkout, build with tools/Measure-DevBuild.ps1 -Action Build before calling list_skills. The optional -DeveloperTools launcher switch adds get_validation_evidence to the same server; the Studio enable switch applies to both.
+
+The launcher accepts -RuntimeRoot for an existing runtime installation. Runtime tools resolve settings, projects and queue there. Developer tools resolve checkpoints and provenance in the launcher worktree. The runtime registry keeps its installed catalog behavior.

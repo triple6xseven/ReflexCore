@@ -76,6 +76,22 @@ Run tools/Read-DevUsage.ps1 -Action Qualify to start an explicit managed stdio c
 
 Before ending work that triggered CI, use the installed observer with pending-ci, session ID, component, commit SHA, and GitHub run ID. Use unknown until a run ID is available. Recovery returns the last recorded CI operation for this session and component with an unknown outcome. Inspect the exact run when resuming. This avoids waiting in the current Codex turn. Observer installations must be refreshed from this revision before using the new checkpoint schema.
 
-The operator approved installing plugin 0.3.0 in the primary profile. The existing local marketplace now points to this development worktree. The CLI installed all five skill files. A fresh App Server skills/list query did not return the three development skills. Live activation remains unverified. The installed MCP registration continues to point at the original runtime checkout. An explicit stdio connection to this worktree with DeveloperTools returned all four developer tools and recovered the declared task with stale release evidence. One cold request including PowerShell startup, C# compilation and MCP initialization took 2.21 seconds with a 1199-byte packet before pending CI was added. CPU, private memory and model-visible token measurements are still open.
+## Installed integration and adaptive responses
 
-DI-1 includes the worktree checkpoint, provenance and pending CI identity. DI-2 remains experimental with unverified Desktop delivery. DI-3 confirms managed thread notification delivery and official window retrieval. Continuous delivery, turn and plan observations, token tracking, interruption classification and exhaustion-triggered checkpointing remain open. DI-4 supports opt-in developer tools and installed source skills. Desktop activation and unchanged-context replies still require qualification. DI-5 Studio monitoring remains open.
+Plugin 0.3.1 is installed with all five skills. A subsequent Codex session exposed reflex-continue, reflex-resume, and reflex-validate as available skills. This development task loaded reflex-continue. Automatic selection in the Desktop interface is unverified.
+
+The existing reflexcore registration can use -RuntimeRoot to keep the deployed queue, enable flag, project mappings and approvals in the runtime installation. The launcher worktree owns the developer observer, source fingerprint and build provenance. Before migration, save the current Codex configuration. Roll back by restoring the previous reflexcore entry from that backup. Keep only one registration and opt into developer tools with -DeveloperTools.
+
+A fresh managed Codex App Server used the migrated registration through mcpServer/tool/call. The recovery packet identified the declared next step and the edit to docs/MCP.md. The previous context revision returned an unchanged acknowledgement after source and build evidence were reconciled. A changed revision returns the current recovery packet. Use a known revision only with context held by the current task. Clear it after a thread change, compaction or uncertain delivery.
+
+Usage reads default to the local snapshot and report age. The two-minute threshold describes snapshot recency. Account identity remains unverified for cached observations. Pass refresh=yes to query the currently signed-in account explicitly. Cached reads avoid starting a Codex App Server and the integration has no polling loop.
+
+The installed connection measured 2623 ms and 1064 serialized packet bytes for a cold recovery. A warm unchanged reply took 925 ms and returned 107 bytes. A warm cache read took 144 ms. These are individual measurements with zero additional model turns. Component CPU costs, private memory and token savings remain unmeasured.
+
+## DI status
+
+- DI-1 has worktree-scoped checkpoints, release provenance, verified fixture evidence and pending CI identity. Terminal CI reconciliation remains open. The prior run 46072684420 was in progress at the continuation check.
+- DI-2 has optional native Desktop diagnostics. Live event delivery remains unverified.
+- DI-3 has official usage reads and one observed managed thread-start notification. Real turn, plan, token and exhaustion notifications and explicit thread restoration remain unqualified.
+- DI-4 has an installed single MCP registration, updated plugin, cached usage and a revision-aware unchanged acknowledgement. Changed results still return the complete bounded packet.
+- DI-5 Studio monitoring remains open.

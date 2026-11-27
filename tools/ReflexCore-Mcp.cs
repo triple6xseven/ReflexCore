@@ -14,13 +14,14 @@ namespace ReflexCore.Bridge
         readonly QueueStore queue;
         readonly Func<string> inspectBuild;
         readonly Func<string,string,string,string> readDeveloper;
-        readonly bool developerTools;
+        readonly bool developerTools, separateRuntime;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=20};
         bool initialized, ready;
 
-        McpServer(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read)
+        McpServer(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read,bool legacyRuntime)
         {
             root=project;
+            separateRuntime=legacyRuntime;
             inspectBuild=inspect;
             readDeveloper=read;
             developerTools=developer;
@@ -28,11 +29,11 @@ namespace ReflexCore.Bridge
             queue=new QueueStore(root);
         }
 
-        public static void Run(string project) { Run(project,null,false,null); }
+        public static void Run(string project) { Run(project,null,false,null,false); }
 
-        public static void Run(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read)
+        public static void Run(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read,bool legacyRuntime)
         {
-            var server=new McpServer(project,inspect,developer,read);
+            var server=new McpServer(project,inspect,developer,read,legacyRuntime);
             var line=new StringBuilder();
             int next;
             bool firstByte=true;
@@ -168,9 +169,9 @@ namespace ReflexCore.Bridge
                 Tool("list_combat_runs","Discover measured offline combat trials. Results use engine evidence, with no visual detector in the loop.",new[]{"runs"}),
                 Tool("get_combat_run","Read the stage and evidence for a specific offline combat trial.",new[]{"run"},new[]{"run_id"}),
                 Tool("compare_combat_runs","Compare a completed baseline and candidate from the same controlled scenario and suite.",
-                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task in a local component.",new[]{"packet"},null,new[]{"component","session"}),
+                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task or compare a known recovery revision.",new[]{"packet"},null,new[]{"component","session","known_revision"}),
                     Tool("get_checkpoint","Inspect a local recovery checkpoint.",new[]{"packet"},null,new[]{"component","session"}),
-                    Tool("get_usage_status","Read official usage windows on demand.",new[]{"packet"}),
+                    Tool("get_usage_status","Read the local usage snapshot. Pass refresh to query the signed-in account.",new[]{"packet"},null,new[]{"refresh"}),
                     Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile","worktree_recovery_test"})} : new object[0]).ToArray();
         }
 
@@ -181,12 +182,16 @@ namespace ReflexCore.Bridge
                 case "get_development_context":
                 case "get_checkpoint":
                 case "get_usage_status":
-                    if(!developerTools || readDeveloper==null || args.Keys.Any(k=>name=="get_usage_status" || (k!="component" && k!="session")))
+                    if(!developerTools || readDeveloper==null || args.Keys.Any(k=>name=="get_usage_status" ? k!="refresh" : k!="component" && k!="session" && (name!="get_development_context" || k!="known_revision")))
                         throw new ArgumentException("Unsupported developer request.");
                     var devScope=args.ContainsKey("component")?StringArg(args,"component"):"bridge";
                     var session=args.ContainsKey("session")?StringArg(args,"session"):"auto";
                     if((devScope!="mcp" && devScope!="bridge") || !System.Text.RegularExpressions.Regex.IsMatch(session,@"\A[A-Za-z0-9-]{1,64}\z"))
                         throw new ArgumentException("Invalid scope or session.");
+                    if(args.ContainsKey("refresh")) {
+                        if(StringArg(args,"refresh")!="yes")throw new ArgumentException("Use refresh=yes to query the account.");
+                        session="refresh";
+                    }
                     var packet=readDeveloper(name,session,devScope);
                     if(packet==null || Encoding.UTF8.GetByteCount(packet)>4096)throw new ArgumentException("Recovery packet unavailable.");
                     var recovered=Object(json.DeserializeObject(packet));
@@ -194,6 +199,16 @@ namespace ReflexCore.Bridge
                         var evidence=BuildEvidence();
                         recovered["release_build"]=evidence["build"];
                         recovered["worktree_recovery_test"]=evidence["worktree_recovery_test"];
+                        string revision;
+                        using(var sha=System.Security.Cryptography.SHA256.Create())
+                            revision=BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(json.Serialize(recovered)))).Replace("-","").ToLowerInvariant();
+                        recovered["context_revision"]=revision;
+                        if(args.ContainsKey("known_revision")) {
+                            var known=StringArg(args,"known_revision");
+                            if(!System.Text.RegularExpressions.Regex.IsMatch(known,@"\A[0-9a-f]{64}\z"))
+                                throw new ArgumentException("Invalid recovery revision.");
+                            if(known==revision)return new {packet=new {state="unchanged",context_revision=revision}};
+                        }
                     }
                     return new {packet=recovered};
                 case "get_validation_evidence":
@@ -384,6 +399,7 @@ namespace ReflexCore.Bridge
         }
         object ReadRegistry()
         {
+            if(separateRuntime)return ReadRegistryCore();
             var checkout=Path.Combine(root,".git");
             if(!File.Exists(checkout) && !Directory.Exists(checkout))return ReadRegistryCore();
             var exe=Path.Combine(root,"target","release","reflexcore.exe");
