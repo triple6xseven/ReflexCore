@@ -2,6 +2,8 @@
 
 ## Unreleased — 0.8.3 universal skill foundation
 
+- Submit single- and double-copy editor compositions through Studio or MCP, review the immutable request, and track the attempt through the queue. Cover abrupt worker exit and contain the owned WinForms fixture.
+
 - Support a second verified copy from a verified intermediate with the same sequential executor. Expose composition descriptors through read-only MCP discovery.
 - Add a direct verified text-copy composition with explicit permissions and no-overwrite publication.
 - Add opt-in, single-use NTFS source validation for saved-text fixture transfers.

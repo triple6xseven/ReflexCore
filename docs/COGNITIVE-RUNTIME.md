@@ -139,3 +139,7 @@ Run `tasks/Test-Queue.ps1 -UiaFixture` after building the release executable. Th
 The direct compose-text Goal passes a private verified source through a fixed four-step plan. Publication uses a newly created staging file and a no-replace rename by handle. See the [composition checkpoint](UNIVERSAL-SKILL-RUNTIME.md).
 
 Verified derived UTF-8 snapshots can feed a further transform in the same process. Each move consumes its predecessor; a historical receipt cannot replace that input.
+
+## Phase C approved composition checkpoint
+
+Queued four- and six-step compositions use the existing sequential executor. A task-bound immutable request, a single-use attempt claim and an independently checked terminal receipt connect execution to Studio and MCP. The owned WinForms fixture belongs to a kill-on-close Windows job. An abrupt exit may leave private staging files.

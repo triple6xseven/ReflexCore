@@ -28,3 +28,7 @@ manifests against explicitly trusted adapters.
 Phase C now includes a direct executable verify-and-derive Goal for both editor bindings. Queue integration remains pending.
 
 Phase C checkpoint: two sequential plans reuse typed operations across both editor bindings. Studio submission, approved MCP execution and paired resource evaluation remain open.
+
+## Phase C approved composition checkpoint
+
+Finish phase C qualification with full editor-to-receipt paired timing, process-tree resources and supervisor loss at terminal commit. For phase D, begin with read-only inspection of an unfamiliar application. Admit a proposed binding to the registry only after testing its typed ports, capability restrictions and independent effect verifier on a held-out fixture.

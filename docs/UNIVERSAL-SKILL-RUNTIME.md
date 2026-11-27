@@ -284,3 +284,7 @@ Measure paired resource usage and qualify crash recovery before closing C.
 Phase D begins only after C acceptance, with read-only candidate discovery;
 admission needs a versioned operation with declared ports, capabilities,
 adapter restrictions, verifier and independently validated fixture evidence.
+
+## Phase C approved composition checkpoint
+
+In Studio open Agent → Skill Library → Compose text. Choose an editor, destination and suffix. Enable the second copy to chain another verified output. Submit, select the pending task, then choose Approve selected and review its exact inputs. The queue shows progress and the terminal publication count when available.

@@ -33,3 +33,7 @@ Run tasks/Test-Queue.ps1 for recovery, fresh approval, cross-process exclusion, 
 The existing tray queue supervises both handoff checks and approved extension renames. Extension renames cooperate with scoped cancellation between moves. Handoff summary counts and rename counts are available in terminal receipts. Report locations and workflow inputs remain in private sidecars. Select a completed handoff check in Studio to open its correlated report or preview the next step after a verified Ready result. See [Verify a Handoff Folder](HANDOFF-FOLDER.md).
 
 Composition discovery currently advertises direct CLI execution. The queue still rejects attempts to invoke compose-text through a job manifest pending exact-plan Studio approval.
+
+## Phase C approved composition checkpoint
+
+The supervisor verifies the reviewed request digest and task ID before launching compose-text.ps1. The worker spends the run-specific claim once. An interrupted worker can leave published outputs. A missing terminal receipt leaves the count unknown; recovery must not repeat the operation.

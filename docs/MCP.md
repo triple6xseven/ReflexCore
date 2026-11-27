@@ -51,3 +51,7 @@ The fixture covers stdio initialization, tool discovery, the off switch, scope r
 For the owned combat fixture, use list_combat_runs for discovery, get_combat_run for a diagnosis by run ID, and compare_combat_runs for compatible pairs. The returned evidence separates command delivery, primary attack, discharge, and damage. See [the fixture and reproduction commands](CS16-BENCHMARK.md#offline-combat-fixture).
 
 The compositions array in list_skills describes the two CLI plans, typed ports, permissions and dependencies. Submission is direct_cli. This discovery result contains no artifact references or execution grant.
+
+## Phase C approved composition checkpoint
+
+Use submit_composition for a supported editor and output paths relative to a configured project. Studio approval is required before launch. Poll get_task_result with the returned task ID or call cancel_task. The client cannot approve its own request.
