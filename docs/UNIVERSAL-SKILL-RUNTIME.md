@@ -177,3 +177,33 @@ executable, with an explicit deprecation state. **E** will qualify compatibility
 and reliability on held-out environments. **F** will require bounded declarative
 manifests, compatible versions, validated dependencies, trusted native adapters
 and revocation. These phases remain open. See [the official roadmap](ROADMAP.md).
+
+## C1 checkpoint: process-local verified source
+
+Set `REFLEXCORE_CHECK_ARTIFACT_TRANSFER=1` to exercise the private transfer
+on the final background or foreground WinForms readback, or on a Notepad
+fixture save. Public receipts retain their existing schema. Each source
+retains its directory chain and read-only file handle, denies shared write
+and delete, and records the adapter, attempt, length and SHA-256 for at most
+4096 bytes. Consumption takes ownership, checks the attempt and adapter and
+reads that handle again. Only local NTFS regular files with one link and a
+nonzero file index qualify. A returned byte snapshot can supply a derived
+copy; it gives no write access to the original.
+
+Windows defines the volume serial and file index in
+[handle information](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle).
+The source holds the object open throughout its lifetime under the documented
+[file sharing rules](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
+An open writer can prevent acquisition. The snapshot boundary is process-local.
+The public verifier cannot reconstruct a source or grant consumer permission.
+
+Reproduce with `cargo test --locked saved_text`, a release build, the switch
+above and `agent verified-demo --execute --background` or
+`tasks/Test-NotepadSkill.ps1 -AllowInput -Runs 1`. The concurrent fixture
+attempts a write and rename before allowing consumption to proceed. Timing
+percentiles for composition remain outstanding.
+
+Next checkpoint C2: preflight a bounded typed plan with a distinct consumer
+permission before launching the editor. Then pass the private source within
+the verifying process to a separately authorized derived-copy skill. C1
+exercises read-only transfer; C2 through C5 remain open.

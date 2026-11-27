@@ -165,6 +165,47 @@ pub(crate) fn winforms_folder(run: &str) -> Result<PathBuf, Fault> {
 }
 
 impl Binding {
+    /// Capture only an adapter-owned fixture. The private source cannot be reconstructed from a receipt.
+    pub(crate) fn artifact<'a>(
+        &self,
+        run: &'a str,
+        expected: &str,
+    ) -> Result<VerifiedArtifact<'a>, Fault> {
+        use sha2::{Digest, Sha256};
+        let path = match self.adapter {
+            Adapter::Winforms => winforms_folder(run)?.join("saved.txt"),
+            Adapter::Notepad => notepad_file(run, "fixture")?,
+        };
+        let (scope, path) =
+            crate::local_files::target(&path).map_err(|_| Fault::PreconditionFailed)?;
+        let mut file =
+            crate::local_files::open(&path, true, 1).map_err(|_| Fault::EffectUnknown)?;
+        let identity = file_identity(&file)?;
+        // Keep the source pinned while the existing verifier independently opens the same name.
+        let evidence = self.verify(run, &path, expected)?;
+        let bytes = artifact_bytes(&mut file)?;
+        if !matches_text(&bytes, expected, self.encoding) {
+            return Err(Fault::VerificationFailed);
+        }
+        Ok(VerifiedArtifact {
+            _scope: scope,
+            file,
+            identity,
+            evidence,
+            length: bytes.len(),
+            fingerprint: Sha256::digest(&bytes).into(),
+        })
+    }
+    pub(crate) fn verify_transfer<'a>(
+        &self,
+        run: &'a str,
+        expected: &str,
+    ) -> Result<Evidence<'a>, Fault> {
+        self.artifact(run, expected)?
+            .consume(run, self.adapter)
+            .map(|(evidence, _)| evidence)
+    }
+
     pub(crate) fn verify_winforms<'a>(
         &self,
         run: &'a str,
@@ -211,6 +252,84 @@ impl Binding {
     }
 }
 
+pub(crate) struct VerifiedArtifact<'a> {
+    _scope: crate::local_files::Directory,
+    file: std::fs::File,
+    identity: (u32, u32, u32),
+    evidence: Evidence<'a>,
+    length: usize,
+    fingerprint: [u8; 32],
+}
+
+fn file_identity(file: &std::fs::File) -> Result<(u32, u32, u32), Fault> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::{Foundation::HANDLE, Storage::FileSystem::*};
+    let handle = HANDLE(file.as_raw_handle());
+    let mut fs_name = [0u16; 32];
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe {
+        GetVolumeInformationByHandleW(handle, None, None, None, None, Some(&mut fs_name))
+            .map_err(|_| Fault::PreconditionFailed)?;
+        GetFileInformationByHandle(handle, &mut info).map_err(|_| Fault::EffectUnknown)?;
+    }
+    if !fs_name.starts_with(&[78, 84, 70, 83, 0])
+        || info.nNumberOfLinks != 1
+        || (info.nFileIndexHigh == 0 && info.nFileIndexLow == 0)
+        || !file.metadata().map_err(|_| Fault::EffectUnknown)?.is_file()
+    {
+        return Err(Fault::PreconditionFailed);
+    }
+    Ok((
+        info.dwVolumeSerialNumber,
+        info.nFileIndexHigh,
+        info.nFileIndexLow,
+    ))
+}
+
+fn artifact_bytes(file: &mut std::fs::File) -> Result<Vec<u8>, Fault> {
+    use std::io::Seek;
+    if task_integrity::cancelled() {
+        return Err(Fault::CancelledUnknown);
+    }
+    file.rewind().map_err(|_| Fault::EffectUnknown)?;
+    let mut bytes = Vec::with_capacity(LIMIT + 1);
+    file.take(LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| Fault::EffectUnknown)?;
+    if bytes.len() > LIMIT {
+        return Err(Fault::VerificationFailed);
+    }
+    if task_integrity::cancelled() {
+        return Err(Fault::CancelledUnknown);
+    }
+    Ok(bytes)
+}
+
+impl<'a> VerifiedArtifact<'a> {
+    pub(crate) fn consume(
+        mut self,
+        run: &str,
+        adapter: Adapter,
+    ) -> Result<(Evidence<'a>, Vec<u8>), Fault> {
+        use sha2::{Digest, Sha256};
+        if run != self.evidence.run_id
+            || adapter != self.evidence.adapter
+            || file_identity(&self.file)? != self.identity
+        {
+            return Err(Fault::PreconditionFailed);
+        }
+        let bytes = artifact_bytes(&mut self.file)?;
+        if bytes.len() != self.length || Sha256::digest(&bytes)[..] != self.fingerprint {
+            return Err(Fault::VerificationFailed);
+        }
+        Ok((self.evidence, bytes))
+    }
+}
+
+pub(crate) fn transfer_check_enabled() -> bool {
+    std::env::var("REFLEXCORE_CHECK_ARTIFACT_TRANSFER").as_deref() == Ok("1")
+}
+
 fn notepad_file(run: &str, scope: &str) -> Result<PathBuf, Fault> {
     use windows::Win32::{
         System::Com::CoTaskMemFree,
@@ -250,7 +369,12 @@ pub(crate) fn verify_notepad(run: &str, scope: &str) -> crate::Result<()> {
     let text = std::env::var("REFLEXCORE_EXPECTED_TEXT").map_err(|_| Fault::PreconditionFailed)?;
     let start = Instant::now();
     loop {
-        match binding.verify(run, &path, &text) {
+        let verified = if scope == "fixture" && transfer_check_enabled() {
+            binding.verify_transfer(run, &text)
+        } else {
+            binding.verify(run, &path, &text)
+        };
+        match verified {
             Ok(receipt) => {
                 println!("{}", serde_json::to_string(&receipt)?);
                 return Ok(());
@@ -283,6 +407,37 @@ mod tests {
         assert!(bind(ID, 1, Adapter::Winforms, true).is_ok());
         assert!(notepad_file("../old", "fixture").is_err());
         assert!(notepad_file(&"a".repeat(32), "untrusted").is_err());
+    }
+
+    #[test]
+    fn pinned_source() {
+        let run = task_integrity::run_id();
+        let dir = winforms_folder(&run).unwrap();
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("saved.txt");
+        std::fs::write(&path, "transfer").unwrap();
+        let binding = bind(ID, 1, Adapter::Winforms, true).unwrap();
+        let issue = || binding.artifact(&run, "transfer").unwrap();
+        let source = issue();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                assert!(std::fs::write(&path, "changed").is_err());
+                assert!(std::fs::rename(&path, dir.join("moved")).is_err());
+            })
+            .join()
+            .unwrap();
+        });
+        assert_eq!(
+            source.consume(&run, Adapter::Winforms).unwrap().1,
+            b"transfer"
+        );
+        assert!(issue().consume("foreign", Adapter::Winforms).is_err());
+        let alias = dir.join("alias");
+        std::fs::hard_link(&path, &alias).unwrap();
+        assert!(binding.artifact(&run, "transfer").is_err());
+        std::fs::remove_file(alias).unwrap();
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
     }
 
     #[test]

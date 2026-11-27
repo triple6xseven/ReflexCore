@@ -2,6 +2,8 @@
 
 ## Unreleased — 0.8.3 universal skill foundation
 
+- Add opt-in, single-use NTFS source validation for saved-text fixture transfers.
+
 - Bind queued WinForms and Notepad success to the supervisor's expected editor
   and launch ID. Missing or foreign evidence leaves a save unverified. An
   accepted stop before terminal publication also wins after worker exit.

@@ -606,7 +606,9 @@ pub(crate) fn verified_demo(background: bool, run: &str) -> Result<crate::skill_
             }
         })?;
     }
-    let evidence = binding.verify_winforms(run, expected)?;
+    let evidence = if saved_text::transfer_check_enabled() {
+        binding.verify_transfer(run, expected)?
+    } else { binding.verify_winforms(run, expected)? };
     if measure {
         println!("{}", serde_json::json!({"schema":"reflexcore.skill.timing.v1", "run_id":run,
             "bind_ns":bind_ns, "plan_us":plan_us, "actions":timings}));
