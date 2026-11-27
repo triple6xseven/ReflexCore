@@ -29,6 +29,8 @@ try {
     Copy-Item -LiteralPath $exe -Destination ".git/reflex-observer/$hash.exe"
     [IO.File]::WriteAllText((Join-Path $root '.git/reflex-observer/active-v2'),$hash)
     $null=RunObserver @('declare','original','bridge','Test interrupted recovery','Inspect the changed entry point')
+    $commit = git rev-parse HEAD
+    $null = RunObserver @('pending-ci','original','bridge',$commit,'123456789')
     Fire PreToolUse apply_patch @{}
     Add-Content src/main.rs '// fixture mutation'
     Fire PostToolUse apply_patch @{}
@@ -39,6 +41,9 @@ try {
     $packet=(Resume).structuredContent.packet
     $timer.Stop()
     if($packet.declared.next -ne 'Inspect the changed entry point' -or $packet.changed_inputs_since_declaration -notcontains 'src/main.rs' -or $packet.recent_events_newest_first[0] -ne 'test-started' -or $packet.effect -ne 'unknown'){throw 'Missing interrupted state'}
+    if($packet.pending_ci.commit -cne $commit -or $packet.pending_ci.run_id -cne '123456789' -or $packet.pending_ci.outcome -cne 'unknown'){
+        throw 'Pending CI was lost or interpreted as a completed operation'
+    }
     $bytes=[Text.Encoding]::UTF8.GetByteCount(($packet|ConvertTo-Json -Depth 5 -Compress))
     if($bytes -gt 4096){throw 'Recovery exceeds budget'}
     "PASS: cold MCP recovery in $($timer.ElapsedMilliseconds) ms, $bytes UTF-8 packet bytes, no development target present."

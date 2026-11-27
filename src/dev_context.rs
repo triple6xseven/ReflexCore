@@ -125,6 +125,15 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     };
     let event = match (action.as_str(), rest) {
         ("status" | "resume", []) => None,
+        ("pending-ci", [commit, run])
+            if commit.len() == 40
+                && commit
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                && (run == "unknown" || (run.len() <= 20 && run.parse::<u64>().is_ok())) =>
+        {
+            None
+        }
         ("declare", [objective, next])
             if [objective, next]
                 .iter()
@@ -183,14 +192,15 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     let mut changed: Option<Vec<String>> = None;
     let mut in_flight = Vec::<String>::new();
     let mut last_returned: Option<String> = None;
+    let mut pending_ci = None;
     let mut history = Vec::<String>::new();
-    if event.is_some() || action == "declare" || db_path.exists() {
+    if event.is_some() || matches!(action.as_str(), "declare" | "pending-ci") || db_path.exists() {
         let mut db = Connection::open(db_path)?;
         db.busy_timeout(std::time::Duration::from_secs(2))?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS checkpoint(tree TEXT, session TEXT, component TEXT, revision TEXT, event TEXT, PRIMARY KEY(tree,session,component));")?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 4 {
+        if version > 5 {
             return Err("Unsupported checkpoint schema".into());
         }
         if version < 2 {
@@ -203,6 +213,19 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         }
         if version < 4 {
             tx.execute_batch("ALTER TABLE observation ADD COLUMN call_key TEXT; CREATE UNIQUE INDEX observation_call ON observation(tree,session,component,call_key,event) WHERE call_key IS NOT NULL; PRAGMA user_version=4;")?;
+        }
+        if version < 5 {
+            tx.execute_batch(
+                "CREATE TABLE pending_ci(tree TEXT, session TEXT, component TEXT, commit_sha TEXT, run_id TEXT, PRIMARY KEY(tree,session,component));
+                 PRAGMA user_version=5;",
+            )?;
+        }
+        if action == "pending-ci" {
+            tx.execute(
+                "INSERT OR REPLACE INTO pending_ci VALUES(?1,?2,?3,?4,?5)",
+                params![tree, session, component, rest[0], rest[1]],
+            )?;
+            tx.execute("DELETE FROM pending_ci WHERE rowid IN (SELECT rowid FROM pending_ci ORDER BY rowid DESC LIMIT -1 OFFSET 256)",[])?;
         }
         if auto {
             let mut q =
@@ -246,6 +269,8 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         }
         previous = tx.query_row("SELECT revision,event FROM checkpoint WHERE tree=?1 AND session=?2 AND component=?3",params![tree,session,component],|r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
         if action == "resume" {
+            pending_ci = tx.query_row("SELECT commit_sha,run_id FROM pending_ci WHERE tree=?1 AND session=?2 AND component=?3",
+                params![tree,session,component],|r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
             declared=tx.query_row("SELECT objective,next,baseline FROM intent WHERE tree=?1 AND session=?2 AND component=?3",params![tree,session,component],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
             for op in ["mutation", "build", "test"] {
                 let last: Option<String>=tx.query_row("SELECT event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 AND call_key IS NULL AND event IN (?4,?5) ORDER BY id DESC LIMIT 1",params![tree,session,component,format!("{op}-started"),format!("{op}-returned")],|r| r.get(0)).optional()?;
@@ -308,7 +333,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             "{}",
             json!({"v":2,"scope":component,"tree":tree,"session_key":session,"revision":rev,"checkpoint":freshness,
             "declared":declared.map(|(objective,next,base)|json!({"objective":objective,"next":next,"source_changed_since_declaration":base!=rev})),
-            "native_hook_arrivals":arrivals,"last_observed_return":last_returned,"unresolved_operation_classes":in_flight,"changed_inputs_since_declaration":changed,"recent_events_newest_first":history,"effect":"unknown","references":files,"verified_evidence":null})
+            "pending_ci":pending_ci.map(|(commit,id)|json!({"commit":commit,"run_id":(id!="unknown").then_some(id),"outcome":"unknown"})),"native_hook_arrivals":arrivals,"last_observed_return":last_returned,"unresolved_operation_classes":in_flight,"changed_inputs_since_declaration":changed,"recent_events_newest_first":history,"effect":"unknown","references":files,"verified_evidence":null})
         );
         return Ok(());
     }
