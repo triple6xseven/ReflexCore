@@ -111,7 +111,7 @@ namespace ReflexCore.Bridge
                     var version=StringArg(Object(Get(message,"params")),"protocolVersion");
                     initialized=true;
                     Reply(id,new {protocolVersion=version=="2024-11-05" || version=="2025-11-25"?version:"2025-06-18",
-                        capabilities=new {tools=new {}},serverInfo=new {name="reflexcore",version="0.2.0"}});
+                        capabilities=new {tools=new {}},serverInfo=new {name="reflexcore",version="0.3.0"}});
                     return;
                 }
                 if(method=="ping"){Reply(id,new {});return;}
@@ -183,11 +183,11 @@ namespace ReflexCore.Bridge
                 case "get_usage_status":
                     if(!developerTools || readDeveloper==null || args.Keys.Any(k=>name=="get_usage_status" || (k!="component" && k!="session")))
                         throw new ArgumentException("Unsupported developer request.");
-                    var scope=args.ContainsKey("component")?StringArg(args,"component"):"bridge";
+                    var devScope=args.ContainsKey("component")?StringArg(args,"component"):"bridge";
                     var session=args.ContainsKey("session")?StringArg(args,"session"):"auto";
-                    if((scope!="mcp" && scope!="bridge") || !System.Text.RegularExpressions.Regex.IsMatch(session,@"\A[A-Za-z0-9-]{1,64}\z"))
+                    if((devScope!="mcp" && devScope!="bridge") || !System.Text.RegularExpressions.Regex.IsMatch(session,@"\A[A-Za-z0-9-]{1,64}\z"))
                         throw new ArgumentException("Invalid scope or session.");
-                    var packet=readDeveloper(name,session,scope);
+                    var packet=readDeveloper(name,session,devScope);
                     if(packet==null || Encoding.UTF8.GetByteCount(packet)>4096)throw new ArgumentException("Recovery packet unavailable.");
                     return new {packet=Object(json.DeserializeObject(packet))};
                 case "get_validation_evidence":

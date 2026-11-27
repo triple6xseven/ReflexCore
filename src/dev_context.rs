@@ -15,6 +15,10 @@ const COMMON: &[&str] = &["AGENTS.md", "Cargo.toml", "Cargo.lock", "docs/ROADMAP
 const BRIDGE: &[&str] = &[
     "src/main.rs",
     "src/dev_context.rs",
+    "src/bin/reflex-observer.rs",
+    "tools/Invoke-DevObserver.ps1",
+    "tools/Record-DevHook.ps1",
+    "tools/Set-DevHooks.ps1",
     "docs/CODEX-INTEGRATION.md",
 ];
 const MCP: &[&str] = &[
@@ -42,15 +46,29 @@ fn field(h: &mut Sha256, bytes: &[u8]) {
     h.update((bytes.len() as u64).to_le_bytes());
     h.update(bytes);
 }
-fn revision(root: &Path, files: &[&str]) -> Result<String> {
+type Inputs = std::collections::BTreeMap<String, String>;
+fn revision(root: &Path, files: &[&str]) -> Result<(String, Inputs)> {
+    let mut inputs = Inputs::new();
+    let mut names = std::collections::BTreeSet::new();
+    for name in COMMON.iter().chain(files) {
+        names.insert(name.to_string());
+        for parent in Path::new(name).ancestors().skip(1) {
+            names.insert(
+                parent
+                    .join("AGENTS.md")
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/"),
+            );
+        }
+    }
     let mut h = Sha256::new();
     field(&mut h, b"reflex.dev.context.v1");
     field(&mut h, &git(&["rev-parse", "HEAD"])?);
     field(&mut h, &git(&["rev-parse", "--abbrev-ref", "HEAD"])?);
     let mut index_args = vec!["ls-files", "--stage", "-z", "--"];
-    index_args.extend(COMMON.iter().chain(files).copied());
+    index_args.extend(names.iter().map(String::as_str));
     field(&mut h, &git(&index_args)?);
-    for file in COMMON.iter().chain(files) {
+    for file in &names {
         field(&mut h, file.as_bytes());
 
         let mut path = root.to_owned();
@@ -68,6 +86,7 @@ fn revision(root: &Path, files: &[&str]) -> Result<String> {
             }
         }
         if missing {
+            inputs.insert(file.clone(), "missing".into());
             field(&mut h, b"missing");
             continue;
         }
@@ -82,9 +101,10 @@ fn revision(root: &Path, files: &[&str]) -> Result<String> {
             return Err("Context input exceeds budget".into());
         }
         field(&mut h, b"file");
+        inputs.insert(file.clone(), format!("{:x}", Sha256::digest(&bytes)));
         field(&mut h, &bytes);
     }
-    Ok(format!("{:x}", h.finalize()))
+    Ok((format!("{:x}", h.finalize()), inputs))
 }
 pub(crate) fn run(args: &[String]) -> Result<()> {
     let [action, session, component, rest @ ..] = args else {
@@ -138,13 +158,16 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     let tree = format!("{:x}", Sha256::digest(dir.as_os_str().as_encoded_bytes()));
     let auto = action == "resume" && session == "auto";
     let mut session = format!("{:x}", Sha256::digest(session.as_bytes()));
-    let rev = revision(&root, files)?;
-    if revision(&root, files)? != rev {
+    let (rev, inputs) = revision(&root, files)?;
+    if revision(&root, files)? != (rev.clone(), inputs.clone()) {
         return Err("Uncertain: inputs changed during observation".into());
     }
     let db_path = dir.join("reflex-dev-context-v1.sqlite");
     let mut previous = None;
     let mut declared: Option<(String, String, String)> = None;
+    let mut changed: Option<Vec<String>> = None;
+    let mut in_flight = Vec::<String>::new();
+    let mut last_returned: Option<String> = None;
     let mut history = Vec::<String>::new();
     if event.is_some() || action == "declare" || db_path.exists() {
         let mut db = Connection::open(db_path)?;
@@ -152,13 +175,16 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         db.execute_batch("CREATE TABLE IF NOT EXISTS checkpoint(tree TEXT, session TEXT, component TEXT, revision TEXT, event TEXT, PRIMARY KEY(tree,session,component));")?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 2 {
+        if version > 3 {
             return Err("Unsupported checkpoint schema".into());
         }
         if version < 2 {
             tx.execute_batch("CREATE TABLE IF NOT EXISTS intent(tree TEXT, session TEXT, component TEXT, objective TEXT, next TEXT, baseline TEXT, PRIMARY KEY(tree,session,component));
                 CREATE TABLE IF NOT EXISTS observation(id INTEGER PRIMARY KEY, tree TEXT, session TEXT, component TEXT, revision TEXT, event TEXT);
                 PRAGMA user_version=2;")?;
+        }
+        if version < 3 {
+            tx.execute_batch("ALTER TABLE intent ADD COLUMN inputs TEXT; PRAGMA user_version=3;")?;
         }
         if auto {
             let mut q =
@@ -177,8 +203,16 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         }
         if action == "declare" {
             tx.execute(
-                "INSERT OR REPLACE INTO intent VALUES(?1,?2,?3,?4,?5,?6)",
-                params![tree, session, component, rest[0], rest[1], rev],
+                "INSERT OR REPLACE INTO intent VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![
+                    tree,
+                    session,
+                    component,
+                    rest[0],
+                    rest[1],
+                    rev,
+                    serde_json::to_string(&inputs)?
+                ],
             )?;
             tx.execute("DELETE FROM intent WHERE rowid IN (SELECT rowid FROM intent ORDER BY rowid DESC LIMIT -1 OFFSET 256)",[])?;
         }
@@ -191,6 +225,31 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         previous = tx.query_row("SELECT revision,event FROM checkpoint WHERE tree=?1 AND session=?2 AND component=?3",params![tree,session,component],|r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
         if action == "resume" {
             declared=tx.query_row("SELECT objective,next,baseline FROM intent WHERE tree=?1 AND session=?2 AND component=?3",params![tree,session,component],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+            for op in ["mutation", "build", "test"] {
+                let last: Option<String>=tx.query_row("SELECT event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 AND event IN (?4,?5) ORDER BY id DESC LIMIT 1",params![tree,session,component,format!("{op}-started"),format!("{op}-returned")],|r| r.get(0)).optional()?;
+                if last.as_deref().is_some_and(|v| v.ends_with("-started")) {
+                    in_flight.push(op.to_string());
+                }
+            }
+            last_returned=tx.query_row("SELECT event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 AND event LIKE '%-returned' ORDER BY id DESC LIMIT 1",params![tree,session,component],|r|r.get(0)).optional()?;
+            let prior: Option<String> = tx
+                .query_row(
+                    "SELECT inputs FROM intent WHERE tree=?1 AND session=?2 AND component=?3",
+                    params![tree, session, component],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten();
+            if let Some(prior) = prior {
+                let baseline: Inputs = serde_json::from_str(&prior)?;
+                changed = Some(
+                    inputs
+                        .iter()
+                        .filter(|(k, v)| baseline.get(*k) != Some(*v))
+                        .map(|(k, _)| k.clone())
+                        .collect(),
+                );
+            }
             let mut q=tx.prepare("SELECT event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 ORDER BY id DESC LIMIT 12")?;
             history = q
                 .query_map(params![tree, session, component], |r| r.get(0))?
@@ -208,7 +267,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             "{}",
             json!({"v":2,"scope":component,"tree":tree,"session_key":session,"revision":rev,"checkpoint":freshness,
             "declared":declared.map(|(objective,next,base)|json!({"objective":objective,"next":next,"source_changed_since_declaration":base!=rev})),
-            "recent_events_newest_first":history,"effect":"unknown","references":files,"verified_evidence":null})
+            "last_observed_return":last_returned,"unresolved_operation_classes":in_flight,"changed_inputs_since_declaration":changed,"recent_events_newest_first":history,"effect":"unknown","references":files,"verified_evidence":null})
         );
         return Ok(());
     }

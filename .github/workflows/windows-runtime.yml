@@ -18,6 +18,7 @@ jobs:
           try {
             ./tasks/Test-DevRegistry.ps1
             ./tasks/Test-DevBuildIsolation.ps1
+            ./tasks/Test-DevResume.ps1
           } catch {
             Write-Host ("::error::{0} (line {1})" -f $_.Exception.Message,$_.InvocationInfo.ScriptLineNumber)
             throw
