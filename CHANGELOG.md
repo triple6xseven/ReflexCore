@@ -2,6 +2,7 @@
 
 ## Unreleased — 0.8.3 universal skill foundation
 
+- Add a direct verified text-copy composition with explicit permissions and no-overwrite publication.
 - Add opt-in, single-use NTFS source validation for saved-text fixture transfers.
 
 - Bind queued WinForms and Notepad success to the supervisor's expected editor

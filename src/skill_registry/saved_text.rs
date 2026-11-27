@@ -165,6 +165,7 @@ pub(crate) fn winforms_folder(run: &str) -> Result<PathBuf, Fault> {
 }
 
 impl Binding {
+    pub(super) fn matches_snapshot(&self, bytes:&[u8], text:&str)->bool {matches_text(bytes,text,self.encoding)}
     /// Capture only an adapter-owned fixture. The private source cannot be reconstructed from a receipt.
     pub(crate) fn artifact<'a>(
         &self,
@@ -261,7 +262,7 @@ pub(crate) struct VerifiedArtifact<'a> {
     fingerprint: [u8; 32],
 }
 
-fn file_identity(file: &std::fs::File) -> Result<(u32, u32, u32), Fault> {
+pub(super) fn file_identity(file: &std::fs::File) -> Result<(u32, u32, u32), Fault> {
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::{Foundation::HANDLE, Storage::FileSystem::*};
     let handle = HANDLE(file.as_raw_handle());

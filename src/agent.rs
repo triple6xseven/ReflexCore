@@ -408,6 +408,7 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         return print_status();
     }
+    if command == "compose-text" { return crate::skill_registry::composition::run(&args[1..]); }
     if command == "verified-demo" {
         let background = match &args[1..] {
             [execute] if execute == "--execute" => false,
@@ -415,7 +416,7 @@ pub fn run(args: &[String]) -> Result<()> {
             _ => return Err("Usage: agent verified-demo --execute [--background]".into()),
         };
         let run_id = crate::task_integrity::editor_run_id()?;
-        let result = crate::flow::verified_demo(background, &run_id);
+        let result = crate::flow::verified_demo(background, &run_id,None);
         let fault = result.as_ref().err().map(|error| error.downcast_ref::<crate::task_integrity::Fault>()
             .copied().unwrap_or(crate::task_integrity::Fault::Infrastructure));
         crate::task_integrity::write_goal_receipt(&run_id, fault, result.is_ok(), result.as_ref().ok())?;

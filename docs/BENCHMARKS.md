@@ -541,3 +541,7 @@ The last valid job completed after all the rejected cases.
 .\tasks\Test-Queue.ps1 -AllowInput
 .\tasks\Test-Queue.ps1 -UiaFixture
 ```
+
+### Text composition acceptance
+
+With the session worker selected, one interactive Windows pass per mode took 949 ms (foreground WinForms), 997 ms (background WinForms) and 2236 ms (Notepad), measured from the harness including external file checks. All three originals and UTF-8 derived copies matched. The background foreground-window probe sampled every 30 ms. These single observations do not establish tail latency, resource use or a speedup. An initial PowerShell 5.1 harness failed to obtain the background exit code through Start-Process; the corrected harness owns the Process instance. See tasks/Test-TextComposition.ps1.

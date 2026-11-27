@@ -42,6 +42,7 @@
 
 !/tasks/notepad-save.ps1
 !/tasks/notepad-visual.ps1
+!/tasks/Test-TextComposition.ps1
 !/tasks/Test-Queue.ps1
 !/tasks/verify-handoff.ps1
 !/tasks/Test-Handoff.ps1

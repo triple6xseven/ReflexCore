@@ -1,5 +1,6 @@
 use serde::Serialize;
 pub(crate) mod saved_text;
+pub(crate) mod composition;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

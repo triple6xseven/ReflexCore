@@ -207,3 +207,42 @@ Next checkpoint C2: preflight a bounded typed plan with a distinct consumer
 permission before launching the editor. Then pass the private source within
 the verifying process to a separately authorized derived-copy skill. C1
 exercises read-only transfer; C2 through C5 remain open.
+
+## C2/C3 checkpoint: compose a verified text copy
+
+Run from the repository root after a locked release build. Choose an existing
+local NTFS parent and a fresh output name. The five explicit grants apply to
+this direct invocation only. Available producers are `notepad`, `winforms`
+and `winforms-background`.
+
+```powershell
+$path = Join-Path $env:TEMP ('derived-' + [guid]::NewGuid() + '.txt')
+.\target\release\reflexcore.exe agent compose-text winforms-background $path ' — reviewed' --create --verify --consume --derive --publish
+.\tasks\Test-TextComposition.ps1 -AllowInput
+```
+
+The only admitted plan is editor.create_document → artifact.verify_saved_text
+→ artifact.derive_text → artifact.verify_derived (all v1). Preflight checks
+the complete ordered chain, grants, adapter capabilities, suffix budget and
+destination before launching the editor. Rust passes the private live source
+by value into the consumer. The consumer rechecks the pinned object, consumes
+one snapshot, checks its encoding against the verified text and emits UTF-8
+without a BOM, preserving scalar values and line endings. A new acquisition can
+yield another snapshot. After consumption the source is free to change. If
+replacement happened before acquisition, matching text cannot establish the
+identity of the object the editor originally opened.
+
+Derived bytes are staged in a newly created file in the pinned destination
+directory. Independent reads check its identity and exact contents both before
+and after no-replace rename by handle. The writer denies competing writes and
+deletes until terminal readback. Dropping unpublished staging requests deletion
+by handle. Process termination can strand a staging file. Cancellation after
+publication can leave a complete copy. Both applications retain their original
+fixture; synthetic files remain local for inspection. Receipts contain skill
+versions, adapter and run identity. No receipt carries executable authority.
+
+Current entry is CLI-only. Global stop and a deadline are checked at skill
+boundaries; the WinForms producer retains its existing per-action deadlines.
+Queue stop ordering has not been qualified for the new workflow. Next checkpoint:
+add cooperative interruption probes at each dispatch and publication boundary,
+worker-crash recovery, and a paired resource benchmark before Studio/MCP submission.

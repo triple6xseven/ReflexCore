@@ -111,6 +111,14 @@ impl Directory {
         }
         Ok(dir)
     }
+    pub(crate) fn require_ntfs(&self)->io::Result<()> {
+        use windows::Win32::Storage::FileSystem::GetVolumeInformationByHandleW;
+        let mut name=[0u16;32];
+        let dir=self._pins.last().ok_or_else(invalid)?;
+        unsafe {GetVolumeInformationByHandleW(HANDLE(dir.as_raw_handle()),None,None,None,None,Some(&mut name))}.map_err(|_|invalid())?;
+        if !name.starts_with(&[78,84,70,83,0]) { return Err(invalid()); }
+        Ok(())
+    }
     pub fn physical(&self) -> io::Result<PathBuf> {
         physical(self._pins.last().ok_or_else(invalid)?)
     }

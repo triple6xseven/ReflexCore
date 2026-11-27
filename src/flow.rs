@@ -461,13 +461,13 @@ fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixturePro
     Ok((fixture, hwnd))
 }
 
-struct FixtureArtifact(PathBuf);
+struct FixtureArtifact(PathBuf, bool);
 
 impl FixtureArtifact {
     fn new(run: &str) -> Result<Self> {
         let dir = crate::skill_registry::saved_text::winforms_folder(run)?;
         fs::create_dir(&dir)?;
-        Ok(Self(dir))
+        Ok(Self(dir, false))
     }
 
     fn path(&self) -> PathBuf {
@@ -477,6 +477,7 @@ impl FixtureArtifact {
 
 impl Drop for FixtureArtifact {
     fn drop(&mut self) {
+        if self.1 { return; } // A composed Goal retains its original synthetic document.
         let _ = fs::remove_file(self.path());
         let _ = fs::remove_dir(&self.0);
     }
@@ -524,7 +525,7 @@ fn verify_transition<T>(
     }
 }
 
-pub(crate) fn verified_demo(background: bool, run: &str) -> Result<crate::skill_registry::saved_text::Evidence<'_>> {
+pub(crate) fn verified_demo<'a>(background: bool, run: &'a str, composition: Option<&crate::skill_registry::composition::Plan>) -> Result<crate::skill_registry::saved_text::Evidence<'a>> {
     use crate::skill_registry::saved_text::{self, Adapter};
     let start = Instant::now();
     let binding = saved_text::bind(saved_text::ID, 1, Adapter::Winforms, background)?;
@@ -540,7 +541,8 @@ pub(crate) fn verified_demo(background: bool, run: &str) -> Result<crate::skill_
     let plan = crate::agent::plan_edges(FixtureState::Empty.id(), FixtureState::Saved.id(), &edges)?;
     let plan_us = planning.elapsed().as_micros();
     let _lock = FlowLock::acquire()?;
-    let artifact = FixtureArtifact::new(run)?;
+    let mut artifact = FixtureArtifact::new(run)?;
+    artifact.1 = composition.is_some();
     let path = artifact.path();
     let (fixture, hwnd) = start_fixture(Some(&path), background)?;
     let owned = (&*hwnd, fixture.0.id());
@@ -606,7 +608,7 @@ pub(crate) fn verified_demo(background: bool, run: &str) -> Result<crate::skill_
             }
         })?;
     }
-    let evidence = if saved_text::transfer_check_enabled() {
+    let evidence = if let Some(plan)=composition {plan.finish(run, expected)?} else if saved_text::transfer_check_enabled() {
         binding.verify_transfer(run, expected)?
     } else { binding.verify_winforms(run, expected)? };
     if measure {

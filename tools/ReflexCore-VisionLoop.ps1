@@ -24,6 +24,7 @@ param(
     [ValidateSet('Auto','Visual')][string]$Route='Auto',
     [switch]$TestFixture,
     [switch]$UnicodeFixture,
+    [ValidatePattern('\A[0-9a-f]{32}\z')][string]$CompositionRun,
     [switch]$TestNativeInput
 )
 $ErrorActionPreference='Stop'
@@ -537,7 +538,10 @@ try {
         if($bound.schema -cne 'reflexcore.skill.binding.v1' -or $bound.skill_id -cne 'artifact.verify_saved_text' -or
            $bound.skill_version -ne 1 -or $bound.binding.adapter -cne 'notepad' -or
            $bound.binding.contract_version -ne 1){throw 'Incompatible Notepad binding'}
-        $skillRun=if($env:REFLEXCORE_QUEUE_MANIFEST -and $null -ne $env:REFLEXCORE_EDITOR_RUN){
+        $skillRun=if($CompositionRun){
+            if(!$TestFixture -or $env:REFLEXCORE_QUEUE_MANIFEST){throw 'Composition requires a direct fixture run'}
+            $CompositionRun
+        }elseif($env:REFLEXCORE_QUEUE_MANIFEST -and $null -ne $env:REFLEXCORE_EDITOR_RUN){
             if($env:REFLEXCORE_EDITOR_RUN -cnotmatch '\A[0-9a-f]{32}\z'){throw 'Invalid editor run identity'}
             $env:REFLEXCORE_EDITOR_RUN
         }else{[guid]::NewGuid().ToString('N')}
