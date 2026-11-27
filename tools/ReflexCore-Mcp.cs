@@ -189,7 +189,9 @@ namespace ReflexCore.Bridge
                         throw new ArgumentException("Invalid scope or session.");
                     var packet=readDeveloper(name,session,devScope);
                     if(packet==null || Encoding.UTF8.GetByteCount(packet)>4096)throw new ArgumentException("Recovery packet unavailable.");
-                    return new {packet=Object(json.DeserializeObject(packet))};
+                    var recovered=Object(json.DeserializeObject(packet));
+                    if(name=="get_development_context")recovered["release_build"]=BuildStatus();
+                    return new {packet=recovered};
                 case "get_validation_evidence":
                     if(!developerTools || args.Count!=0)throw new ArgumentException("Unsupported tool or arguments.");
                     return new {build=BuildStatus(),profile="release"};

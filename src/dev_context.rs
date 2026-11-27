@@ -131,7 +131,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         {
             None
         }
-        ("record", [e])
+        ("record", [e] | [e, _])
             if matches!(
                 e.as_str(),
                 "mutation-started"
@@ -149,6 +149,20 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             Some(e)
         }
         _ => return Err("Unknown checkpoint operation".into()),
+    };
+    let call_key = if action == "record" && rest.len() == 2 {
+        let id = &rest[1];
+        if id.is_empty()
+            || id.len() > 128
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        {
+            return Err("Invalid tool call identity".into());
+        }
+        Some(format!("{:x}", Sha256::digest(id.as_bytes())))
+    } else {
+        None
     };
     let root = git_path("--show-toplevel")?;
     if fs::canonicalize(".")? != root {
@@ -175,7 +189,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         db.execute_batch("CREATE TABLE IF NOT EXISTS checkpoint(tree TEXT, session TEXT, component TEXT, revision TEXT, event TEXT, PRIMARY KEY(tree,session,component));")?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 3 {
+        if version > 4 {
             return Err("Unsupported checkpoint schema".into());
         }
         if version < 2 {
@@ -185,6 +199,9 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         }
         if version < 3 {
             tx.execute_batch("ALTER TABLE intent ADD COLUMN inputs TEXT; PRAGMA user_version=3;")?;
+        }
+        if version < 4 {
+            tx.execute_batch("ALTER TABLE observation ADD COLUMN call_key TEXT; CREATE UNIQUE INDEX observation_call ON observation(tree,session,component,call_key,event) WHERE call_key IS NOT NULL; PRAGMA user_version=4;")?;
         }
         if auto {
             let mut q =
@@ -217,7 +234,11 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             tx.execute("DELETE FROM intent WHERE rowid IN (SELECT rowid FROM intent ORDER BY rowid DESC LIMIT -1 OFFSET 256)",[])?;
         }
         if let Some(e) = event {
-            tx.execute("INSERT INTO observation(tree,session,component,revision,event) SELECT ?1,?2,?3,?4,?5 WHERE NOT EXISTS(SELECT 1 FROM (SELECT revision,event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 ORDER BY id DESC LIMIT 1) WHERE revision=?4 AND event=?5)",params![tree,session,component,rev,e])?;
+            if let Some(key) = &call_key {
+                tx.execute("INSERT OR IGNORE INTO observation(tree,session,component,revision,event,call_key) VALUES(?1,?2,?3,?4,?5,?6)",params![tree,session,component,rev,e,key])?;
+            } else {
+                tx.execute("INSERT INTO observation(tree,session,component,revision,event) SELECT ?1,?2,?3,?4,?5 WHERE NOT EXISTS(SELECT 1 FROM (SELECT revision,event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 ORDER BY id DESC LIMIT 1) WHERE revision=?4 AND event=?5)",params![tree,session,component,rev,e])?;
+            }
             tx.execute("DELETE FROM observation WHERE id IN (SELECT id FROM observation ORDER BY id DESC LIMIT -1 OFFSET 1024)",[])?;
             tx.execute("INSERT INTO checkpoint VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tree,session,component) DO UPDATE SET revision=excluded.revision,event=excluded.event WHERE revision<>excluded.revision OR event<>excluded.event", params![tree,session,component,rev,e])?;
             tx.execute("DELETE FROM checkpoint WHERE rowid IN (SELECT rowid FROM checkpoint ORDER BY rowid DESC LIMIT -1 OFFSET 256)", [])?;
@@ -226,8 +247,9 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         if action == "resume" {
             declared=tx.query_row("SELECT objective,next,baseline FROM intent WHERE tree=?1 AND session=?2 AND component=?3",params![tree,session,component],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
             for op in ["mutation", "build", "test"] {
-                let last: Option<String>=tx.query_row("SELECT event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 AND event IN (?4,?5) ORDER BY id DESC LIMIT 1",params![tree,session,component,format!("{op}-started"),format!("{op}-returned")],|r| r.get(0)).optional()?;
-                if last.as_deref().is_some_and(|v| v.ends_with("-started")) {
+                let last: Option<String>=tx.query_row("SELECT event FROM observation WHERE tree=?1 AND session=?2 AND component=?3 AND call_key IS NULL AND event IN (?4,?5) ORDER BY id DESC LIMIT 1",params![tree,session,component,format!("{op}-started"),format!("{op}-returned")],|r| r.get(0)).optional()?;
+                let unmatched: bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM observation s WHERE s.tree=?1 AND s.session=?2 AND s.component=?3 AND s.event=?4 AND s.call_key IS NOT NULL AND NOT EXISTS(SELECT 1 FROM observation r WHERE r.tree=s.tree AND r.session=s.session AND r.component=s.component AND r.call_key=s.call_key AND r.event=?5))",params![tree,session,component,format!("{op}-started"),format!("{op}-returned")],|r|r.get(0))?;
+                if unmatched || last.as_deref().is_some_and(|v| v.ends_with("-started")) {
                     in_flight.push(op.to_string());
                 }
             }

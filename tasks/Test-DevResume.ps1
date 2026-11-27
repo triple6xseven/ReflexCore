@@ -42,11 +42,18 @@ try {
     $bytes=[Text.Encoding]::UTF8.GetByteCount(($packet|ConvertTo-Json -Depth 5 -Compress))
     if($bytes -gt 4096){throw 'Recovery exceeds budget'}
     "PASS: cold MCP recovery in $($timer.ElapsedMilliseconds) ms, $bytes UTF-8 packet bytes, no development target present."
+    if($packet.release_build -ne 'unknown'){throw 'Unbuilt target received release evidence'}
+    $null=RunObserver @('record','original','bridge','build-started','call-a')
+    $null=RunObserver @('record','original','bridge','build-started','call-b')
+    $null=RunObserver @('record','original','bridge','build-returned','call-b')
+    $null=RunObserver @('record','original','bridge','build-returned','call-b')
+    $active=(Resume).structuredContent.packet
+    if($active.unresolved_operation_classes -notcontains 'build' -or @($active.recent_events_newest_first|Where-Object {$_ -eq 'build-returned'}).Count -ne 1){throw 'Concurrent or duplicate tool delivery misclassified'}
     Fire PreCompact '' @{}
     Fire Interrupt '' @{}
     Set-Content src/AGENTS.md 'Synthetic nested instruction'
     $after=(Resume).structuredContent.packet
-    if($after.changed_inputs_since_declaration -notcontains 'src/AGENTS.md' -or $after.unresolved_operation_classes -notcontains 'test' -or $after.last_observed_return -ne 'mutation-returned'){throw 'Interruption lost the pending operation or changed instructions'}
+    if($after.changed_inputs_since_declaration -notcontains 'src/AGENTS.md' -or $after.unresolved_operation_classes -notcontains 'test' -or $after.last_observed_return -ne 'build-returned'){throw 'Interruption lost the pending operation or changed instructions'}
     $null=RunObserver @('record','original','bridge','usage-limit')
     $null=RunObserver @('declare','another','bridge','Concurrent task','Keep separate')
     if((Resume).structuredContent.packet.checkpoint -ne 'ambiguous'){throw 'Ambiguous task selected'}

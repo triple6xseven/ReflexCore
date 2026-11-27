@@ -27,7 +27,9 @@ try {
     if (!$kind) { return }
     Push-Location -LiteralPath $root
     try {
-        & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -ObserverArgs @('record',$event.session_id,$Component,$kind) 2>$null | Out-Null
+        $arguments=@('record',$event.session_id,$Component,$kind)
+        if($operation -and $event.tool_use_id -cmatch '^[a-zA-Z0-9_-]{1,128}$'){ $arguments+=@($event.tool_use_id) }
+        & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -ObserverArgs $arguments 2>$null | Out-Null
     } finally { Pop-Location }
 } catch { }
 exit 0
