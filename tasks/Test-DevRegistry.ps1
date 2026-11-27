@@ -28,7 +28,9 @@ try {
     $record = .\tools\Measure-DevBuild.ps1 -Action Build | ConvertFrom-Json
     if ($record.build -ne 'matching') { throw 'Build evidence unavailable' }
     $default = @(Calls)
-    if ($default[1].result.tools.name -contains 'get_validation_evidence' -or !$default[2].result.isError -or !$default[3].result.structuredContent.skills) { throw 'Default surface or registry failed' }
+    if ($default[1].result.tools.name -contains 'get_validation_evidence') { throw 'Unexpected developer schema' }
+    if (!$default[2].result.isError) { throw 'Disabled developer tool callable' }
+    if (!$default[3].result.structuredContent.skills) { throw ('Matched registry missing: ' + $default[3].result.content[0].text) }
     [IO.File]::WriteAllText($probe,'// Owned stale-source fixture.')
     $changed = @(Calls -Developer)
     if ($changed[1].result.tools.name -notcontains 'get_validation_evidence' -or $changed[2].result.structuredContent.build -ne 'stale' -or !$changed[3].result.isError -or $changed[3].result.content[0].text -notlike 'Build stale.*') { throw 'Stale registry result accepted' }
