@@ -539,7 +539,7 @@ try {
            $bound.skill_version -ne 1 -or $bound.binding.adapter -cne 'notepad' -or
            $bound.binding.contract_version -ne 1){throw 'Incompatible Notepad binding'}
         $skillRun=if($CompositionRun){
-            if(!$TestFixture -or $env:REFLEXCORE_QUEUE_MANIFEST){throw 'Composition requires a direct fixture run'}
+            if(!$TestFixture -or ($env:REFLEXCORE_QUEUE_MANIFEST -and $CompositionRun -cne $env:REFLEXCORE_EDITOR_RUN)){throw 'Invalid composition fixture attempt'}
             $CompositionRun
         }elseif($env:REFLEXCORE_QUEUE_MANIFEST -and $null -ne $env:REFLEXCORE_EDITOR_RUN){
             if($env:REFLEXCORE_EDITOR_RUN -cnotmatch '\A[0-9a-f]{32}\z'){throw 'Invalid editor run identity'}

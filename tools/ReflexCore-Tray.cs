@@ -1102,6 +1102,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     if(!auto && lines[0]!="REVIEW")throw new InvalidDataException("Invalid queue mode");
                     if (!approvedByUser && !queue.Requested(path,"approve") && (!auto || File.GetCreationTimeUtc(path) < sessionStartedUtc)) continue;
                     string name = lines[1];
+                    if(name=="compose-text.ps1" && (auto || !queue.Requested(path,"approve")))continue;
                     if (!Regex.IsMatch(name, @"^[a-zA-Z0-9_-]{1,70}\.ps1$"))
                         throw new Exception("Invalid task name");
                     string tasks = Path.Combine(root, "tasks");
@@ -1133,7 +1134,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                         psi.EnvironmentVariables["REFLEX_HANDOFF_LAUNCH_US"]=((DateTime.UtcNow-epoch).Ticks/10).ToString();
                     }
                     psi.WorkingDirectory = root;
-                    activeEditor=EditorAttempt.ForScript(name);
+                    activeEditor=name=="compose-text.ps1"?queue.ClaimComposition(moved):EditorAttempt.ForScript(name);
                     psi.EnvironmentVariables.Remove("REFLEXCORE_EDITOR_RUN");
                     if(activeEditor!=null)psi.EnvironmentVariables["REFLEXCORE_EDITOR_RUN"]=activeEditor.RunId;
                     psi.UseShellExecute = false;
@@ -1148,7 +1149,7 @@ icon.MouseClick += delegate(object s, MouseEventArgs e) {
                     if (!active.Start()) throw new Exception("Task process could not start");
                     // Windows can transfer the caller's foreground permission to this worker only.
                     // The editor still has to observe its exact document in the foreground.
-                    if(name=="notepad-save.ps1" || name=="notepad-visual.ps1")AllowSetForegroundWindow(active.Id);
+                    if(name=="notepad-save.ps1" || name=="notepad-visual.ps1" || (activeEditor!=null && activeEditor.Composition!=null && activeEditor.Composition.editor=="notepad"))AllowSetForegroundWindow(active.Id);
                     active.BeginOutputReadLine();
                     active.BeginErrorReadLine();
                     SetState("running", -1, "Agent started (Ctrl+Alt+P stops)");

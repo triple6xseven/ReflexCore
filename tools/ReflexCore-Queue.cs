@@ -15,6 +15,7 @@ namespace ReflexCore.Bridge
         public string Id { get; set; }
         public string Task { get; set; }
         public string State { get; set; }
+        public string Progress {get;set;}
         public string Verification { get; set; }
         public string Reason { get; set; }
         public TaskReceipt Receipt { get; set; }
@@ -80,9 +81,35 @@ namespace ReflexCore.Bridge
                  (adapter=="notepad" && receipt.stage=="notepad" && receipt.reason=="disk_readback"));
         }
     }
+    public sealed class CompositionInput
+    {
+        public int version {get;set;}
+        public string goal {get;set;}
+        public string editor {get;set;}
+        public string destination {get;set;}
+        public string suffix {get;set;}
+        public string second_destination {get;set;}
+        public string second_suffix {get;set;}
+        public bool Valid(){
+            bool chain=goal=="editor.derive_chain";
+            return version==1 && (chain || goal=="editor.derive_copy") &&
+                new[]{"winforms","winforms-background","notepad"}.Contains(editor) &&
+                SafeDestination(destination) && !String.IsNullOrEmpty(suffix) &&
+                (chain ? SafeDestination(second_destination) && !String.IsNullOrEmpty(second_suffix) &&
+                  String.Equals(Path.GetDirectoryName(destination),Path.GetDirectoryName(second_destination),StringComparison.OrdinalIgnoreCase) &&
+                  !String.Equals(destination,second_destination,StringComparison.OrdinalIgnoreCase)
+                 : second_destination==null && second_suffix==null) &&
+                System.Text.Encoding.UTF8.GetByteCount(suffix+(second_suffix??""))<=4096;
+        }
+        static bool SafeDestination(string path){
+            return !String.IsNullOrEmpty(path) && path.Length<1024 && Regex.IsMatch(path,@"\A[A-Za-z]:\\") &&
+                path==Path.GetFullPath(path) && String.Equals(Path.GetExtension(path),".txt",StringComparison.OrdinalIgnoreCase);
+        }
+    }
     internal sealed class EditorAttempt
     {
         public readonly string RunId;
+        internal CompositionInput Composition;
         readonly string adapter;
         EditorAttempt(string adapter,int bytes)
         {
@@ -98,9 +125,20 @@ namespace ReflexCore.Bridge
             if(script=="notepad-save.ps1" || script=="notepad-visual.ps1")return new EditorAttempt("notepad",16);
             return null;
         }
+        internal static EditorAttempt ForComposition(CompositionInput input){
+            return new EditorAttempt(input.editor,input.editor=="notepad"?16:28){Composition=input};
+        }
         internal bool Accepts(TaskReceipt receipt)
         {
             if(receipt.run_id!=RunId)return false;
+            if(Composition!=null){
+                int count=Composition.goal=="editor.derive_chain"?2:1;
+                return receipt.stage=="composition" && receipt.goal==Composition.goal && receipt.editor==Composition.editor &&
+                    receipt.version==1 && receipt.published_outputs>=0 && receipt.published_outputs<=count &&
+                    (receipt.outcome=="verified"?receipt.verification=="verified" && receipt.reason=="verified_goal" &&
+                    receipt.completed_steps==2+2*count && receipt.published_outputs==count :
+                    (receipt.outcome=="failed" || receipt.outcome=="cancelled") && receipt.verification=="unknown");
+            }
             if(receipt.outcome!="verified")return receipt.verification!="verified" && receipt.skill==null;
             return receipt.skill!=null && receipt.skill.adapter==adapter && receipt.skill.Matches(receipt);
         }
@@ -108,6 +146,11 @@ namespace ReflexCore.Bridge
     public sealed class TaskReceipt
     {
         public HandoffSummary handoff { get; set; }
+        public string goal {get;set;}
+        public string editor {get;set;}
+        public int? version {get;set;}
+        public int? completed_steps {get;set;}
+        public int? published_outputs {get;set;}
         public SkillEvidence skill {get;set;}
         public int? renamed { get; set; }
         public HandoffMetrics metrics { get; set; }
@@ -135,6 +178,44 @@ namespace ReflexCore.Bridge
         }
         public static bool ValidId(string id){return id!=null && IdPattern.IsMatch(id);}
         string HandoffInput(string id) { return Path.Combine(Path.GetDirectoryName(bridge),"private","handoff",id+".json"); }
+        public string SubmitComposition(CompositionInput input){
+            if(input==null || !input.Valid())throw new ArgumentException("Invalid composition request");
+            return Submit("compose-text",false,new JavaScriptSerializer().Serialize(input));
+        }
+        public string ReviewComposition(string id){
+            if(!ValidId(id) || ReadKind(Path.Combine(bridge,"pending",id+".job"))!="composition")return null;
+            return ReadPrivateInput(id);
+        }
+        string ReadPrivateInput(string id){
+            var info=new FileInfo(HandoffInput(id));
+            if(!info.Exists || info.Length>24576 || (info.Attributes&FileAttributes.ReparsePoint)!=0)throw new IOException("Invalid private request");
+            return File.ReadAllText(info.FullName);
+        }
+        static string Digest(string text){
+            using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(text))).Replace("-","").ToLowerInvariant();
+        }
+        public bool ApproveComposition(string id,string reviewed){
+            if(!ValidId(id) || reviewed==null)return false;
+            return UnderDecisionLock(id,()=>{
+                if(ReviewComposition(id)!=reviewed)return false;
+                var value=new JavaScriptSerializer().Deserialize<CompositionInput>(reviewed);
+                if(!value.Valid())return false;
+                Directory.CreateDirectory(requests);
+                using(var writer=new StreamWriter(new FileStream(Marker(id,"approve"),FileMode.CreateNew,FileAccess.Write,FileShare.None)))
+                    writer.Write(Digest(id+"\n"+reviewed));
+                return true;
+            });
+        }
+        internal EditorAttempt ClaimComposition(string path){
+            string id=IdOf(path),text=ReadPrivateInput(id),digest=Digest(id+"\n"+text);
+            if(File.ReadAllText(Marker(id,"approve"))!=digest)throw new IOException("Approval changed");
+            var input=new JavaScriptSerializer().Deserialize<CompositionInput>(text);
+            if(!input.Valid())throw new IOException("Invalid approved request");
+            var attempt=EditorAttempt.ForComposition(input);
+            using(var writer=new StreamWriter(new FileStream(Path.ChangeExtension(path,"claim.json"),FileMode.CreateNew,FileAccess.Write,FileShare.None)))
+                writer.Write(new JavaScriptSerializer().Serialize(new {task=id,attempt=attempt.RunId,digest=digest}));
+            return attempt;
+        }
         public string SubmitHandoff(string folder,string checklist,string report)
         {
             return Submit("verify-handoff",true,new JavaScriptSerializer().Serialize(new {folder,checklist,report}));
@@ -198,6 +279,7 @@ namespace ReflexCore.Bridge
                 if((info.Attributes&FileAttributes.ReparsePoint)!=0 || info.Length>2048)return "local";
                 string[] lines=File.ReadAllLines(path);
                 if(lines.Length==2 || lines.Length==3)switch(lines[1]){
+                    case "compose-text.ps1":return "composition";
                     case "verify-handoff.ps1":return "handoff";
                     case "rename-extensions.ps1":return "rename";
                     case "agent-demo.ps1":return "uia";
@@ -231,6 +313,7 @@ namespace ReflexCore.Bridge
         bool RequestLocked(string id,string command,string marker)
         {
             string name=id+".job";
+            if(command=="approve" && File.Exists(Path.Combine(bridge,"pending",name)) && ReadKind(Path.Combine(bridge,"pending",name))=="composition")return false;
             if(!File.Exists(Path.Combine(bridge,"pending",name)) &&
                 !(command=="cancel" && File.Exists(Path.Combine(bridge,"running",name))))return false;
             Directory.CreateDirectory(requests);
@@ -254,10 +337,17 @@ namespace ReflexCore.Bridge
                 var fields=serializer.DeserializeObject(json) as IDictionary<string,object>;
                 object raw;
                 if(fields==null || (fields.TryGetValue("skill",out raw) && raw!=null && !SkillEvidence.HasWireTypes(raw)))return null;
+                if(fields.TryGetValue("stage",out raw) && Object.Equals(raw,"composition")){
+                    foreach(string key in new[]{"version","published_outputs"})
+                        if(!fields.TryGetValue(key,out raw) || !(raw is int))return null;
+                    if(!fields.TryGetValue("completed_steps",out raw) || (raw!=null && !(raw is int)))return null;
+                    if(fields.Keys.Any(k=>!new[]{"schema","task_id","run_id","stage","outcome","verification","reason","goal","version","editor","completed_steps","published_outputs","metrics","handoff","skill","renamed"}.Contains(k)))return null;
+                    foreach(string k in new[]{"metrics","handoff","skill","renamed"})if(fields.TryGetValue(k,out raw) && raw!=null)return null;
+                }
                 var value=serializer.ConvertToType<TaskReceipt>(fields);
                 if(value==null || value.schema!="reflexcore.task.receipt.v1" || value.task_id!=id ||
                     (value.run_id!=id && !Regex.IsMatch(value.run_id??"",@"\A(?:[a-f0-9]{32}|[a-f0-9]{56})\z")) ||
-                    !new[]{"goal","notepad","queue","handoff","rename"}.Contains(value.stage) ||
+                    !new[]{"goal","notepad","queue","handoff","rename","composition"}.Contains(value.stage) ||
                     !new[]{"verified","unverified","failed","cancelled","interrupted","partial"}.Contains(value.outcome) ||
                     !new[]{"verified","failed","unknown","not_confirmed"}.Contains(value.verification) ||
                     !new[]{"verified_goal","disk_readback","rename_completed","rename_partial","verification_failed","precondition_failed","focus_lost","infrastructure_error","operator_cancelled",
@@ -284,6 +374,7 @@ namespace ReflexCore.Bridge
                 var value=ParseReceipt(File.ReadAllText(path),IdOf(claim));
                 if(value==null)return null;
                 if(attempt!=null && !attempt.Accepts(value))return null;
+                if(kind=="composition")return attempt!=null && attempt.Composition!=null?value:null;
                 if(kind=="handoff" && value.stage=="handoff" && value.run_id==IdOf(claim) &&
                    value.metrics!=null && value.metrics.model_calls==0 &&
                    (value.outcome!="verified" || (value.verification=="verified" && value.reason=="disk_readback")))return value;
@@ -308,6 +399,7 @@ namespace ReflexCore.Bridge
                 if(!confirmed && cancelled && (receipt==null || receipt.outcome!="cancelled")){
                     receipt=new TaskReceipt {
                         schema="reflexcore.task.receipt.v1",task_id=id,run_id=attempt==null?id:attempt.RunId,stage="queue",outcome="cancelled",
+                        published_outputs=receipt==null?null:receipt.published_outputs,
                         verification=code==2&&!forced?"not_confirmed":"unknown",
                         reason=forced?"cleanup_unconfirmed":code==2?"operator_cancelled":"cancelled_effect_unknown"
                     };
@@ -355,6 +447,10 @@ namespace ReflexCore.Bridge
             File.Move(path,dest);
             if(ValidId(id))DeleteMarker(HandoffInput(id));
             DeleteMarker(Path.ChangeExtension(path,"receipt.json"));
+            DeleteMarker(Path.ChangeExtension(path,"claim.json"));
+            DeleteMarker(Path.ChangeExtension(path,"spent"));
+            DeleteMarker(Path.ChangeExtension(path,"progress"));
+            DeleteMarker(Path.ChangeExtension(path,"progress.tmp"));
             if(ValidId(id) && Directory.Exists(requests)){
                 DeleteMarker(Marker(id,"cancel")); DeleteMarker(Marker(id,"approve"));
             }
@@ -426,7 +522,15 @@ namespace ReflexCore.Bridge
                         }
                         terminalReceipts[id]=receipt;
                     } catch(IOException) { }
-                    result.Add(new QueueEntry{Id=id,Task=kind,State=label,Verification=receipt==null?"not_confirmed":receipt.verification,
+                    string progress=null;
+                    if(!ended && kind=="composition" && state=="running")try{
+                        var file=new FileInfo(Path.ChangeExtension(path,"progress"));
+                        if(file.Exists && file.Length<=160 && (file.Attributes&FileAttributes.ReparsePoint)==0){
+                            var fields=File.ReadAllLines(file.FullName);
+                            if(fields.Length==3 && Regex.IsMatch(fields[1],@"\A[1-6]\z") && new[]{"editor.create_document","artifact.verify_saved_text","artifact.derive_text","artifact.verify_derived"}.Contains(fields[2]))progress="Step "+fields[1]+" · "+fields[2];
+                        }
+                    }catch(IOException){}
+                    result.Add(new QueueEntry{Id=id,Task=kind,State=label,Progress=progress,Verification=receipt==null?"not_confirmed":receipt.verification,
                         Reason=receipt==null?"":receipt.reason,Receipt=receipt});
                     if(++shown==100)break;
                 }

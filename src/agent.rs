@@ -408,6 +408,7 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         return print_status();
     }
+    if command=="compose-claimed" && args.len()==1 {return crate::skill_registry::composition::claimed();}
     if command == "compose-text" { return crate::skill_registry::composition::run(&args[1..]); }
     if command == "verified-demo" {
         let background = match &args[1..] {

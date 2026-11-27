@@ -103,7 +103,7 @@ fn preflight(graph: &[Step], grants: u8) -> Result<()> {
 }
 pub(crate) fn catalog() -> Vec<serde_json::Value> {
     [("editor.derive_copy",&GRAPH[..]),("editor.derive_chain",&CHAIN[..])].into_iter().map(|(id,steps)|
-        serde_json::json!({"id":id,"version":1,"submission":"direct_cli","adapters":["winforms","winforms-background","notepad"],
+        serde_json::json!({"id":id,"version":1,"submission":"studio_approval","adapters":["winforms","winforms-background","notepad"],
             "permissions":["create","verify","consume","derive","publish"],
             "outputs":steps.iter().filter(|s|s.output==Port::Checked).count(),
             "steps":steps.iter().map(|s|serde_json::json!({"skill":s.id,"version":s.version,"depends_on":s.from,
@@ -176,6 +176,7 @@ enum Boundary {
 }
 
 pub(crate) struct Plan {
+    progress: Option<(PathBuf, String)>,
     graph: &'static [Step],
     second: Option<(PathBuf, String)>,
     stop_path: PathBuf,
@@ -201,6 +202,17 @@ impl Plan {
     }
     pub(crate) fn check_editor(&self) -> Result<()> {
         self.boundary(Boundary::EditorAction, 0)
+    }
+    fn progress(&self, index: usize) -> Result<()> {
+        if let Some((path, attempt)) = &self.progress {
+            let tmp = path.with_extension("progress.tmp");
+            std::fs::write(
+                &tmp,
+                format!("{}\n{}\n{}", attempt, index + 1, self.graph[index].id),
+            )?;
+            std::fs::rename(tmp, path)?;
+        }
+        Ok(())
     }
     fn check(&self, index: usize) -> Result<()> {
         task_integrity::check_cancel()?;
@@ -233,6 +245,7 @@ impl Plan {
         let mut dest = &self.output;
         for (index, step) in self.graph.iter().enumerate().skip(1) {
             self.check(index)?;
+            self.progress(index)?;
             value = match (step.output, value) {
                 (Port::LiveText, Value::Document) => Value::Live(self.binding.artifact(run, text)?),
                 (Port::Derived, input) => {
@@ -252,16 +265,16 @@ impl Plan {
                     dest = path;
                     expected.push_str(suffix);
                     self.check(index)?;
-                    let (writer, identity) = self.create(&expected)?;
+                    let (writer, identity) = self.create(index, &expected)?;
                     Value::Derived(proof, writer, identity, expected)
                 }
                 (Port::Checked, Value::Derived(proof, mut writer, identity, expected)) => {
-                    self.verify_output(&writer.path, identity, &expected)?;
+                    self.verify_output(index, &writer.path, identity, &expected)?;
                     self.boundary(Boundary::Publish, index)?;
                     writer.publish(dest)?;
                     self.published.set(self.published.get() + 1);
                     self.boundary(Boundary::Published, index)?;
-                    let snapshot = self.verify_output(dest, identity, &expected)?;
+                    let snapshot = self.verify_output(index, dest, identity, &expected)?;
                     self.check(index)?;
                     drop(writer);
                     Value::Checked(proof, snapshot)
@@ -274,11 +287,11 @@ impl Plan {
             _ => Err("Incomplete composition".into()),
         }
     }
-    fn create(&self, expected: &str) -> Result<(Staging, (u32, u32, u32))> {
+    fn create(&self, index: usize, expected: &str) -> Result<(Staging, (u32, u32, u32))> {
         let path = self
             .output
             .with_file_name(format!(".reflex-{}.tmp", task_integrity::run_id()));
-        self.boundary(Boundary::StageCreate, 2)?;
+        self.boundary(Boundary::StageCreate, index)?;
         let file = OpenOptions::new()
             .access_mode(0xC0010000) // Generic read/write plus DELETE for handle-based rename.
             .write(true)
@@ -293,16 +306,16 @@ impl Plan {
             published: false,
         };
         let identity = saved_text::file_identity(&writer.file)?;
-        self.check(2)?;
+        self.check(index)?;
         for chunk in expected.as_bytes().chunks(1024) {
-            self.check(2)?;
+            self.check(index)?;
             writer
                 .file
                 .write_all(chunk)
                 .map_err(|_| "Derived write uncertain")?;
-            self.boundary(Boundary::StageWrite, 2)?;
+            self.boundary(Boundary::StageWrite, index)?;
         }
-        self.boundary(Boundary::Sync, 2)?;
+        self.boundary(Boundary::Sync, index)?;
         writer
             .file
             .sync_all()
@@ -311,13 +324,14 @@ impl Plan {
     }
     fn verify_output(
         &self,
+        index: usize,
         path: &Path,
         identity: (u32, u32, u32),
         expected: &str,
     ) -> Result<String> {
         let reader =
             local_files::open(path, true, 7).map_err(|_| "Derived readback unavailable")?;
-        self.boundary(Boundary::Readback, 3)?;
+        self.boundary(Boundary::Readback, index)?;
         let mut observed = Vec::new();
         if saved_text::file_identity(&reader)? != identity {
             return Err("Derived identity changed".into());
@@ -332,15 +346,103 @@ impl Plan {
         Ok(String::from_utf8(observed).map_err(|_| "Invalid derived encoding")?)
     }
 }
-pub(crate) fn run(args: &[String]) -> Result<()> {
-    let [app, output, suffix, flags @ ..] = args else {
-        return Err("Expected editor, absolute output, suffix and permission flags".into());
-    };
-    if task_integrity::task_id().is_some()
-        || std::env::var_os("REFLEXCORE_QUEUE_MANIFEST").is_some()
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Claim {
+    task: String,
+    attempt: String,
+    digest: String,
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Request {
+    version: u8,
+    goal: String,
+    editor: String,
+    destination: String,
+    suffix: String,
+    second_destination: Option<String>,
+    second_suffix: Option<String>,
+}
+fn private_bytes(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    let file =
+        local_files::open_for_readback(path).map_err(|_| "Private authorization unavailable")?;
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err("Oversized authorization".into());
+    }
+    Ok(bytes)
+}
+pub(crate) fn claimed() -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let id = task_integrity::task_id().ok_or("Missing queue task")?;
+    let root = std::env::current_dir()?;
+    let running = root.join("data/bridge/running");
+    let manifest = private_bytes(&running.join(format!("{id}.job")), 256)?;
+    if std::str::from_utf8(&manifest)?.lines().collect::<Vec<_>>() != ["REVIEW", "compose-text.ps1"]
     {
+        return Err("Invalid claim manifest".into());
+    }
+    let claim: Claim = serde_json::from_slice(&private_bytes(
+        &running.join(format!("{id}.claim.json")),
+        1024,
+    )?)?;
+    let bytes = private_bytes(&root.join(format!("data/private/handoff/{id}.json")), 24576)?;
+    let digest = format!(
+        "{:x}",
+        Sha256::new()
+            .chain_update(id.as_bytes())
+            .chain_update(b"\n")
+            .chain_update(&bytes)
+            .finalize()
+    );
+    if claim.task != id
+        || claim.digest != digest
+        || private_bytes(
+            &root.join(format!("data/bridge/queue-requests/{id}.approve")),
+            64,
+        )? != digest.as_bytes()
+    {
+        return Err("Request differs from approval".into());
+    }
+    let r: Request = serde_json::from_slice(&bytes)?;
+    let length = if r.editor == "notepad" { 32 } else { 56 };
+    if claim.attempt.len() != length
+        || !claim
+            .attempt
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || r.version != 1
+    {
+        return Err("Incompatible attempt".into());
+    }
+    let mut args = vec![r.editor, r.destination, r.suffix];
+    match (r.goal.as_str(), r.second_destination, r.second_suffix) {
+        ("editor.derive_copy", None, None) => {}
+        ("editor.derive_chain", Some(p), Some(s)) => args.extend(["--then".into(), p, s]),
+        _ => return Err("Invalid approved graph".into()),
+    }
+    args.extend(["--create", "--verify", "--consume", "--derive", "--publish"].map(str::to_owned));
+    task_integrity::check_cancel()?;
+    let _spent = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .share_mode(0)
+        .open(running.join(format!("{id}.spent")))
+        .map_err(|_| "Attempt already consumed")?;
+    execute(&args, Some(&claim))
+}
+pub(crate) fn run(args: &[String]) -> Result<()> {
+    if std::env::var_os("REFLEXCORE_QUEUE_MANIFEST").is_some() {
         return Err("Direct operator approval required".into());
     }
+    execute(args, None)
+}
+fn execute(args: &[String], claim: Option<&Claim>) -> Result<()> {
+    let [app, output, suffix, flags @ ..] = args else {
+        return Err("Expected editor, output, suffix and permissions".into());
+    };
     let (adapter, background) = match app.as_str() {
         "notepad" => (Adapter::Notepad, false),
         "winforms" => (Adapter::Winforms, false),
@@ -391,6 +493,12 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         None
     };
     let plan = Plan {
+        progress: claim.map(|c| {
+            (
+                PathBuf::from(format!("data/bridge/running/{}.progress", c.task)),
+                c.attempt.clone(),
+            )
+        }),
         graph,
         second,
         stop_path: "data/bridge/global-stop.signal".into(),
@@ -406,14 +514,19 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         output,
         suffix: suffix.clone(),
     };
-    let mut run = task_integrity::run_id();
+    let mut run = claim
+        .map(|c| c.attempt.clone())
+        .unwrap_or_else(task_integrity::run_id);
     let execution = (|| -> Result<()> {
         plan.boundary(Boundary::Launch, 0)?;
+        plan.progress(0)?;
         if adapter == Adapter::Winforms {
             crate::flow::verified_demo(background, &run, Some(&plan))?;
         } else {
             // Keep the counter and PID from the run nonce.
-            run = run[24..].to_owned();
+            if claim.is_none() {
+                run = run[24..].to_owned();
+            }
             let ps = std::env::var_os("SystemRoot").ok_or("Windows unavailable")?;
             let mut worker = Command::new(
                 PathBuf::from(ps).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
@@ -449,8 +562,33 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             }
             plan.finish(&run, "ReflexCore ЖΩ😀")?;
         }
-        plan.boundary(Boundary::Terminal, 3)
+        plan.boundary(Boundary::Terminal, graph.len() - 1)
     })();
+    if let Some(c) = claim {
+        let cancelled = execution
+            .as_ref()
+            .err()
+            .and_then(|e| e.downcast_ref::<task_integrity::Fault>())
+            .is_some_and(|f| {
+                matches!(
+                    f,
+                    task_integrity::Fault::Cancelled | task_integrity::Fault::CancelledUnknown
+                )
+            });
+        let outcome = if execution.is_ok() {
+            "verified"
+        } else if cancelled {
+            "cancelled"
+        } else {
+            "failed"
+        };
+        let record = serde_json::json!({"schema":"reflexcore.task.receipt.v1","task_id":c.task,"run_id":c.attempt,
+            "stage":"composition","goal":if plan.second.is_some(){"editor.derive_chain"}else{"editor.derive_copy"},
+            "version":1,"editor":app,"outcome":outcome,"verification":if execution.is_ok(){"verified"}else{"unknown"},
+            "reason":if execution.is_ok(){"verified_goal"}else if cancelled{"cancelled_effect_unknown"}else{"process_failed"},
+            "completed_steps":if execution.is_ok(){Some(graph.len())}else{None},"published_outputs":plan.published.get()});
+        task_integrity::publish_receipt(&c.task, &c.attempt, &record)?;
+    }
     if let Err(error) = execution {
         let cancelled = matches!(
             error.downcast_ref::<task_integrity::Fault>(),
@@ -494,6 +632,7 @@ mod tests {
             let (scope, path) = local_files::target(&output).unwrap();
             let marker = stop.clone();
             let plan = Plan {
+                progress: None,
                 graph: &GRAPH,
                 second: None,
                 stop_path: stop.clone(),
@@ -556,6 +695,7 @@ mod tests {
         let output = root.join("result.txt");
         let (scope, path) = local_files::target(&output).unwrap();
         let mut plan = Plan {
+            progress: None,
             graph: &GRAPH,
             second: None,
             stop_path: root.join("stop"),
@@ -570,8 +710,8 @@ mod tests {
             output: path,
             suffix: "!".into(),
         };
-        let (mut stage, id) = plan.create("verified").unwrap();
-        assert!(plan.verify_output(&stage.path, id, "wrong").is_err());
+        let (mut stage, id) = plan.create(2, "verified").unwrap();
+        assert!(plan.verify_output(3, &stage.path, id, "wrong").is_err());
         // The competitor wins the destination name after staging, before rename.
         std::thread::scope(|s| {
             s.spawn(|| std::fs::write(&output, "winner"))
@@ -585,10 +725,10 @@ mod tests {
         assert!(!staging_name.exists());
         assert_eq!(std::fs::read_to_string(&output).unwrap(), "winner");
         std::fs::remove_file(&output).unwrap();
-        let (mut fresh, id) = plan.create("verified").unwrap();
+        let (mut fresh, id) = plan.create(2, "verified").unwrap();
         fresh.publish(&output).unwrap();
         assert!(std::fs::rename(&output, root.join("substitute")).is_err());
-        plan.verify_output(&output, id, "verified").unwrap();
+        plan.verify_output(3, &output, id, "verified").unwrap();
         plan.deadline = Instant::now();
         assert!(plan.check(3).is_err());
         drop(fresh);
