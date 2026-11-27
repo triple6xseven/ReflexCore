@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$AllowInput,[switch]$Chain)
+param([switch]$AllowInput,[switch]$Chain,[ValidateSet('winforms','winforms-background','notepad')][string[]]$Editor=@('winforms','winforms-background','notepad'))
 $ErrorActionPreference='Stop'
 if(!$AllowInput){throw 'Use -AllowInput on an unlocked Windows desktop.'}
 $exe=Join-Path (Split-Path $PSScriptRoot -Parent) 'target/release/reflexcore.exe'
@@ -13,7 +13,7 @@ public static class ComposeFocus {
 $grant=@('--create','--verify','--consume','--derive','--publish')
 $dir=[IO.Directory]::CreateDirectory((Join-Path ([IO.Path]::GetTempPath()) ('ReflexCompose-'+[guid]::NewGuid().ToString('N'))))
 $suffix=([string][char]13+[char]10+[char]0x03bb+[char]::ConvertFromUtf32(0x1F680))
-foreach($app in 'winforms','winforms-background','notepad'){
+foreach($app in $Editor){
     $dest=Join-Path $dir.FullName ($app+'.txt')
     $more=@()
     $extraArgs=''

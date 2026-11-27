@@ -1,5 +1,5 @@
 ﻿[CmdletBinding()]
-param([switch]$Benchmark,[switch]$Mcp,[switch]$Composition,[ValidateRange(1,20)][int]$Sessions=4,
+param([switch]$CrashComposition,[switch]$CompareComposition,[switch]$NotepadFocus,[switch]$Benchmark,[switch]$Mcp,[switch]$Composition,[ValidateRange(1,20)][int]$Sessions=4,
       [ValidateRange(1,30)][int]$WarmRuns=5,[string]$MetricsFile,[switch]$RequireOllamaStopped)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
@@ -83,7 +83,194 @@ try{
     $type=[ReflexCore.Bridge.TrayHost].Assembly.GetType('ReflexCore.Bridge.TrayWindow',$true)
     $constructor=$type.GetConstructor([type[]]@([string],[bool]))
     $pump=$type.GetMethod('Pump',[Reflection.BindingFlags]'Instance,NonPublic')
+    if($CrashComposition){
+        $childScript=@'
+$ErrorActionPreference='Stop'
+$root=$env:REFLEX_C_CRASH_FIXTURE
+[void][Reflection.Assembly]::LoadFrom((Join-Path $root 'QueueFixture.dll'))
+$private=[Reflection.BindingFlags]'Instance,NonPublic'
+$type=[ReflexCore.Bridge.TrayHost].Assembly.GetType('ReflexCore.Bridge.TrayWindow',$true)
+$tray=$type.GetConstructor([type[]]@([string],[bool])).Invoke([object[]]@($root,$true))
+$queue=[ReflexCore.Bridge.QueueStore]::new($root)
+$request=[ReflexCore.Bridge.CompositionInput]::new()
+$request.version=1
+$request.goal='editor.derive_chain'
+$request.editor='winforms-background'
+$request.destination=Join-Path $root 'folder/first.txt'
+$request.second_destination=Join-Path $root 'folder/second.txt'
+$request.suffix=' draft'
+$request.second_suffix=' final'
+$id=$queue.SubmitComposition($request)
+if(!$queue.ApproveComposition($id,$queue.ReviewComposition($id))){throw 'Review failed'}
+[void]$type.GetMethod('Pump',$private).Invoke($tray,@())
+$worker=$type.GetField('active',$private).GetValue($tray)
+if(!$worker -or !$worker.WaitForExit(25000) -or $worker.ExitCode){throw 'Owned worker did not finish'}
+[IO.File]::WriteAllText((Join-Path $root 'boundary.tmp'),$id)
+[IO.File]::Move((Join-Path $root 'boundary.tmp'),(Join-Path $root 'boundary.txt'))
+Start-Sleep -Seconds 35
+'@
+        $ps=Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell/v1.0/powershell.exe'
+        $args64=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childScript))
+        $launch=[Diagnostics.ProcessStartInfo]::new($ps,"-NoProfile -STA -EncodedCommand $args64")
+        $launch.UseShellExecute=$false
+        $launch.CreateNoWindow=$true
+        $launch.EnvironmentVariables['REFLEX_C_CRASH_FIXTURE']=$fixture
+        $supervisor=[Diagnostics.Process]::Start($launch)
+        try {
+            $boundary=Join-Path $fixture 'boundary.txt'
+            $timer=[Diagnostics.Stopwatch]::StartNew()
+            while(!(Test-Path -LiteralPath $boundary) -and !$supervisor.HasExited -and $timer.Elapsed.TotalSeconds -lt 30){
+                Start-Sleep -Milliseconds 30
+            }
+            Require (Test-Path -LiteralPath $boundary) 'Supervisor did not reach the commit boundary'
+            $id=[IO.File]::ReadAllText($boundary)
+            Require ([ReflexCore.Bridge.QueueStore]::ValidId($id)) 'Invalid queue identity'
+            $claim=Join-Path $bridge "running/$id.job"
+            $worker=Join-Path $bridge "running/$id.receipt.json"
+            Require ((Test-Path -LiteralPath $claim) -and (Test-Path -LiteralPath $worker)) 'Worker completion evidence missing'
+            $proof=Get-Content -Raw -LiteralPath $worker | ConvertFrom-Json
+            Require ($proof.task_id -ceq $id -and $proof.outcome -ceq 'verified' -and $proof.published_outputs -eq 2) 'Unexpected worker evidence'
+            Require (@(Get-ChildItem -LiteralPath (Join-Path $bridge 'queue-history') -Filter "$id.*").Count -eq 0) 'Receipt already committed'
+            Require ([IO.File]::ReadAllText((Join-Path $folder 'first.txt')) -ceq 'ReflexCore verified 010 draft') 'First published output differs'
+            Require ([IO.File]::ReadAllText((Join-Path $folder 'second.txt')) -ceq 'ReflexCore verified 010 draft final') 'Second published output differs'
+            $outputs=@('first.txt','second.txt' | ForEach-Object { Get-FileHash -LiteralPath (Join-Path $folder $_) })
+            $supervisor.Kill()
+            Require ($supervisor.WaitForExit(5000)) 'Supervisor remained running'
+            $store.Recover()
+            $store.Recover()
+            $recovered=@($store.Snapshot()|Where-Object Id -CEQ $id)
+            Require ($recovered.Count -eq 1 -and $recovered[0].State -ceq 'interrupted') 'Expected one interrupted record'
+            Require ($recovered[0].Receipt.verification -ceq 'unknown' -and $null -eq $recovered[0].Receipt.published_outputs) 'Recovery promoted uncommitted worker evidence'
+            Require (!(Test-Path -LiteralPath $claim) -and !(Test-Path -LiteralPath (Join-Path $bridge "pending/$id.job"))) 'Ambiguous job remains runnable'
+            foreach($item in $outputs){Require ((Get-FileHash -LiteralPath $item.Path).Hash -ceq $item.Hash) 'Recovery changed published artifacts'}
+            'PASS: killed the real queue supervisor after worker readback. Repeated recovery preserved both outputs and recorded one interrupted receipt.'
+        } finally {
+            if(!$supervisor.HasExited){$supervisor.Kill();[void]$supervisor.WaitForExit(5000)}
+            $supervisor.Dispose()
+        }
+        return
+    }
     Open-Tray
+    if($NotepadFocus){
+        $clock=[Diagnostics.Stopwatch]::StartNew()
+        $job=[ReflexCore.Bridge.CompositionInput]::new()
+        $job.version=1
+        $job.goal='editor.derive_chain'
+        $job.editor='notepad'
+        $job.destination=Join-Path $folder 'notepad-first.txt'
+        $job.second_destination=Join-Path $folder 'notepad-second.txt'
+        $job.suffix=' draft'
+        $job.second_suffix=' final'
+        $id=$store.SubmitComposition($job)
+        Require ($store.ApproveComposition($id,$store.ReviewComposition($id))) 'Fixture approval failed'
+        $proof=Terminal-Job $id -Attempt
+        if($proof.verification -cne 'verified'){
+            Require (!(Test-Path -LiteralPath $job.destination) -and !(Test-Path -LiteralPath $job.second_destination)) 'Unverified foreground task published output'
+            throw ("Foreground qualification did not verify. Queue reason: "+$proof.reason)
+        }
+        $expected='ReflexCore '+[char]0x0416+[char]0x03A9+[char]::ConvertFromUtf32(0x1f600)
+        $original=Join-Path $env:LOCALAPPDATA ('ReflexCore/runtime/fixtures/ReflexCore-VisionLoop-'+$proof.run_id+'.txt')
+        Require ($proof.editor -ceq 'notepad' -and $proof.published_outputs -eq 2) 'Wrong Notepad receipt'
+        Require ([IO.File]::ReadAllText($original) -ceq $expected) 'Wrong saved Notepad source'
+        Require ([IO.File]::ReadAllText($job.destination) -ceq ($expected+' draft')) 'Wrong first Notepad copy'
+        Require ([IO.File]::ReadAllText($job.second_destination) -ceq ($expected+' draft final')) 'Wrong second Notepad copy'
+        Write-Output ("Notepad foreground qualification verified staged and final outputs in {0} ms." -f $clock.ElapsedMilliseconds)
+        return
+    }
+    if($CompareComposition){
+        $rows=New-Object System.Collections.ArrayList
+        $hostProcess=[Diagnostics.Process]::GetCurrentProcess()
+        for($pair=0;$pair -lt $Sessions;$pair++){
+            $modes=if($pair%2){@('queued','direct')}else{@('direct','queued')}
+            foreach($mode in $modes){
+                $tag=[guid]::NewGuid().ToString('N')
+                $first=Join-Path $folder ($tag+'-first.txt')
+                $second=Join-Path $folder ($tag+'-second.txt')
+                $proc=$null
+                $observed=@{}
+                $peak=0
+                $samples=0
+                $hostProcess.Refresh()
+                $hostCpu=$hostProcess.TotalProcessorTime.TotalMilliseconds
+                $clock=[Diagnostics.Stopwatch]::StartNew()
+                try {
+                    if($mode -eq 'queued'){
+                        $job=[ReflexCore.Bridge.CompositionInput]::new()
+                        $job.version=1
+                        $job.goal='editor.derive_chain'
+                        $job.editor='winforms-background'
+                        $job.destination=$first
+                        $job.second_destination=$second
+                        $job.suffix=' draft'
+                        $job.second_suffix=' final'
+                        $id=$store.SubmitComposition($job)
+                        Require ($store.ApproveComposition($id,$store.ReviewComposition($id))) 'Fixture approval failed'
+                        [void]$pump.Invoke($tray,@())
+                        $queueWorker=$type.GetField('active',[Reflection.BindingFlags]'Instance,NonPublic').GetValue($tray)
+                        Require ($queueWorker -ne $null) 'Queue worker did not launch'
+                        $proc=[Diagnostics.Process]::GetProcessById($queueWorker.Id)
+                    }else{
+                        $exe=Join-Path $fixture 'target/release/reflexcore.exe'
+                        $arguments='agent compose-text winforms-background "'+$first+'" " draft" --then "'+$second+'" " final" --create --verify --consume --derive --publish'
+                        $launch=[Diagnostics.ProcessStartInfo]::new($exe,$arguments)
+                        $launch.WorkingDirectory=$fixture
+                        $launch.UseShellExecute=$false
+                        $launch.CreateNoWindow=$true
+                        $launch.RedirectStandardOutput=$true
+                        $proc=[Diagnostics.Process]::Start($launch)
+                        $output=$proc.StandardOutput.ReadToEndAsync()
+                    }
+                    Require ($null -ne $proc) 'Worker did not launch'
+                    $observed[$proc.Id]=$proc
+                    $null=$proc.Handle
+                    do{
+                        $edges=@(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId)
+                        do{
+                            $previous=$observed.Count
+                            foreach($edge in $edges){
+                                $key=[int]$edge.ProcessId
+                                if(!$observed.ContainsKey($key) -and $observed.ContainsKey([int]$edge.ParentProcessId)){
+                                    try{
+                                        $p=[Diagnostics.Process]::GetProcessById($key)
+                                        $null=$p.Handle
+                                        $observed[$key]=$p
+                                    }catch{}
+                                }
+                            }
+                        }while($previous -ne $observed.Count)
+                        $sum=0L
+                        foreach($p in $observed.Values){
+                            try{$p.Refresh();if(!$p.HasExited){$sum+=$p.PrivateMemorySize64}}catch{}
+                        }
+                        $peak=[Math]::Max($peak,$sum)
+                        $samples++
+                    }while(!$proc.WaitForExit(40) -and $clock.Elapsed.TotalSeconds -lt 25)
+                    Require $proc.HasExited 'Worker timed out'
+                    $cpu=0.0
+                    foreach($p in $observed.Values){try{$cpu+=$p.TotalProcessorTime.TotalMilliseconds}catch{}}
+                    if($mode -eq 'queued'){
+                        $proof=Terminal-Job $id -Attempt
+                        Require ($proof.published_outputs -eq 2 -and $proof.verification -ceq 'verified') 'Queue receipt differs'
+                    }else{
+                        Require ($proc.ExitCode -eq 0) 'Direct worker failed'
+                        $proof=($output.GetAwaiter().GetResult().TrimEnd() -split "\r?\n")[-1]|ConvertFrom-Json
+                        Require ($proof.outcome -ceq 'verified' -and $proof.steps.Count -eq 6) 'Direct receipt differs'
+                    }
+                    Require ([IO.File]::ReadAllText($first) -ceq 'ReflexCore verified 010 draft') 'First result differs'
+                    Require ([IO.File]::ReadAllText($second) -ceq 'ReflexCore verified 010 draft final') 'Second result differs'
+                    $hostProcess.Refresh()
+                    [void]$rows.Add([ordered]@{pair=$pair;mode=$mode;elapsed_ms=[Math]::Round($clock.Elapsed.TotalMilliseconds,1);worker_cpu_ms=$cpu;
+                        host_cpu_ms=($hostProcess.TotalProcessorTime.TotalMilliseconds-$hostCpu);
+                        peak_concurrent_private_bytes=$peak;samples=$samples;observed_processes=$observed.Count;verified=$true})
+                } finally {
+                    if($proc -and !$proc.HasExited){$proc.Kill();[void]$proc.WaitForExit(5000)}
+                    foreach($p in $observed.Values){$p.Dispose()}
+                }
+            }
+        }
+        ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress
+        return
+    }
     $unicode=([char]0x96ea).ToString()+'.txt'
     [IO.File]::WriteAllText((Join-Path $folder $unicode),'test')
     $good=(Get-FileHash -LiteralPath (Join-Path $folder $unicode)).Hash

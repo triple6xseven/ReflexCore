@@ -553,3 +553,13 @@ Sequential reuse functional cohort (one Windows run per plan and binding, sessio
 On the local Windows development machine, two warmup pairs and 30 measured pairs used alternating order, new run IDs, separate NTFS fixture folders, identical source and suffix, exclusive publication and independent readback. The timed interval starts with an existing source and ends after final verification. All 60 measured outputs passed an external read. Manual sequence p50/p95/max was 12.375/16.891/48.190 ms; registry composition was 12.556/26.306/75.444 ms. Nearest-rank p99 equals the maximum at this sample size. This series showed a higher candidate tail; it cannot isolate its cause. Editor startup, queue, receipts and process resources are outside this measurement. Both paths use zero model calls.
 
 Reproduce with cargo test --release --locked paired_copy_timing -- --ignored --nocapture. Run cargo test --locked abrupt_composition_exit for abrupt termination at seven publication lifecycle boundaries plus a fresh recovery. The latter uses a synthetic editor source and checks actual files from a parent process.
+
+## Phase C interactive queue comparison
+
+Windows 11 Pro build 26300 on a Ryzen 5 4600H with 7.37 GiB visible RAM. Five paired runs alternated execution order in one interactive session. Both modes used the same release executable and native background WinForms six-step graph. The queue arm included task submission, exact approval, worker startup, queue receipt commitment and external file readback. The direct arm started the CLI and independently checked the receipt and both published files. All ten attempts verified both derived files. No model calls were needed.
+
+- Direct CLI latency p50/p95 was 1275.5/1516.8 ms. Sampled worker-tree CPU p50 was 1046.9 ms. Highest concurrent worker-tree private memory sample was 79.7 MiB.
+- Queue latency p50/p95 was 1708.4/1832.8 ms. Sampled worker-tree CPU p50 was 1546.9 ms. Highest concurrent worker-tree private memory sample was 139.6 MiB.
+- Harness CPU p50 was 343.8 ms for direct and 453.1 ms for queue. PowerShell and the Windows process sampler add overhead. CPU represents observed process handles and can miss very short-lived descendants. Private memory is the peak of concurrent samples, not the sum of per-process peaks. At five runs per arm nearest-rank p95 is the maximum. These results characterize the queue path, not a speedup claim or the independently orchestrated baseline.
+
+Reproduce with Windows PowerShell 5.1 using tasks/Test-Handoff.ps1 -CompareComposition -Sessions 5. Release executable SHA-256 was 9e34e479c2538affd75f99b5e79e0793f2ce7a3b75b2e9e6ca5b5a078d3bcdec.

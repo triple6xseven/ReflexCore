@@ -288,3 +288,15 @@ adapter restrictions, verifier and independently validated fixture evidence.
 ## Phase C approved composition checkpoint
 
 In Studio open Agent → Skill Library → Compose text. Choose an editor, destination and suffix. Enable the second copy to chain another verified output. Submit, select the pending task, then choose Approve selected and review its exact inputs. The queue shows progress and the terminal publication count when available.
+
+## Phase C live acceptance checkpoint
+
+The queue supervisor crash fixture waits for two independently verified publications and the worker sidecar, then terminates the supervisor before it can write terminal history. Two recovery passes preserve both artifacts and leave one interrupted receipt with unknown verification and no publication count. No pending or running manifest remains. This qualifies the crash interval without changing queue semantics.
+
+The six-step Notepad composition succeeded once through Studio's supervised queue in 3703 ms and once directly in 2621 ms. Both checks independently reopened the owned Notepad source and two derived copies. The earlier direct foreground refusal remains a recorded negative result. No focus retries or changes to ownership, user-input priority or consent were introduced. Opt in using tasks/Test-Handoff.ps1 -NotepadFocus or tasks/Test-TextComposition.ps1 -AllowInput -Chain -Editor notepad on the interactive desktop.
+
+The live paired CLI/queue resource comparison is in BENCHMARKS.md. The historical independent manual baseline still covers only the file phase. Phase C remains open until the manual baseline covers the editor through independent terminal readback under equivalent authority and with observed process-tree resources.
+
+The installed Intelligence Bridge MCP observes its configured developer worktree. This branch has its own declared checkpoint in a separate Git administrative directory, read using the pinned native observer. The existing MCP component fingerprint omits this branch's test and composition files. Treat a matching fingerprint as scoped and consult the modified acceptance sources when resuming. These integration limitations are deferred to bridge maintenance.
+
+Once Phase C closes, begin 0.8.3-D with one read-only discovery command for a disposable unfamiliar application. Report only bounded candidate operations with application binding, typed ports, required capabilities and proposed verifier. Acceptance must reject an unknown binding, undeclared capability and missing independent verifier before the candidate is eligible for admission. Keep discovery outside the execution queue.
