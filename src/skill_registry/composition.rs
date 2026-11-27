@@ -135,7 +135,25 @@ impl Drop for Staging {
         }
     }
 }
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Boundary {
+    Launch,
+    EditorAction,
+    SourceVerified,
+    StageCreate,
+    StageWrite,
+    Sync,
+    Readback,
+    Publish,
+    Published,
+    Terminal,
+}
+
 pub(crate) struct Plan {
+    stop_path: PathBuf,
+    published: std::cell::Cell<bool>,
+    #[cfg(test)]
+    probe: Option<Box<dyn Fn(Boundary)>>,
     binding: &'static Binding,
     adapter: Adapter,
     grants: u8,
@@ -146,9 +164,19 @@ pub(crate) struct Plan {
     suffix: String,
 }
 impl Plan {
+    fn boundary(&self, _at: Boundary, index: usize) -> Result<()> {
+        #[cfg(test)]
+        if let Some(probe) = &self.probe {
+            probe(_at);
+        }
+        self.check(index)
+    }
+    pub(crate) fn check_editor(&self) -> Result<()> {
+        self.boundary(Boundary::EditorAction, 0)
+    }
     fn check(&self, index: usize) -> Result<()> {
         task_integrity::check_cancel()?;
-        match std::fs::metadata("data/bridge/global-stop.signal") {
+        match std::fs::metadata(&self.stop_path) {
             Ok(meta) if meta.modified()? >= self.started => {
                 return Err(task_integrity::Fault::Cancelled.into())
             }
@@ -177,6 +205,7 @@ impl Plan {
             value = match (step.output, value) {
                 (Port::LiveText, Value::Document) => Value::Live(self.binding.artifact(run, text)?),
                 (Port::Derived, Value::Live(source)) => {
+                    self.boundary(Boundary::SourceVerified, index)?;
                     let (proof, snapshot) = source.consume(run, self.adapter)?;
                     if !self.binding.matches_snapshot(&snapshot, text) {
                         return Err("Snapshot invalidated".into());
@@ -188,8 +217,10 @@ impl Plan {
                 }
                 (Port::Checked, Value::Derived(proof, mut writer, identity, expected)) => {
                     self.verify_output(&writer.path, identity, &expected)?;
-                    self.check(index)?;
+                    self.boundary(Boundary::Publish, index)?;
                     writer.publish(&self.output)?;
+                    self.published.set(true);
+                    self.boundary(Boundary::Published, index)?;
                     self.verify_output(&self.output, identity, &expected)?;
                     self.check(index)?;
                     drop(writer);
@@ -207,6 +238,7 @@ impl Plan {
         let path = self
             .output
             .with_file_name(format!(".reflex-{}.tmp", task_integrity::run_id()));
+        self.boundary(Boundary::StageCreate, 2)?;
         let file = OpenOptions::new()
             .access_mode(0xC0010000) // Generic read/write plus DELETE for handle-based rename.
             .write(true)
@@ -222,16 +254,25 @@ impl Plan {
         };
         let identity = saved_text::file_identity(&writer.file)?;
         self.check(2)?;
+        for chunk in expected.as_bytes().chunks(1024) {
+            self.check(2)?;
+            writer
+                .file
+                .write_all(chunk)
+                .map_err(|_| "Derived write uncertain")?;
+            self.boundary(Boundary::StageWrite, 2)?;
+        }
+        self.boundary(Boundary::Sync, 2)?;
         writer
             .file
-            .write_all(expected.as_bytes())
-            .and_then(|_| writer.file.sync_all())
-            .map_err(|_| "Derived write uncertain")?;
+            .sync_all()
+            .map_err(|_| "Derived sync uncertain")?;
         Ok((writer, identity))
     }
     fn verify_output(&self, path: &Path, identity: (u32, u32, u32), expected: &str) -> Result<()> {
         let reader =
             local_files::open(path, true, 7).map_err(|_| "Derived readback unavailable")?;
+        self.boundary(Boundary::Readback, 3)?;
         let mut observed = Vec::new();
         if saved_text::file_identity(&reader)? != identity {
             return Err("Derived identity changed".into());
@@ -284,6 +325,10 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     }
     scope.require_ntfs()?;
     let plan = Plan {
+        stop_path: "data/bridge/global-stop.signal".into(),
+        published: false.into(),
+        #[cfg(test)]
+        probe: None,
         binding,
         adapter,
         grants,
@@ -294,47 +339,61 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         suffix: suffix.clone(),
     };
     let mut run = task_integrity::run_id();
-    plan.check(0)?;
-    if adapter == Adapter::Winforms {
-        crate::flow::verified_demo(background, &run, Some(&plan))?;
-    } else {
-        // Keep the counter and PID from the run nonce.
-        run = run[24..].to_owned();
-        let ps = std::env::var_os("SystemRoot").ok_or("Windows unavailable")?;
-        let mut worker =
-            Command::new(PathBuf::from(ps).join("System32/WindowsPowerShell/v1.0/powershell.exe"))
-                .args([
-                    "-NoProfile",
-                    "-File",
-                    "tools/ReflexCore-VisionLoop.ps1",
-                    "-Action",
-                    "DemoNotepad",
-                    "-TestFixture",
-                    "-AllowInput",
-                    "-UnicodeFixture",
-                    "-CompositionRun",
-                    &run,
-                ])
-                .stdout(Stdio::null())
-                .spawn()
-                .map_err(|_| "Editor startup failed")?;
-        loop {
-            if let Err(e) = plan.check(0) {
-                let _ = worker.kill();
-                let _ = worker.wait();
-                return Err(e);
-            }
-            if let Some(status) = worker.try_wait()? {
-                if !status.success() {
-                    return Err("Editor failed".into());
+    let execution = (|| -> Result<()> {
+        plan.boundary(Boundary::Launch, 0)?;
+        if adapter == Adapter::Winforms {
+            crate::flow::verified_demo(background, &run, Some(&plan))?;
+        } else {
+            // Keep the counter and PID from the run nonce.
+            run = run[24..].to_owned();
+            let ps = std::env::var_os("SystemRoot").ok_or("Windows unavailable")?;
+            let mut worker = Command::new(
+                PathBuf::from(ps).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+            )
+            .args([
+                "-NoProfile",
+                "-File",
+                "tools/ReflexCore-VisionLoop.ps1",
+                "-Action",
+                "DemoNotepad",
+                "-TestFixture",
+                "-AllowInput",
+                "-UnicodeFixture",
+                "-CompositionRun",
+                &run,
+            ])
+            .stdout(Stdio::null())
+            .spawn()
+            .map_err(|_| "Editor startup failed")?;
+            loop {
+                if let Err(e) = plan.check(0) {
+                    let _ = worker.kill();
+                    let _ = worker.wait();
+                    return Err(e);
                 }
-                break;
+                if let Some(status) = worker.try_wait()? {
+                    if !status.success() {
+                        return Err("Editor failed".into());
+                    }
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
-            std::thread::sleep(Duration::from_millis(50));
+            plan.finish(&run, "ReflexCore ЖΩ😀")?;
         }
-        plan.finish(&run, "ReflexCore ЖΩ😀")?;
+        plan.boundary(Boundary::Terminal, 3)
+    })();
+    if let Err(error) = execution {
+        let cancelled = matches!(
+            error.downcast_ref::<task_integrity::Fault>(),
+            Some(task_integrity::Fault::Cancelled | task_integrity::Fault::CancelledUnknown)
+        );
+        println!(
+            "{}",
+            serde_json::json!({"schema":"reflexcore.composed_goal.v1","run_id":run,"goal":"editor.derive_copy","version":1,"adapter":adapter,"outcome":if cancelled{"cancelled"}else{"failed"},"derived_effect":if plan.published.get(){"published"}else{"not_published"}})
+        );
+        return Err(error);
     }
-    plan.check(3)?;
     println!(
         "{}",
         serde_json::json!({"schema":"reflexcore.composed_goal.v1","goal":"editor.derive_copy","version":1,"run_id":run,"adapter":adapter,"outcome":"verified","steps":GRAPH.iter().map(|s|(s.id,s.version)).collect::<Vec<_>>() })
@@ -345,6 +404,81 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn stop_at_each_boundary_preserves_actual_effects() {
+        use Boundary::*;
+        for at in [
+            Launch,
+            EditorAction,
+            SourceVerified,
+            StageCreate,
+            StageWrite,
+            Sync,
+            Readback,
+            Publish,
+            Published,
+            Terminal,
+        ] {
+            let run = task_integrity::run_id();
+            let root = saved_text::winforms_folder(&run).unwrap();
+            std::fs::create_dir(&root).unwrap();
+            let output = root.join("result.txt");
+            let stop = root.join("stop");
+            let (scope, path) = local_files::target(&output).unwrap();
+            let marker = stop.clone();
+            let plan = Plan {
+                stop_path: stop.clone(),
+                published: false.into(),
+                probe: Some(Box::new(move |stage| {
+                    if stage == at {
+                        std::thread::scope(|s| {
+                            s.spawn(|| std::fs::write(&marker, b"stop"))
+                                .join()
+                                .unwrap()
+                                .unwrap()
+                        });
+                    }
+                })),
+                binding: saved_text::bind(saved_text::ID, 1, Adapter::Winforms, true).unwrap(),
+                adapter: Adapter::Winforms,
+                grants: 31,
+                deadline: Instant::now() + Duration::from_secs(30),
+                started: std::time::UNIX_EPOCH,
+                _scope: scope,
+                output: path,
+                suffix: "!".repeat(2048),
+            };
+            let original = root.join("saved.txt");
+            let result = (|| -> Result<()> {
+                plan.boundary(Launch, 0)?;
+                plan.check_editor()?;
+                std::fs::write(&original, "source")?;
+                plan.finish(&run, "source")?;
+                plan.boundary(Terminal, 3)
+            })();
+            assert!(matches!(
+                result.unwrap_err().downcast_ref::<task_integrity::Fault>(),
+                Some(task_integrity::Fault::Cancelled)
+            ));
+            assert_eq!(original.exists(), !matches!(at, Launch | EditorAction));
+            assert_eq!(output.exists(), matches!(at, Published | Terminal));
+            assert_eq!(output.exists(), plan.published.get());
+            drop(plan);
+            if output.exists() {
+                assert_eq!(
+                    std::fs::read_to_string(&output).unwrap(),
+                    format!("source{}", "!".repeat(2048))
+                );
+                std::fs::remove_file(output).unwrap();
+            }
+            if original.exists() {
+                assert_eq!(std::fs::read(&original).unwrap(), b"source");
+                std::fs::remove_file(original).unwrap();
+            }
+            std::fs::remove_file(stop).unwrap();
+            std::fs::remove_dir(root).unwrap();
+        }
+    }
+    #[test]
     fn competing_destination_and_recovery() {
         let root =
             std::env::temp_dir().join(format!("reflex-compose-{}", task_integrity::run_id()));
@@ -352,6 +486,9 @@ mod tests {
         let output = root.join("result.txt");
         let (scope, path) = local_files::target(&output).unwrap();
         let mut plan = Plan {
+            stop_path: root.join("stop"),
+            published: false.into(),
+            probe: None,
             binding: saved_text::bind(saved_text::ID, 1, Adapter::Winforms, true).unwrap(),
             adapter: Adapter::Winforms,
             grants: 31,

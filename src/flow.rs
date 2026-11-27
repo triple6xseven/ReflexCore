@@ -541,6 +541,7 @@ pub(crate) fn verified_demo<'a>(background: bool, run: &'a str, composition: Opt
     let plan = crate::agent::plan_edges(FixtureState::Empty.id(), FixtureState::Saved.id(), &edges)?;
     let plan_us = planning.elapsed().as_micros();
     let _lock = FlowLock::acquire()?;
+    if let Some(plan)=composition {plan.check_editor()?;}
     let mut artifact = FixtureArtifact::new(run)?;
     artifact.1 = composition.is_some();
     let path = artifact.path();
@@ -554,6 +555,7 @@ pub(crate) fn verified_demo<'a>(background: bool, run: &'a str, composition: Opt
     let mut next = 0;
     let mut timings = Vec::new();
     let mut action = |step: &Step| -> Result<serde_json::Value> {
+        if let Some(plan)=composition {plan.check_editor()?;}
         if background && !matches!(step.action.as_str(), "set-value" | "invoke" | "assert-value") {
             return Err(Fault::PreconditionFailed.into());
         }
