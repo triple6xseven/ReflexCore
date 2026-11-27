@@ -20,7 +20,7 @@ $reader = [Func[string,string,string,string]]{
         return (& (Join-Path $root 'tools/Read-DevUsage.ps1') -Action $action)
     }
     $packet = & (Join-Path $root 'tools/Invoke-DevObserver.ps1') -ObserverArgs @('resume',$session,$scope) | ConvertFrom-Json
-    if($packet.pending_ci.run_id -or $session -ne 'auto'){
+    if($packet.pending_ci.run_id -or $packet.session_key){
         Push-Location $root
         try {$private=& git rev-parse --absolute-git-dir 2>$null}finally{Pop-Location}
         if($private){
@@ -29,7 +29,7 @@ $reader = [Func[string,string,string,string]]{
                 try {
                     if((Get-Item -LiteralPath $path -ErrorAction Stop).Length -le 8192){
                         $observations=Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
-                        $entry=@($observations.runs | Where-Object {$_.id -ceq $packet.pending_ci.run_id -and $_.commit -ceq $packet.pending_ci.commit})
+                        $entry=@($observations.runs | Where-Object {$_.id -ceq $packet.pending_ci.run_id -and $_.commit -ceq $packet.pending_ci.commit -and $_.attempt -eq 1})
                         if($observations.repo -ceq 'triple6xseven/ReflexCore' -and $entry.Count -eq 1 -and $entry[0].attempt -gt 0){
                             $status=switch($entry[0].status){
                                 'in_progress' {'pending'}
@@ -45,12 +45,13 @@ $reader = [Func[string,string,string,string]]{
                     }
                 } catch {}
             }
-            if($session -ne 'auto'){
-                $path=Join-Path $private 'reflex-managed-turn-v1.json'
+            if($packet.session_key -cmatch '^[a-f0-9]{64}$'){
+                $path=Join-Path $private ('reflex-managed-turns/'+$packet.session_key+'.json')
                 try {
                     if((Get-Item -LiteralPath $path -ErrorAction Stop).Length -le 2048){
                         $receipt=Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
-                        if($receipt.v -eq 1 -and $receipt.thread -ceq $session){
+                         . (Join-Path $PSScriptRoot 'ReflexCore-ManagedEvents.ps1')
+                        if($receipt.v -eq 1 -and $receipt.thread -cmatch '^[a-zA-Z0-9-]{1,64}$' -and (Get-ReflexManagedKey $receipt.thread) -ceq $packet.session_key){
                             $packet | Add-Member -NotePropertyName managed_turn -NotePropertyValue $receipt
                         }
                     }
@@ -60,4 +61,7 @@ $reader = [Func[string,string,string,string]]{
     }
     return ($packet|ConvertTo-Json -Depth 9 -Compress)
 }
-[ReflexCore.Bridge.McpServer]::Run($RuntimeRoot,$check,$DeveloperTools.IsPresent,$reader,$separateRuntime)
+$runtimeCheck=[Func[string]]{
+    & (Join-Path $root 'tools/Measure-DevBuild.ps1') -Action Check -Worktree $RuntimeRoot
+}
+[ReflexCore.Bridge.McpServer]::Run($RuntimeRoot,$check,$DeveloperTools.IsPresent,$reader,$separateRuntime,$runtimeCheck)

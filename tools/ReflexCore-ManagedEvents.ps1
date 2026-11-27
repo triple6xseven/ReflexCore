@@ -15,6 +15,14 @@ function Update-ReflexManagedTurn($State,$Message) {
         'thread/tokenUsage/updated' {
             $tokens=$data.tokenUsage.total.totalTokens
             if($tokens -is [ValueType] -and $tokens -ge 0){$State.total_tokens=[long]$tokens}
+            foreach($name in 'last','total'){
+                $fields=[ordered]@{}
+                foreach($key in 'inputTokens','cachedInputTokens','outputTokens','reasoningOutputTokens','totalTokens'){
+                    $value=$data.tokenUsage.$name.$key
+                    if($value -is [ValueType] -and $value -ge 0){$fields[$key]=[long]$value}
+                }
+                if($fields.Count){$State["tokens_$name"]=$fields}
+            }
         }
         'error' {
             if($State.failure -ne 'allowance_exhausted'){$State.failure=Get-ReflexManagedFailure $data.error.codexErrorInfo}
@@ -41,4 +49,10 @@ function Get-ReflexManagedFailure($Kind) {
         'contextWindowExceeded' {'context_exhausted'}
         default {'unknown'}
     }
+}
+
+function Get-ReflexManagedKey([string]$ThreadId){
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($ThreadId)))).Replace('-','').ToLowerInvariant() }
+    finally { $sha.Dispose() }
 }

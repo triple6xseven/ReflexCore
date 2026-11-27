@@ -1,11 +1,14 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-    [ValidateSet('Usage','Qualify','Resume','Cached','QualifyTurn')][string]$Action='Usage',
-    [ValidatePattern('^[A-Za-z0-9-]{1,64}$')][string]$ThreadId
+    [ValidateSet('Usage','Qualify','Resume','Cached','QualifyTurn','Develop')][string]$Action='Usage',
+    [ValidatePattern('^[A-Za-z0-9-]{1,64}$')][string]$ThreadId,
+    [ValidateLength(1,320)][string]$Objective,
+    [ValidateLength(1,320)][string]$Next
 )
 if (($Action -eq 'Resume') -ne [bool]$ThreadId) { throw 'Resume requires one explicit thread ID' }
-# Only the explicit QualifyTurn action sends one fixed model prompt.
+if($Action -eq 'Develop' -and (!$Objective -or !$Next -or $Objective -match '[\x00-\x1f]' -or $Next -match '[\x00-\x1f]')){throw 'Develop requires a bounded objective and next step'}
+# Usage and resume actions send no model prompt.
 $ErrorActionPreference = 'Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Push-Location $root
@@ -37,6 +40,7 @@ if (!$command) {
 $cli = $command.Source
 $start = New-Object Diagnostics.ProcessStartInfo
 $start.FileName = $cli
+$start.WorkingDirectory = $root
 $start.Arguments = 'app-server --listen stdio://'
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
@@ -77,7 +81,7 @@ function Observe($message) {
 function Receive([int]$id) {
     for ($i=0; $i -lt 128; $i++) {
         $line = $child.StandardOutput.ReadLineAsync()
-        $budget=if($Action -eq 'QualifyTurn'){30000}else{12000}
+        $budget=if($Action -in 'QualifyTurn','Develop'){30000}else{12000}
         $remaining = [int]($budget - $clock.ElapsedMilliseconds)
         if ($remaining -le 0 -or !$line.Wait($remaining) -or !$line.Result -or $line.Result.Length -gt 65536) { throw 'Unavailable' }
         $message = $line.Result | ConvertFrom-Json
@@ -100,8 +104,9 @@ try {
     $child.StandardInput.WriteLine('{"id":2,"method":"account/rateLimits/read","params":{}}')
     $result = Receive 2
     $thread=$null
-    if($Action -in 'Qualify','QualifyTurn'){
-        $child.StandardInput.WriteLine('{"id":3,"method":"thread/start","params":{"ephemeral":true}}')
+    if($Action -in 'Qualify','QualifyTurn','Develop'){
+        $request=@{id=3;method='thread/start';params=@{ephemeral=($Action -ne 'Develop');cwd=$root}}
+        $child.StandardInput.WriteLine(($request|ConvertTo-Json -Depth 4 -Compress))
         $thread=(Receive 3).thread.id
         # A following response drains messages sent immediately after thread creation.
         $child.StandardInput.WriteLine('{"id":4,"method":"thread/read","params":{"threadId":"'+$thread+'","includeTurns":false}}')
@@ -116,18 +121,27 @@ try {
         if ((Receive 4).thread.id -cne $ThreadId) { throw 'Resume identity mismatch' }
         $thread=$ThreadId
     }
-    if($Action -eq 'QualifyTurn'){
+    if($Action -in 'QualifyTurn','Develop'){
         if($thread -cnotmatch '^[a-zA-Z0-9-]{1,64}$'){throw 'Invalid managed thread'}
         $turnState.thread=$thread
+        $prompt='Reply with OK only. Do not use tools.'
+        if($Action -eq 'Develop'){
+            if(!$private){throw 'Managed development requires a worktree'}
+            $store=Join-Path $private 'reflex-managed-turns'
+            [void][IO.Directory]::CreateDirectory($store)
+            $turnPath=Join-Path $store ((Get-ReflexManagedKey $thread)+'.json')
+            & (Join-Path $PSScriptRoot 'Invoke-DevObserver.ps1') -ObserverArgs @('declare',$thread,'bridge',$Objective,$Next)|Out-Null
+            $prompt=$Objective
+        }
         Save-ManagedTurn
-        $request=@{id=5;method='turn/start';params=@{threadId=$thread;approvalPolicy='never';sandboxPolicy=@{type='readOnly'};input=@(@{type='text';text='Reply with OK only. Do not use tools.'})}}
+        $request=@{id=5;method='turn/start';params=@{threadId=$thread;approvalPolicy='never';sandboxPolicy=@{type='readOnly'};input=@(@{type='text';text=$prompt})}}
         $child.StandardInput.WriteLine(($request|ConvertTo-Json -Depth 6 -Compress))
         $issued=Receive 5
         if($issued.turn.id -cnotmatch '^[a-zA-Z0-9-]{1,64}$' -or ($turnState.turn -and $turnState.turn -cne $issued.turn.id)){throw 'Invalid managed turn'}
         $turnState.turn=$issued.turn.id
         if($turnState.state -notin 'completed','interrupted','failed'){Receive -1}
     }
-    if($Action -eq 'QualifyTurn' -and ($notifications | Where-Object {$_.kind -ceq 'rate_limits_updated'})){
+    if($Action -in 'QualifyTurn','Develop' -and ($notifications | Where-Object {$_.kind -ceq 'rate_limits_updated'})){
         # Updates can be sparse. Fetch one full official snapshot after the managed turn.
         $child.StandardInput.WriteLine('{"id":6,"method":"account/rateLimits/read","params":{}}')
         $result=Receive 6
@@ -146,11 +160,11 @@ try {
     })
     $state = if ($windows.Count) { 'observed' } else { 'unavailable' }
     $record=[ordered]@{v=1;source='managed_app_server';state=$state;observed_utc=[DateTime]::UtcNow.ToString('o');windows=$windows;forecast=$null}
-    if($Action -in 'Qualify','QualifyTurn'){
+    if($Action -in 'Qualify','QualifyTurn','Develop'){
         $record.thread_notification=@($notifications | Where-Object {$_.kind -eq 'thread_started' -and $_.thread -ceq $thread}).Count -gt 0
         $record.observed_notifications=@($notifications | ForEach-Object {$_.kind} | Select-Object -Unique)
     }
-    if($Action -eq 'QualifyTurn'){ $record.managed_turn=$turnState }
+    if($Action -in 'QualifyTurn','Develop'){ $record.managed_turn=$turnState }
     if($Action -eq 'Resume'){ $record.thread_resumed=$true }
     if($state -eq 'observed'){
         # Keep only the latest sanitized snapshot in this worktree.
@@ -167,7 +181,7 @@ try {
     }
     $record | ConvertTo-Json -Depth 4 -Compress
 } catch {
-    if($Action -eq 'QualifyTurn'){
+    if($Action -in 'QualifyTurn','Develop'){
         [ordered]@{v=1;state='unavailable';managed_turn=$turnState;observed_notifications=@($notifications | ForEach-Object {$_.kind} | Select-Object -Unique)}|ConvertTo-Json -Depth 4 -Compress
     }else{
         '{"v":1,"source":"managed_app_server","state":"unavailable","windows":[],"forecast":null}'

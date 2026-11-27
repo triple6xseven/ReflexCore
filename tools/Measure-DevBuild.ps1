@@ -1,7 +1,7 @@
 #Requires -Version 5.1
-param([ValidateSet('Build','Check','VerifyRecovery')][string]$Action='Check')
+param([ValidateSet('Build','Check','VerifyRecovery')][string]$Action='Check',[string]$Worktree)
 $ErrorActionPreference='Stop'
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$root = if($Worktree){(Resolve-Path -LiteralPath $Worktree).Path}else{(Resolve-Path (Join-Path $PSScriptRoot '..')).Path}
 Push-Location $root
 try {
     $private = (& git rev-parse --absolute-git-dir)
@@ -24,7 +24,21 @@ try {
         HashText ($entries -join "`n")
     }
     $tree = HashText $private
+    if((Resolve-Path -LiteralPath (& git rev-parse --show-toplevel)).Path -ne $root){throw 'Expected exact worktree root'}
     $head = & git rev-parse HEAD
+    if($Action -eq 'Check'){
+        $early='unknown'
+        if([IO.File]::Exists($stamp) -and [IO.File]::Exists($binary)){
+            $saved=Get-Content -Raw -LiteralPath $stamp|ConvertFrom-Json
+            if($saved.v -eq 1 -and $saved.tree -eq $tree -and $saved.head -eq $head){$early=$null}
+            else{$early='stale'}
+        }
+        if($early){
+            $test=if([IO.File]::Exists((Join-Path $private 'reflex-dev-recovery-test-v1.json')) -and $early -eq 'stale'){'stale'}else{'unknown'}
+            [pscustomobject]@{schema=1;profile='release';build=$early;worktree_recovery_test=$test}|ConvertTo-Json -Compress
+            return
+        }
+    }
     $compiler = (& rustc -vV) -join "`n"
     if ($LASTEXITCODE) { throw 'Compiler identity unavailable' }
     $before = Revision

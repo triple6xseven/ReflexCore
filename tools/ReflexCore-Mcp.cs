@@ -12,7 +12,7 @@ namespace ReflexCore.Bridge
     {
         readonly string root, settings;
         readonly QueueStore queue;
-        readonly Func<string> inspectBuild;
+        readonly Func<string> inspectBuild, inspectRuntime;
         readonly Func<string,string,string,string> readDeveloper;
         readonly bool developerTools, separateRuntime;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=20};
@@ -20,10 +20,11 @@ namespace ReflexCore.Bridge
         readonly Dictionary<string,Dictionary<string,string>> recoveryCache=new Dictionary<string,Dictionary<string,string>>();
         readonly Queue<string> recoveryOrder=new Queue<string>();
 
-        McpServer(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read,bool legacyRuntime)
+        McpServer(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read,bool legacyRuntime,Func<string> runtimeBuild)
         {
             root=project;
             separateRuntime=legacyRuntime;
+            inspectRuntime=runtimeBuild;
             inspectBuild=inspect;
             readDeveloper=read;
             developerTools=developer;
@@ -31,11 +32,11 @@ namespace ReflexCore.Bridge
             queue=new QueueStore(root);
         }
 
-        public static void Run(string project) { Run(project,null,false,null,false); }
+        public static void Run(string project) { Run(project,null,false,null,false,null); }
 
-        public static void Run(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read,bool legacyRuntime)
+        public static void Run(string project,Func<string> inspect,bool developer,Func<string,string,string,string> read,bool legacyRuntime,Func<string> runtimeBuild)
         {
-            var server=new McpServer(project,inspect,developer,read,legacyRuntime);
+            var server=new McpServer(project,inspect,developer,read,legacyRuntime,runtimeBuild);
             var line=new StringBuilder();
             int next;
             bool firstByte=true;
@@ -174,7 +175,7 @@ namespace ReflexCore.Bridge
                     new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task or compare a known recovery revision.",new[]{"packet"},null,new[]{"component","session","known_revision"}),
                     Tool("get_checkpoint","Inspect a local recovery checkpoint.",new[]{"packet"},null,new[]{"component","session"}),
                     Tool("get_usage_status","Read the local usage snapshot. Pass refresh to query the signed-in account.",new[]{"packet"},null,new[]{"refresh"}),
-                    Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile","worktree_recovery_test"})} : new object[0]).ToArray();
+                    Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile","worktree_recovery_test","runtime_build","runtime_composition"})} : new object[0]).ToArray();
         }
 
         object Call(string name,Dictionary<string,object> args)
@@ -209,7 +210,10 @@ namespace ReflexCore.Bridge
                     return new {packet=recovered};
                 case "get_validation_evidence":
                     if(!developerTools || args.Count!=0)throw new ArgumentException("Unsupported tool or arguments.");
-                    return BuildEvidence();
+                    var validation=BuildEvidence();
+                    validation["runtime_build"]=separateRuntime?RuntimeBuildStatus():validation["build"];
+                    validation["runtime_composition"]=separateRuntime?"incompatible_queue":"same_installation";
+                    return validation;
                 case "list_skills": return ReadRegistry();
                 case "list_projects":
                     var presets=Presets();
@@ -418,15 +422,24 @@ namespace ReflexCore.Bridge
             } catch { }
             return evidence;
         }
+        string RuntimeBuildStatus()
+        {
+            if(inspectRuntime==null)return "unknown";
+            try {
+                var result=Object(json.DeserializeObject(inspectRuntime()));
+                var state=Get(result,"build") as string;
+                return state=="matching" || state=="stale" ? state : "unknown";
+            } catch { return "unknown"; }
+        }
         object ReadRegistry()
         {
-            if(separateRuntime)throw new ArgumentException("The separate runtime registry has no compatible build provenance. Use get_validation_evidence for the developer worktree.");
+
             var checkout=Path.Combine(root,".git");
             if(!File.Exists(checkout) && !Directory.Exists(checkout))return ReadRegistryCore();
             var exe=Path.Combine(root,"target","release","reflexcore.exe");
             if(!File.Exists(exe))throw new ArgumentException("Build unknown. Run tools/Measure-DevBuild.ps1 -Action Build.");
             using(var pin=new FileStream(exe,FileMode.Open,FileAccess.Read,FileShare.Read)) {
-                var state=(string)BuildEvidence()["build"];
+                var state=separateRuntime?RuntimeBuildStatus():(string)BuildEvidence()["build"];
                 if(state!="matching")throw new ArgumentException("Build "+state+". Run tools/Measure-DevBuild.ps1 -Action Build.");
                 return ReadRegistryCore();
             }

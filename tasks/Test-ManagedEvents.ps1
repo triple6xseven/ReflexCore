@@ -12,4 +12,6 @@ if(Update-ReflexManagedTurn $state (Event 'owned' 'turn-b' 'usageLimitExceeded')
 if(!(Update-ReflexManagedTurn $state (Event 'owned' 'turn-a' 'usageLimitExceeded')) -or $state.failure -ne 'allowance_exhausted'){throw 'Authoritative limit ignored'}
 $null=Update-ReflexManagedTurn $state @{method='turn/completed';params=@{threadId='owned';turn=@{id='turn-a';status='failed';error=@{codexErrorInfo='other'}}}}
 if($state.state -ne 'failed' -or $state.failure -ne 'allowance_exhausted'){throw 'Terminal event erased exhaustion evidence'}
-'PASS: managed event correlation and authoritative exhaustion classification.'
+$null=Update-ReflexManagedTurn $state @{method='thread/tokenUsage/updated';params=@{threadId='owned';turnId='turn-a';tokenUsage=@{last=@{inputTokens=10;cachedInputTokens=8;outputTokens=2;reasoningOutputTokens=1;totalTokens=12};total=@{inputTokens=26;cachedInputTokens=20;outputTokens=4;reasoningOutputTokens=2;totalTokens=30}}}}
+if($state.tokens_last.cachedInputTokens -ne 8 -or $state.tokens_total.totalTokens -ne 30){throw 'Usage breakdowns were conflated'}
+'PASS: managed event correlation, exhaustion classification and independent usage counters.'
