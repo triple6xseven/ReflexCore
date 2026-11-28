@@ -1,5 +1,9 @@
 param([switch]$DeveloperTools,[string]$RuntimeRoot)
 $ErrorActionPreference='Stop'
+# Hosts may supply a PowerShell 7 module path to this Windows PowerShell process.
+# Load the system utility module before registering delegates with the stdio server.
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+
 $root=(Resolve-Path (Split-Path $PSScriptRoot -Parent)).Path
 $separateRuntime=[bool]$RuntimeRoot
 if($separateRuntime){

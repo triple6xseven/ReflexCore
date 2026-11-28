@@ -11,7 +11,12 @@ function Fire($event,$tool,$inputData){
 function Resume {
     $OutputEncoding=New-Object Text.UTF8Encoding($false)
     $messages=@('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}','{"jsonrpc":"2.0","method":"notifications/initialized"}',(@{jsonrpc='2.0';id=2;method='tools/call';params=@{name='get_development_context';arguments=@{cwd=$root;branch=(& git rev-parse --abbrev-ref HEAD)}}}|ConvertTo-Json -Depth 6 -Compress))
-    $lines=$messages|powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/ReflexCore-Mcp.ps1 -DeveloperTools
+    # Exercise the stdio child with an isolated module search path like a desktop host.
+    $savedModulePath=$env:PSModulePath
+    try {
+        $env:PSModulePath=$root
+        $lines=$messages|powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/ReflexCore-Mcp.ps1 -DeveloperTools
+    } finally {$env:PSModulePath=$savedModulePath}
     if($lines.Count -ne 2){throw 'Unexpected MCP transport'}
     ($lines[-1]|ConvertFrom-Json).result
 }
