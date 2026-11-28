@@ -6,9 +6,11 @@ Local-first Windows automation for PCs with limited RAM and GPU capacity. Reflex
 
 **Status: early alpha.** Today, ReflexCore runs a small set of verified desktop tasks. General desktop automation and autonomous gameplay are still in development.
 
-## What works today
+For the 0.8 development baseline, current qualification, skill contracts and next checkpoint, see the [integration map](docs/INTEGRATION.md). The download above is the published Windows preview.
 
-**Play CS 1.6 with ReflexCore.** Open **Play with a teammate â†’ Start local server**, then join through **Find Servers â†’ LAN**. Press **H** for Follow, Hold, FreeRoam AI or a first-person spectator camera in a second client. FreeRoam uses a route derived from the installed Dust II map. The local actor uses server visibility and team information to aim. In an observed offline Dust II round, the server logged an AK-47 kill by ReflexCore and a Terrorist team win. Press J to change YaPB opponent difficulty. Player candidates appear only in the ReflexVision preview. Match win rate and visual-only play remain unmeasured. [Lobby guide](docs/CS16-LOCAL-TEAM.md)
+## Development capabilities
+
+**Play CS 1.6 with ReflexCore.** Open **Play with a teammate → Start local server**, then join through **Find Servers → LAN**. Press **H** for Follow, Hold, FreeRoam AI or a first-person spectator camera in a second client. FreeRoam uses a route derived from the installed Dust II map. The local actor uses server visibility and team information to aim. In an observed offline Dust II round, the server logged an AK-47 kill by ReflexCore and a Terrorist team win. Press J to change YaPB opponent difficulty. Player candidates appear only in the ReflexVision preview. Match win rate and visual-only play remain unmeasured. [Lobby guide](docs/CS16-LOCAL-TEAM.md)
 
 - **F9 autopilot** is available in the local-lobby development branch. Press F9 to let Reflex play your character, then press it again to resume control. [Local lobby controls](https://github.com/triple6xseven/ReflexCore/blob/feat/local-teammate-lobby/docs/CS16-LOCAL-TEAM.md)
 

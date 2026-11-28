@@ -1,4 +1,6 @@
-## Guarded user Goals and stable skill identity
+## Unreleased — 0.8 integration
+
+- Combine the qualified Phase C runtime with worktree-bound recovery. Partition Git-backed knowledge and add scoped lookup by dependency, skill or tag. Preserve the approved runtime queue across developer integration upgrades.
 
 ## Unreleased — 0.8.3 universal skill foundation
 

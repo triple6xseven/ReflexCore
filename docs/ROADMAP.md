@@ -25,8 +25,8 @@ admit discovered candidates only after fixture validation and operator approval.
 verifier compatibility. **F. Skill SDK and Ecosystem** will validate versioned
 manifests against explicitly trusted adapters.
 
-## Phase C qualification and the next implementation
+## Integration checkpoint
 
-Studio and MCP approvals, immutable attempts, the Notepad consent boundary, and the runtime's readback evidence have passed interactive qualification. Both supervisor crash intervals and the independent editor-to-readback benchmark are documented in UNIVERSAL-SKILL-RUNTIME.md and BENCHMARKS.md. Final release acceptance uses the exact published Windows CI result.
+Phase C closed at `2b92bff`. [Windows CI 46078707512](https://github.com/triple6xseven/ReflexCore/actions/runs/46078707512) passed on the same revision as the independent orchestration and terminal-commit qualification. The [integration map](INTEGRATION.md) defines the development baseline and the installed runtime boundary.
 
-The first Phase D executable checkpoint is read-only candidate discovery. Add a CLI entry that consumes a bounded descriptor from an owned unfamiliar-application fixture. Emit a candidate with its verified application binding, typed inputs and outputs, required capabilities and verifier identity. A fixture with an ambiguous application, an undeclared capability or an absent verifier must be rejected. The command must neither register a candidate nor enqueue work. Admission and execution remain later steps.
+**Next implementation step after integration acceptance:** inspect the existing read-only discovery candidate at `ba26cee` on `feat/universal-skill-runtime`. Reproduce the failed invalid-descriptor CI step in a clean checkout, then qualify the bounded descriptor, owned binding, typed ports and verifier on the integrated base. Admission requires independent effect validation and operator review. Phases E and F remain planned.

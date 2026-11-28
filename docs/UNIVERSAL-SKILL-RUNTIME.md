@@ -1,6 +1,6 @@
 # Universal Skill Runtime 0.8.3
 
-## Working checkpoint
+## Qualified A/B foundation
 
 The first A/B delivery transfers one executable method between two editors.
 `artifact.verify_saved_text@1` independently reopens the file produced by this
@@ -131,7 +131,7 @@ observations or Windows Graphics Capture/DXGI frames through scoped user-mode
 capabilities. A driver would require a measured user-mode limitation, documented
 WDK interface, threat model, signing, recovery and independent review.
 
-## Continuation
+## Historical implementation checkpoints
 
 ### First composition boundary
 
@@ -241,7 +241,7 @@ publication can leave a complete copy. Both applications retain their original
 fixture; synthetic files remain local for inspection. Receipts contain skill
 versions, adapter and run identity. No receipt carries executable authority.
 
-Current entry is CLI-only. Global stop and a deadline are checked at skill
+At the C2 checkpoint the entry was CLI-only. Global stop and a deadline are checked at skill
 boundaries; the WinForms producer retains its existing per-action deadlines.
 Queue stop ordering has not been qualified for the new workflow. Next checkpoint:
 add cooperative interruption probes at each dispatch and publication boundary,
@@ -297,8 +297,4 @@ The six-step Notepad composition succeeded once through Studio's supervised queu
 
 The live CLI/queue comparison and the independent end-to-end manual-versus-graph baseline are documented separately in BENCHMARKS.md. The latter verified 30/30 attempts per arm under the same authority and durability checks. A second kill test stopped the supervisor after it had replaced the running manifest with the staged verified receipt, just before the atomic history move. Recovery preserved both publications, discarded uncommitted verification, and emitted one interrupted receipt. The fault injection is compiled only in the owned test fixture.
 
-Interactive Phase C criteria are qualified. Check the final published Windows CI result before closing the release checkpoint.
-
-The installed Intelligence Bridge MCP observes its configured developer worktree. This branch has its own declared checkpoint in a separate Git administrative directory, read using the pinned native observer. The existing MCP component fingerprint omits this branch's test and composition files. Treat a matching fingerprint as scoped and consult the modified acceptance sources when resuming. These integration limitations are deferred to bridge maintenance.
-
-Once Phase C closes, begin 0.8.3-D with one read-only discovery command for a disposable unfamiliar application. Report only bounded candidate operations with application binding, typed ports, required capabilities and proposed verifier. Acceptance must reject an unknown binding, undeclared capability and missing independent verifier before the candidate is eligible for admission. Keep discovery outside the execution queue.
+Phase C closed at `2b92bff` with successful Windows run 46078707512. The roadmap records the current continuation. Individual checkpoint sections above describe their original revision. See [the integration map](INTEGRATION.md) for current installation compatibility.

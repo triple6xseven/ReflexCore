@@ -1,6 +1,6 @@
 # ReflexCore contributor notes
 
-Follow [the engineering roadmap](docs/ROADMAP.md) for milestone scope and order.
+Follow [the engineering roadmap](docs/ROADMAP.md) for milestone scope and order. Start an integration continuation from the [project map](docs/INTEGRATION.md).
 
 For queue changes run tasks/Test-Queue.ps1. With a release build and an interactive desktop, add -AllowInput for actual UIA and Notepad verification. Add -VisualCancellation with the local default vision model installed to exercise stop during inference.
 

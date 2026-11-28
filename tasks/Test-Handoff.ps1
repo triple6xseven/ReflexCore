@@ -1,7 +1,8 @@
 ﻿[CmdletBinding()]
-param([switch]$CrashComposition,[switch]$CrashDuringTerminalMove,[switch]$CompareComposition,[switch]$CompareManualComposition,[switch]$NotepadFocus,[switch]$Benchmark,[switch]$Mcp,[switch]$Composition,[ValidateRange(1,30)][int]$Sessions=4,
+param([switch]$CrashComposition,[switch]$CrashDuringTerminalMove,[switch]$CompareComposition,[switch]$CompareManualComposition,[switch]$NotepadFocus,[switch]$Benchmark,[switch]$Mcp,[switch]$Composition,[switch]$BackgroundCompositionOnly,[ValidateRange(1,30)][int]$Sessions=4,
       [ValidateRange(1,30)][int]$WarmRuns=5,[string]$MetricsFile,[switch]$RequireOllamaStopped)
 $ErrorActionPreference='Stop'
+if($BackgroundCompositionOnly -and !($Mcp -and $Composition)){throw 'BackgroundCompositionOnly requires -Mcp -Composition'}
 $root=Split-Path $PSScriptRoot -Parent
 $temp=[IO.Path]::GetTempPath()
 $fixture=Join-Path $temp ('ReflexHandoff-'+[guid]::NewGuid().ToString('N'))
@@ -375,7 +376,8 @@ if($env:REFLEX_C_CRASH_TERMINAL -eq '1'){
             [IO.File]::WriteAllText((Join-Path $settings 'mcp-projects.json'),($mapping|ConvertTo-Json -Compress))
             if($Composition){
                 $copies=[IO.Directory]::CreateDirectory((Join-Path $folder 'composition')).FullName
-                foreach($mode in 'winforms-background','notepad'){
+                $modes=if($BackgroundCompositionOnly){@('winforms-background')}else{@('winforms-background','notepad')}
+                foreach($mode in $modes){
                     $req=@{project='zxclaglab';goal='editor.derive_copy';editor=$mode;destination=('composition/'+ $mode+'.txt');suffix=' draft'}
                     if($mode -eq 'winforms-background'){$req.goal='editor.derive_chain';$req.second_destination='composition/second.txt';$req.second_suffix=' final'}
                     $reply=(Invoke-Tool 'submit_composition' $req).structuredContent
@@ -401,7 +403,7 @@ if($env:REFLEX_C_CRASH_TERMINAL -eq '1'){
                     Require ([IO.File]::ReadAllText($original) -ceq $expected -and [IO.File]::ReadAllText((Join-Path $folder $req.destination)) -ceq ($expected+' draft')) 'Original or copy mismatch'
                     Write-Output ("Queued {0} verified {1} published outputs" -f $mode,$r.published_outputs)
                 }
-                $req.destination='composition/cancelled.txt'
+                $req=@{project='zxclaglab';goal='editor.derive_copy';editor='winforms-background';destination='composition/cancelled.txt';suffix=' draft'}
                 $queued=(Invoke-Tool 'submit_composition' $req).structuredContent
                 Require ((Invoke-Tool 'cancel_task' @{task_id=$queued.task_id}).structuredContent.cancellation_requested) 'Composition did not accept cancellation'
                 $cancelResult=Terminal-Job $queued.task_id -Attempt
