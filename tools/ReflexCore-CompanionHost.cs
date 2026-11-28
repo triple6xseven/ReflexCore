@@ -9,7 +9,7 @@ using System.Windows.Forms;
 namespace ReflexCore.Bridge
 {
     // Windows makes a transparent window transparent to every mouse button.
-    // Route only physical right clicks inside the renderer's current window region.
+    // Route physical right and middle clicks using the renderer hit test.
     internal sealed class RightClickRouter : IDisposable
     {
         private delegate IntPtr MouseHook(int code,IntPtr message,IntPtr data);
@@ -22,19 +22,18 @@ namespace ReflexCore.Bridge
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr window,int index);
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window,out Rect rect);
-        [DllImport("user32.dll")] private static extern int GetWindowRgn(IntPtr window,IntPtr region);
         [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window,uint flags);
         [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window,uint direction);
-        [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int left,int top,int right,int bottom);
-        [DllImport("gdi32.dll")] private static extern bool PtInRegion(IntPtr region,int x,int y);
-        [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr handle);
         [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr window,ref Point point);
         [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
 
         private readonly MouseHook callback;
         private readonly bool rectangularWidget;
         private IntPtr hook, pressedTarget;
+        private IntPtr middleTarget;
+        internal Func<int,int,bool> RendererHit;
+        internal Action<bool> ClassicDrag;
         private bool attempted;
         internal IntPtr Target;
         internal bool Ready {get{return hook!=IntPtr.Zero && Target!=IntPtr.Zero;}}
@@ -49,6 +48,23 @@ namespace ReflexCore.Bridge
         private IntPtr Handle(int code,IntPtr message,IntPtr data)
         {
             const int down=0x204,up=0x205;
+            long button=message.ToInt64();
+            if(code>=0 && (button==0x207 || button==0x208) && (Marshal.ReadInt32(data,12)&1)==0)
+            {
+                var point=new Point{X=Marshal.ReadInt32(data),Y=Marshal.ReadInt32(data,4)};
+                if(button==0x208 && middleTarget!=IntPtr.Zero)
+                {
+                    if(rectangularWidget)ClassicDrag(false);else Send(middleTarget,0x208,point);
+                    middleTarget=IntPtr.Zero;
+                    return new IntPtr(1);
+                }
+                if(button==0x207 && Ready && HitTarget(Target,point) && (rectangularWidget || Send(Target,0x207,point)))
+                {
+                    middleTarget=Target;
+                    if(rectangularWidget)ClassicDrag(true);
+                    return new IntPtr(1);
+                }
+            }
             if(code>=0 && (message.ToInt64()==down || message.ToInt64()==up))
             {
                 // MSLLHOOKSTRUCT starts with POINT and has flags after mouseData.
@@ -83,17 +99,14 @@ namespace ReflexCore.Bridge
             for(var above=GetWindow(window,3);above!=IntPtr.Zero;above=GetWindow(above,3))
                 if(above==foregroundHit)return false;
             if(rectangularWidget)return true;
-            var region=CreateRectRgn(0,0,0,0);
-            if(region==IntPtr.Zero)return false;
-            try{return GetWindowRgn(window,region)>1 && PtInRegion(region,point.X-rect.Left,point.Y-rect.Top);}
-            finally{DeleteObject(region);}
+            return RendererHit!=null && RendererHit(point.X,point.Y);
         }
 
         private static bool Send(IntPtr window,uint message,Point point)
         {
             if(!ScreenToClient(window,ref point))return false;
             int position=(point.X&0xffff)|(point.Y<<16);
-            return PostMessage(window,message,new IntPtr(message==0x204?2:0),new IntPtr(position));
+            return PostMessage(window,message,new IntPtr(message==0x204?2:message==0x207?16:0),new IntPtr(position));
         }
 
         public void Dispose()
@@ -255,6 +268,8 @@ namespace ReflexCore.Bridge
                 }
                 ReadCommand(classicVisibility);
                 ReadClassicRequest(classicVisibility);
+                classicRightClickRouter.ClassicDrag=hud.RouteClassicDrag;
+                rightClickRouter.RendererHit=RendererHit;
                 classicRightClickRouter.Target=hud.Visible && hud.ClassicClickThrough?hud.Handle:IntPtr.Zero;
                 if(classicRightClickRouter.Target!=IntPtr.Zero)classicRightClickRouter.Start();
                 rightClickRouter.Target=IntPtr.Zero;
@@ -432,7 +447,7 @@ namespace ReflexCore.Bridge
             foreach(string name in new[]{"stop.flag","status.json"})if(File.Exists(InBridge(name)))File.Delete(InBridge(name));
             PreferHighPerformanceGpu(executable);
             var start=new ProcessStartInfo {
-                FileName=executable,Arguments="--resolution 1x1 --position -32000,-32000 --path \""+project+"\" -- \""+DirectoryPath+"\"",
+                FileName=executable,Arguments="--quiet --resolution 1x1 --position -32000,-32000 --path \""+project+"\" -- \""+DirectoryPath+"\"",
                 WorkingDirectory=project,UseShellExecute=false,CreateNoWindow=true
             };
             child=Process.Start(start);
@@ -449,6 +464,19 @@ namespace ReflexCore.Bridge
         [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
         [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
 
+        private bool RendererHit(int x,int y)
+        {
+            try {
+                var file=new FileInfo(InBridge("mouse-hit.txt"));
+                if(!file.Exists || file.Length>96 || (DateTime.UtcNow-file.LastWriteTimeUtc).TotalMilliseconds>400)return false;
+                var values=File.ReadAllText(file.FullName).Split(',');
+                int pid,px,py;
+                return values.Length==3 && Int32.TryParse(values[0],out pid) && Running && pid==child.Id
+                    && Int32.TryParse(values[1],out px) && Int32.TryParse(values[2],out py)
+                    && Math.Abs((long)x-px)<=16 && Math.Abs((long)y-py)<=16;
+            }catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
+        }
+
         private void CheckGesture()
         {
             long now=Stopwatch.GetTimestamp();
@@ -460,7 +488,7 @@ namespace ReflexCore.Bridge
                 if(!File.Exists(active)||new FileInfo(active).Length>24)return;
                 int token;
                 if(!Int32.TryParse(File.ReadAllText(active),out token)||token<=0||token==watchedGesture)return;
-                int primary=GetSystemMetrics(23)!=0?2:1;
+                int primary=leftClickThrough?4:GetSystemMetrics(23)!=0?2:1;
                 if((GetAsyncKeyState(primary)&0x8000)!=0)return;
                 WriteText("drag-release.txt",token.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 watchedGesture=token;

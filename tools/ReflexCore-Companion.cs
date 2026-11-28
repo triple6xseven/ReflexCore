@@ -24,6 +24,22 @@ namespace ReflexCore.Bridge
     {
         private bool pinned,clickThrough,positioned,dragging;
         private Point dragStart,windowStart;
+        private readonly Timer classicDragTimer=new Timer{Interval=16};
+
+        internal void RouteClassicDrag(bool start)
+        {
+            if(start)
+            {
+                if(pinned || !Visible)return;
+                dragStart=Cursor.Position;windowStart=Location;
+                classicDragTimer.Start();
+            }
+            else if(classicDragTimer.Enabled)
+            {
+                classicDragTimer.Stop();
+                Reposition();SaveClassicPreferences();
+            }
+        }
         private string classicPreferences;
         internal bool feedWhenHidden;
         internal bool ClassicVisible {get{return Visible;}}
@@ -54,13 +70,19 @@ namespace ReflexCore.Bridge
             catch(IOException){} catch(UnauthorizedAccessException){}
             foreach(Control control in Controls)BindWidgetDrag(control);
             BindWidgetDrag(this);
+            classicDragTimer.Tick+=(s,e)=>{
+                if(!Visible){RouteClassicDrag(false);return;}
+                Location=new Point(windowStart.X+Cursor.Position.X-dragStart.X,windowStart.Y+Cursor.Position.Y-dragStart.Y);
+                positioned=true;
+            };
+            Disposed+=(s,e)=>classicDragTimer.Dispose();
             LayoutClassic();
         }
 
         private void BindWidgetDrag(Control surface)
         {
             surface.MouseDown+=(s,e)=>{
-                if(e.Button!=MouseButtons.Left || pinned)return;
+                if(e.Button!=MouseButtons.Middle && e.Button!=MouseButtons.Left || pinned)return;
                 dragStart=Cursor.Position;windowStart=Location;
                 dragging=true;surface.Capture=true;
             };
@@ -71,7 +93,7 @@ namespace ReflexCore.Bridge
             };
             surface.MouseCaptureChanged+=(s,e)=>{if(!surface.Capture)dragging=false;};
             surface.MouseUp+=(s,e)=>{
-                if(e.Button!=MouseButtons.Left || !dragging)return;
+                if(e.Button!=MouseButtons.Middle && e.Button!=MouseButtons.Left || !dragging)return;
                 dragging=false;surface.Capture=false;
                 Reposition();SaveClassicPreferences();
             };
