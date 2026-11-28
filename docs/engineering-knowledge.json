@@ -131,6 +131,58 @@
         "notepad",
         "tools/ReflexCore-VisionHost.cs"
       ]
+    },
+    {
+      "component": "bridge",
+      "topic": "companion-gesture",
+      "shard": "bridge-01",
+      "keys": [
+        "companion",
+        "overlay",
+        "tools/ReflexCore-CompanionHost.cs",
+        "companion3d/companion.gd"
+      ]
+    },
+    {
+      "component": "bridge",
+      "topic": "shared-control-teardown",
+      "shard": "bridge-01",
+      "keys": [
+        "shared-control",
+        "tools/ReflexCore-SharedControl.cs",
+        "studio"
+      ]
+    },
+    {
+      "component": "bridge",
+      "topic": "notepad-cancel-wait",
+      "shard": "bridge-01",
+      "keys": [
+        "foreground",
+        "tools/ReflexCore-VisionHost.cs",
+        "cancellation"
+      ]
+    },
+    {
+      "component": "bridge",
+      "topic": "reflexvision-scoring",
+      "shard": "bridge-01",
+      "keys": [
+        "reflexvision",
+        "tools/score-reflexvision.mjs",
+        "tools/evaluate-reflexvision.py",
+        "benchmark"
+      ]
+    },
+    {
+      "component": "bridge",
+      "topic": "owned-lobby-policy",
+      "shard": "bridge-01",
+      "keys": [
+        "offline-game",
+        "cs16",
+        "games/cs16-practice/reflexcore_lobby_actor.inc"
+      ]
     }
   ]
 }

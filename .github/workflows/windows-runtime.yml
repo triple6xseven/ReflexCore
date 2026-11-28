@@ -35,6 +35,7 @@ jobs:
         shell: powershell
         run: |
           ./tools/Run-ReflexBenchmark.ps1 -SelfTest
+          ./tools/ReflexCore-VisionLoop.ps1 -Action SelfTest
           foreach ($name in 'Measure-NativeSession','Compare-NativeSession','Test-NativeSession','Measure-SkillTransfer') {
             $errors = $null
             $tokens = $null

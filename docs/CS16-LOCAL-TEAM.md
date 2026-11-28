@@ -41,3 +41,7 @@ The second client reached the loopback server while the existing client stayed o
 Two one-minute autonomous rounds ended with `Target_Saved` for CT. In the round with visit history, Reflex traveled more than 160 units and registered 97 patrol cell transitions. A cell can be counted more than once. The server recorded zero visible-enemy ticks, clip decrements, damage events and kills for Reflex. This establishes that the round ran and the actor moved, with first contact as the current blocker.
 
 Keep this lobby and YaPB opponent as the acceptance entry point. Next, connect a local Dust II navigation graph to the Reflex actor, route from the actual spawn, and replan on stalled movement. Compare contact rate and time to first contact against this patrol on the same recorded starts. Log the first location with verified line of sight, then measure discharges, damage and survival in later trials. Keep the visual replay benchmark separate and add manually labeled active-play frames before estimating detector recall.
+
+## Maintained lobby boundary
+
+This workflow uses the owned local lobby. Shared Control input and ReflexVision observations remain independently supervised. Follow uses recorded leader positions and skips collision probes farther than 384 game units. Its short step fallback remains limited to 96 units. The AMX Mod X compiler validates the adapter source. Live follow and movement improvements require separate controlled matches. See [retained lobby experiments](BRANCH-AUDIT.md#reconciliation-against-cb8081e).

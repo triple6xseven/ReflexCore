@@ -30,3 +30,5 @@ manifests against explicitly trusted adapters.
 Phase C closed at `2b92bff`. [Windows CI 46078707512](https://github.com/triple6xseven/ReflexCore/actions/runs/46078707512) passed on the same revision as the independent orchestration and terminal-commit qualification. The [integration map](INTEGRATION.md) defines the development baseline and the installed runtime boundary.
 
 **Next implementation step:** qualify one discovered binding with independent effect validation on an owned fixture. The read-only discovery candidate was ported after source-branch Windows CI at `0178173`. Check integrated Windows CI before treating the discovery command as qualified. Admission requires independent effect validation and operator review. Phases E and F remain planned.
+
+Repository unification and protected-main qualification take precedence over the next implementation step. The discovery-to-acquisition boundary remains gated by independent effect evidence and operator review.
