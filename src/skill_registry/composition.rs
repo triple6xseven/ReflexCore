@@ -30,6 +30,8 @@ const READ: u8 = 2;
 const CONSUME: u8 = 4;
 const DERIVE: u8 = 8;
 const PUBLISH: u8 = 16;
+// Matches the editor producer selected by -UnicodeFixture.
+const NOTEPAD_COMPOSITION_TEXT: &str = "ReflexCore \u{416}\u{3a9}\u{1f600}";
 const GRAPH: [Step; 4] = [
     Step {
         id: "editor.create_document",
@@ -606,7 +608,7 @@ fn execute(args: &[String], claim: Option<&Claim>) -> Result<()> {
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            plan.finish(&run, "ReflexCore Ð–Î©ðŸ˜€")?;
+            plan.finish(&run, NOTEPAD_COMPOSITION_TEXT)?;
         }
         plan.boundary(Boundary::Terminal, graph.len() - 1)
     })();
@@ -659,6 +661,14 @@ fn execute(args: &[String], claim: Option<&Claim>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notepad_composition_uses_the_editor_fixture_codepoints() {
+        let mut expected = String::from("ReflexCore ");
+        expected.extend([0x0416, 0x03a9, 0x1f600].map(|point| char::from_u32(point).unwrap()));
+        assert_eq!(NOTEPAD_COMPOSITION_TEXT, expected);
+    }
+
     #[test]
     #[ignore = "paired filesystem timing on a local NTFS volume"]
     fn paired_copy_timing() {
