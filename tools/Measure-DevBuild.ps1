@@ -16,7 +16,14 @@ try {
     function Revision {
         $paths = @(& git -c core.quotepath=false ls-files --cached --others --exclude-standard -- src Cargo.lock Cargo.toml build.rs .cargo)
         if ($LASTEXITCODE -or $paths.Count -gt 4096) { throw 'Uncertain source inventory' }
-        $entries = foreach ($path in ($paths | Sort-Object -Unique)) {
+        if($ordinal){
+            $ordered=[Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+            foreach($candidate in $paths){[void]$ordered.Add([string]$candidate)}
+            $paths=$ordered
+        }else{
+            $paths=@($paths|Sort-Object -Unique)
+        }
+        $entries = foreach ($path in $paths) {
             if ($path -notmatch '^[a-zA-Z0-9._/ -]+$') { throw 'Unsupported build input name' }
             if (Test-Path -LiteralPath $path -PathType Leaf) { $path + '=' + (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash }
             else { $path + '=missing' }
@@ -39,6 +46,12 @@ try {
             return
         }
     }
+    # Legacy stamps used the producing shell's collation. Keep them readable.
+    $ordinal=$Action -eq 'Build'
+    if(!$ordinal -and [IO.File]::Exists($stamp)){
+        $prior=Get-Content -Raw -LiteralPath $stamp|ConvertFrom-Json
+        $ordinal=$prior.order -ceq 'ordinal-v1'
+    }
     $compiler = (& rustc -vV) -join "`n"
     if ($LASTEXITCODE) { throw 'Compiler identity unavailable' }
     $before = Revision
@@ -46,7 +59,7 @@ try {
         if ($env:CARGO_TARGET_DIR -or $env:RUSTFLAGS -or $env:CARGO_ENCODED_RUSTFLAGS -or $env:CARGO_BUILD_TARGET) { throw 'Use the default local release configuration' }
         & cargo build --release --locked --bin reflexcore
         if ($LASTEXITCODE -or $before -ne (Revision) -or $head -ne (& git rev-parse HEAD)) { throw 'Build provenance uncertain' }
-        $record = [ordered]@{v=1;tree=$tree;source=$before;head=$head;compiler=$compiler;profile='release';binary=(Get-FileHash $binary).Hash}
+        $record = [ordered]@{v=1;order='ordinal-v1';tree=$tree;source=$before;head=$head;compiler=$compiler;profile='release';binary=(Get-FileHash $binary).Hash}
         $tmp = $stamp + '.' + [guid]::NewGuid().ToString('N')
         [IO.File]::WriteAllText($tmp,($record | ConvertTo-Json -Compress))
         if ([IO.File]::Exists($stamp)) { [IO.File]::Replace($tmp,$stamp,($stamp + '.previous')) } else { [IO.File]::Move($tmp,$stamp) }

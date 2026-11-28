@@ -15,6 +15,8 @@ try {
     Copy-Item -LiteralPath $checker -Destination tools
     Set-Content Cargo.toml "[package]`nname='reflexcore'`nversion='0.0.1'`nedition='2021'"
     Set-Content src/main.rs 'fn main() {}'
+    Set-Content src/motion.rs '// Fixture for ordinal path ordering.'
+    Set-Content src/motion_core.rs '// Fixture for ordinal path ordering.'
     & cargo generate-lockfile --offline
     if ($LASTEXITCODE) { throw 'Fixture lockfile unavailable' }
     GitOk add .
@@ -22,6 +24,11 @@ try {
     GitOk worktree add --detach $b HEAD
     Set-Content src/main.rs 'fn main() { println!("A"); }'
     if ((State Build) -ne 'matching') { throw 'Producer evidence missing' }
+    $peer=if($PSVersionTable.PSEdition -eq 'Core'){Get-Command powershell.exe}else{Get-Command pwsh.exe -ErrorAction SilentlyContinue}
+    if($peer){
+        $other=& $peer.Source -NoProfile -File tools/Measure-DevBuild.ps1 -Action Check | ConvertFrom-Json
+        if($LASTEXITCODE -or $other.build -ne 'matching'){throw 'Shell collation changed the build identity'}
+    }
     $stamp = Join-Path (& git rev-parse --absolute-git-dir) 'reflex-dev-build-v1.json'
     Push-Location $b
     try {
