@@ -477,6 +477,18 @@ namespace ReflexCore.Bridge
             }catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
         }
 
+        internal static bool ParseDragMarker(string marker,bool legacyMiddle,out int token,out bool middle)
+        {
+            middle=legacyMiddle;
+            if(marker.EndsWith(":m",StringComparison.Ordinal) || marker.EndsWith(":p",StringComparison.Ordinal))
+            {
+                middle=marker[marker.Length-1]=='m';
+                marker=marker.Substring(0,marker.Length-2);
+            }
+            return Int32.TryParse(marker,System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,out token) && token>0;
+        }
+
         private void CheckGesture()
         {
             long now=Stopwatch.GetTimestamp();
@@ -487,8 +499,9 @@ namespace ReflexCore.Bridge
                 string active=InBridge("drag-active.txt");
                 if(!File.Exists(active)||new FileInfo(active).Length>24)return;
                 int token;
-                if(!Int32.TryParse(File.ReadAllText(active),out token)||token<=0||token==watchedGesture)return;
-                int primary=leftClickThrough?4:GetSystemMetrics(23)!=0?2:1;
+                bool middle;
+                if(!ParseDragMarker(File.ReadAllText(active),leftClickThrough,out token,out middle) || token==watchedGesture)return;
+                int primary=middle?4:GetSystemMetrics(23)!=0?2:1;
                 if((GetAsyncKeyState(primary)&0x8000)!=0)return;
                 WriteText("drag-release.txt",token.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 watchedGesture=token;

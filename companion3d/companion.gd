@@ -1070,7 +1070,7 @@ func _input(event: InputEvent) -> void:
 		gesture_token=randi_range(1,2147483600)
 		var marker := FileAccess.open(bridge.path_join("drag-active.txt"),FileAccess.WRITE)
 		if marker!=null:
-			marker.store_string(str(gesture_token))
+			marker.store_string(str(gesture_token)+(":m" if drag_button==MOUSE_BUTTON_MIDDLE else ":p"))
 			marker.close()
 		interaction_count+=1
 		previous_pointer=position

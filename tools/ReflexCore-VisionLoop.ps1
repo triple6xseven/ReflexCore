@@ -484,6 +484,13 @@ if($Action -eq 'SelfTest') {
     if(-not ([ReflexCore.VisionLoop.Host].GetMethod('ConfirmEditableForeground'))){throw 'OS UIA guard missing'}
     $stopped=[ReflexCore.VisionLoop.Host]::ActivateDemoTarget('ReflexCore-CancelledReadinessFixture',15000,[Func[bool]]{$true})
     if($stopped -cne 'cancelled'){throw 'Cancelled editor readiness wait did not stop'}
+    $script:readinessChecks=0
+    $missingToken='ReflexCore-'+[guid]::NewGuid().ToString('N')
+    $stopped=[ReflexCore.VisionLoop.Host]::ActivateDemoTarget($missingToken,15000,[Func[bool]]{
+        $script:readinessChecks++
+        $script:readinessChecks -ge 2
+    })
+    if($stopped -cne 'cancelled' -or $script:readinessChecks -ne 2){throw 'Editor readiness ignored an in-flight cancellation'}
     Write-Host '[ReflexCore] VisionLoop policy and response parser self-tests PASSED (no screen, Ollama or input).'
     return
 }
