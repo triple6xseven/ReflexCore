@@ -1,6 +1,6 @@
 {
   "name": "reflexcore",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Recover local development tasks, validate builds, and inspect verified ReflexCore workflows and test evidence.",
   "skills": "./skills/",
   "requires_local_executor": true,

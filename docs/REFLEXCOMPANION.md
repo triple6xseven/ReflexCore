@@ -263,3 +263,5 @@ Companion & Widgets / Movement / Window magnet enables attraction to exposed win
 With **Left-click through** enabled, left clicks reach the application underneath. Right-click either overlay to open its settings. Hold the middle mouse button to drag, with the Classic position unlocked.
 
 For Windows sign-in, point the existing tray startup entry at `tools/Start-ReflexCore-TrayHidden.vbs` using Windows Script Host. The tray restores the saved overlay visibility. The renderer and user models remain private local files.
+
+The drag bridge records the gesture token and physical button together. Tray release checks use the recorded button even when the click-through setting differs. Numeric records from earlier renderers retain their original interpretation.

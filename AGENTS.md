@@ -14,3 +14,7 @@ The component map is in docs/COGNITIVE-RUNTIME.md. Update the benchmark report w
 Proceed independently on routine work authorized by the current development request, including implementation, configuration updates, migrations, dependencies, builds, tests, and scoped Git operations. Choose reasonable defaults, create backups and rollback paths for local changes, and resolve recoverable errors without handing routine decisions back to the operator. Avoid multiple-choice questionnaires for engineering decisions. Request input only when required by a genuine permission boundary, material ambiguity, or irreversible action. Continue independent work if a platform permission blocks one step. Preserve unrelated data and existing security controls. Report consequential decisions after execution.
 
 When architecture, a protocol, or qualification changes, update its owning document, add or revise the source-backed knowledge record when it affects future decisions, and record the tested revision, pending CI and next operation in the observer. Base new milestones on the qualified main revision.
+
+## Integrating changes
+
+Fetch the intended remote before editing and start from the latest qualified main that matches the task. Reuse a suitable worktree and use a short-lived branch for review. Check live branch rules before publication. Open a pull request for protected main, require passing checks for its exact head, and proceed only through a merge path permitted by the active repository rules.

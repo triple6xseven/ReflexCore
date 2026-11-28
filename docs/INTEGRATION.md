@@ -1,6 +1,6 @@
 # 0.8 integration baseline
 
-The integration target is `integration/reflexcore-08`. Use [ROADMAP](ROADMAP.md) for scope, [the original 1.0 proposal](architecture/REFLEXCORE-1.0.md) for intended boundaries and [the branch audit](BRANCH-AUDIT.md) for ancestry and dispositions. The blueprint is the unmodified document from `756871d`. Features in the blueprint require their own acceptance. This integration has no release tag. The published Windows preview comes from `c972406`.
+The development baseline is qualified main. The integration branch records the earlier 0.8 consolidation. Use [ROADMAP](ROADMAP.md) for scope, [the original 1.0 proposal](architecture/REFLEXCORE-1.0.md) for intended boundaries and [the branch audit](BRANCH-AUDIT.md) for ancestry and dispositions. The blueprint is the unmodified document from `756871d`. Features in the blueprint require their own acceptance. This integration has no release tag. The published Windows preview comes from `c972406`.
 
 ## Component map
 
@@ -36,7 +36,7 @@ On Windows run `cargo test --locked`, `cargo build --release --locked`, and `dot
 
 Recover the active objective, operation status and CI by exact SHA from the approved integration worktree. Consult the roadmap when no declaration is available. The Phase D experiment is on a separate branch. Its failed CI step must be reconciled before consideration for integration. Production skill acquisition, compatibility learning, generalized world modelling and an external skill SDK remain unqualified.
 
-## Local acceptance record
+## Historical 0.8 consolidation evidence
 
 At consolidation there were 27 remote heads, 31 pre-existing local branches and 17 original registered worktrees. Four trees had existing changes. Recovery refs and private backups were created before integration. Local main was at 2b3fefd and origin/main at 9ff7177. The single published Windows release was v0.7.1-alpha.2-windows.1. No dependency or asset licence changed.
 
@@ -65,3 +65,22 @@ The direct deterministic Notepad adapter verified an owned Unicode file with zer
 Use the release executable with `learning discover` and pipe the contents of `examples/discover-document-preview.json` to standard input. The native runtime validates the descriptor, checks its declared capabilities and retains the independent verifier identity. It opens only the owned hidden preview fixture and reads its Output value. The result has candidate status and pending effect verification. It has no executable registration or queue authority. Windows PowerShell streams with and without a UTF-8 BOM use the same 4,096-byte input budget.
 
 Windows run 46163044852 passed on the isolated fix at `0178173`. The integrated Windows workflow repeats the nine unattended rejection cases, including BOM validation and bounding. Run `tasks/Test-SkillDiscovery.ps1 -Interactive` on an unlocked desktop to qualify the owned preview binding and foreground preservation.
+
+## Continuous integration from main
+
+Use the qualified main revision as the starting point. A review branch carries tests and implementation evidence. Check live GitHub rules before publishing. Promote from a pull request only after the exact head passes its applicable checks and GitHub permits the merge without an exception. Record the resulting main SHA and CI in the observer. Use [branch reconciliation](BRANCH-AUDIT.md) for experimental dispositions and [the roadmap](ROADMAP.md) for the next milestone. The downloadable package still follows its own release revision.
+
+| Area | Current authority |
+| --- | --- |
+| Runtime ownership and operation contracts | [Runtime](COGNITIVE-RUNTIME.md), [Universal Skill Runtime](UNIVERSAL-SKILL-RUNTIME.md), [queue](QUEUE.md) |
+| Operator controls and Windows installation | [Studio](STUDIO.md), [Companion](REFLEXCOMPANION.md), [emergency stop](EMERGENCY-STOP.md), [distribution](WINDOWS-DOWNLOADS.md) |
+| Vision and local experiments | [ReflexVision](REFLEXVISION.md), [local team lab](CS16-LOCAL-TEAM.md), [game benchmarks](CS16-BENCHMARK.md), [local learning](LOCAL-SKILL-LEARNING.md) |
+| Development and evidence | [MCP](MCP.md), [Codex integration](CODEX-INTEGRATION.md), [benchmarks](BENCHMARKS.md) |
+
+The repository contains the next development skill guidance at version 0.3.6. The installed 0.3.5 integration can read the same recovery and engineering records.
+
+Before considering a foreground acquisition verified, independently read the resulting artifact. The owned Notepad adapter checks the same target identity during the readiness wait. It now responds to scoped cancellation during that wait and distinguishes a Windows activation denial from a target that never appeared or lost foreground. A Windows denial still allows the operator to focus the owned window during the existing deadline. The adapter makes only one activation request and checks ownership before sending input.
+
+Maintenance validation covered the Windows PowerShell VisionLoop and Shared Control self-tests, tray drag marker assertions, Godot source parsing, Studio UI smoke and AMX Mod X 1.10.0.5488 compilation on C. The interactive queued Notepad run returned process_failed and left both owned destinations unpublished. Its previously measured foreground grant restriction remains open. No live local-lobby performance result or full gameplay policy qualification is claimed.
+
+The later fixture diagnostic observed VerificationFailed after the Notepad worker finished. The composition verifier expected a transcoded Unicode string while the editor generated the intended code points. The runtime now uses ASCII source escapes for the expected text and tests the code points independently. A live queued Notepad run independently reopened the source and both derived files in 3,096 ms. The MCP composition fixture also verified a Notepad copy and a WinForms background chain. These are individual functional runs. Windows foreground ownership remains conditional.

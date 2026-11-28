@@ -97,6 +97,85 @@
       "topic": "build-provenance",
       "created": "2026-11-28",
       "validated": "2026-11-28"
+    },
+    {
+      "id": "companion-gesture-01",
+      "component": "bridge",
+      "topic": "companion-gesture",
+      "kind": "contract",
+      "statement": "The companion tray correlates release to a gesture token and its physical mouse button.",
+      "rationale": "Middle-button drags also work with click-through off. The bridge previously inferred the button from the overlay setting and could end the gesture early.",
+      "reference": "tools/ReflexCore-CompanionHost.cs",
+      "commit": "6d3b4889468a55103c5daa5f8d66b2360a55b6ef",
+      "dependencies": [
+        "tools/ReflexCore-CompanionHost.cs",
+        "tools/ReflexCore-Tray.cs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "shared-control-teardown-01",
+      "component": "bridge",
+      "topic": "shared-control-teardown",
+      "kind": "defect",
+      "statement": "Closing Shared Control stops the operator window timer before releasing hooks and the active action.",
+      "rationale": "The timer fix is compatible with the current Studio launcher. The old embedded page rewrite would duplicate the WPF host routing.",
+      "reference": "tools/ReflexCore-SharedControl.cs",
+      "commit": "6bf3c3fccf8fc84dbf757c230eed943158e732dd",
+      "dependencies": [
+        "tools/ReflexCore-SharedControl.cs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "notepad-cancel-wait-01",
+      "component": "bridge",
+      "topic": "notepad-cancel-wait",
+      "kind": "contract",
+      "statement": "Owned Notepad readiness checks honor scoped cancellation during the bounded foreground wait.",
+      "rationale": "Windows can deny the activation request. Such a denial yields no authorization to edit until the owned target is independently observed in the foreground.",
+      "reference": "tools/ReflexCore-VisionHost.cs",
+      "commit": "6d3b4889468a55103c5daa5f8d66b2360a55b6ef",
+      "dependencies": [
+        "tools/ReflexCore-VisionHost.cs",
+        "tools/ReflexCore-VisionLoop.ps1"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "reflexvision-scoring-01",
+      "component": "bridge",
+      "topic": "reflexvision-scoring",
+      "kind": "performance",
+      "statement": "ReflexVision replay scoring uses hand-labeled visibility and one-to-one box matching at IoU 0.50.",
+      "rationale": "Menu and other negative scenes have their own measurements. Replay observation age excludes live capture and tracking. A server position alone cannot establish a visible box.",
+      "reference": "docs/REFLEXVISION.md",
+      "commit": "cb8081e7cb70f1ca829a82b19a26dd0f6d6e450c",
+      "dependencies": [
+        "tools/score-reflexvision.mjs",
+        "tools/evaluate-reflexvision.py"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "owned-lobby-policy-01",
+      "component": "bridge",
+      "topic": "owned-lobby-policy",
+      "kind": "experiment",
+      "statement": "The offline lobby update ports a bound on follow collision probes, while other gameplay policies stay in the independent lab branch.",
+      "rationale": "703ab47 introduced the bound. d4b46ef and its predecessor patches also carry experimental actor, manual demonstrations and recoil behavior with their own game state.",
+      "reference": "tools/ReflexCore-CS16Lobby.ps1",
+      "commit": "6bf3c3fccf8fc84dbf757c230eed943158e732dd",
+      "dependencies": [
+        "tools/ReflexCore-CS16Lobby.ps1",
+        "docs/CS16-LOCAL-TEAM.md"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
     }
   ]
 }

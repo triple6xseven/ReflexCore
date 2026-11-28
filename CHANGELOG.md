@@ -1,3 +1,10 @@
+## Repository unification maintenance
+
+- Bound collision probes in the owned local teammate lobby and stop the Shared Control timer with its operator window.
+- Restore the exact Unicode comparison in queued Notepad composition.
+- Poll scoped cancellation while waiting for an owned Notepad target and distinguish an OS foreground activation denial.
+- Add an on-demand branch comparison and document protected-main qualification with source-backed branch decisions.
+
 ## Unreleased - main stabilization
 
 - Preserve the installed companion overlay and hidden tray startup in the integrated source.

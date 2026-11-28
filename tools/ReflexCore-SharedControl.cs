@@ -721,7 +721,8 @@ Return only action and at_bombsite as strict JSON.";
                 BackColor=Color.FromArgb(6,17,20),ForeColor=green,Font=new Font("Consolas",9),WordWrap=false,TabStop=false};
             journalPanel.Controls.Add(activity);journalPanel.Controls.Add(journalTitle);journal.Controls.Add(journalPanel);
 
-            FormClosing+=delegate{StopCurrent(false);UninstallHooks();try{hud.Close();}catch{}};
+            FormClosing+=delegate{timer.Stop();StopCurrent(false);UninstallHooks();try{hud.Close();}catch{}};
+            Disposed+=delegate{timer.Dispose();};
             keyboardCallback=Keyboard;mouseCallback=Mouse;
             IntPtr module=Native.GetModuleHandle(null);
             kHook=Native.SetWindowsHookEx(13,keyboardCallback,module,0);

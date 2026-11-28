@@ -113,6 +113,22 @@
       "topic": "notepad-foreground",
       "created": "2026-11-28",
       "validated": "2026-11-28"
+    },
+    {
+      "id": "notepad-composition-unicode-01",
+      "component": "universal",
+      "topic": "composition-encoding",
+      "kind": "defect",
+      "statement": "Queued Notepad composition rejected a valid save because the verifier fixture literal had been transcoded.",
+      "rationale": "The editor still produced U+0416, U+03A9 and U+1F600. Source escapes and a code-point regression preserve strict verification without relaxing foreground requirements.",
+      "reference": "src/skill_registry/composition.rs",
+      "commit": "17e9dffe6eb5c9b808064fe630962b0bf9ec4024",
+      "dependencies": [
+        "src/skill_registry/composition.rs",
+        "tools/ReflexCore-VisionLoop.ps1"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
     }
   ]
 }

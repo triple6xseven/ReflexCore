@@ -21,6 +21,13 @@ namespace ReflexCore.Bridge
                CompanionStateMachine.Resolve("Error")!=CompanionMood.Warning)
                 throw new InvalidOperationException("Companion state mapping failed.");
             WindowSurfaces.SelfTest();
+            int gesture;
+            bool middle;
+            if(!CompanionHost.ParseDragMarker("17:m",false,out gesture,out middle) || gesture!=17 || !middle ||
+                !CompanionHost.ParseDragMarker("18:p",true,out gesture,out middle) || gesture!=18 || middle ||
+                !CompanionHost.ParseDragMarker("19",true,out gesture,out middle) || gesture!=19 || !middle ||
+                CompanionHost.ParseDragMarker("7:x",false,out gesture,out middle))
+                throw new InvalidOperationException("Invalid companion drag marker contract.");
             if (!File.Exists(Path.Combine(root, "Cargo.toml")))
                 throw new Exception("Cargo.toml missing");
             if (!File.Exists(Path.Combine(root, "tools", "ReflexCore-Tray.cs")))
