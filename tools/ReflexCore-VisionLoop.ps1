@@ -482,6 +482,8 @@ if($Action -eq 'SelfTest') {
         if($actual -cne [string]$c.want){throw ('Notepad policy matrix failed: '+$c.app+'/'+$c.edit+'/'+$c.os)}
     }
     if(-not ([ReflexCore.VisionLoop.Host].GetMethod('ConfirmEditableForeground'))){throw 'OS UIA guard missing'}
+    $stopped=[ReflexCore.VisionLoop.Host]::ActivateDemoTarget('ReflexCore-CancelledReadinessFixture',15000,[Func[bool]]{$true})
+    if($stopped -cne 'cancelled'){throw 'Cancelled editor readiness wait did not stop'}
     Write-Host '[ReflexCore] VisionLoop policy and response parser self-tests PASSED (no screen, Ollama or input).'
     return
 }
@@ -557,9 +559,9 @@ try {
         if(-not [IO.File]::Exists($notepad)) {throw 'Windows Notepad executable not found'}
         Write-Stage 'observing'
         Start-Process -FilePath $notepad -ArgumentList @('"'+$ownedPath+'"') -WorkingDirectory ([Environment]::SystemDirectory) -WindowStyle Normal
-        $activation=[ReflexCore.VisionLoop.Host]::ActivateDemoTarget($token,15000)
-        if($activation -cne 'ready'){throw ('Cannot securely identify and focus the Notepad demo window: '+$activation)}
+        $activation=[ReflexCore.VisionLoop.Host]::ActivateDemoTarget($token,15000,[Func[bool]]{Test-StopRequested})
         Require-NotStopped
+        if($activation -cne 'ready'){throw ('Cannot securely identify and focus the Notepad demo window: '+$activation)}
         if($Route -eq 'Visual'){
             Write-Stage 'capturing'
             $frame=Capture-WithoutHud $token

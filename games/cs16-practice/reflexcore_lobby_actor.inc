@@ -140,12 +140,14 @@ bool:follow_trail(const Float:origin[3], Float:angles[3]) {
     new tr = create_tr2(), bool:found;
     for (new n = 1; n <= g_trail_count; n++) {
         new index = (g_trail_next + sizeof(g_trail) - n) % sizeof(g_trail);
-        if (get_distance_f(origin, g_trail[index]) < 32.0) break;
+        new Float:distance = get_distance_f(origin, g_trail[index]);
+        if (distance < 32.0) break;
+        if (distance > 384.0) continue;
         engfunc(EngFunc_TraceHull, origin, g_trail[index], IGNORE_MONSTERS, HULL_HUMAN, g_reflex, tr);
         new Float:fraction;
         get_tr2(tr, TR_flFraction, fraction);
         if (fraction < 0.99 || get_tr2(tr, TR_StartSolid)) {
-            if (get_distance_f(origin,g_trail[index])>96.0) continue;
+            if (distance > 96.0) continue;
             new Float:raised[3], Float:end[3];
             for (new k=0;k<3;k++) {raised[k]=origin[k];end[k]=g_trail[index][k];}
             raised[2]+=18.0;

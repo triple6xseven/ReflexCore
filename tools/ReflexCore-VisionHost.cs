@@ -86,13 +86,15 @@ namespace ReflexCore.VisionLoop
         {
             return ActivateDemoTarget(token,timeoutMs)=="ready";
         }
-        public static string ActivateDemoTarget(string token, int timeoutMs)
+        public static string ActivateDemoTarget(string token, int timeoutMs, Func<bool> stopped = null)
         {
             if (!IsValidWindowToken(token) || timeoutMs < 100 || timeoutMs > 30000) return "invalid_target";
             Stopwatch clock=Stopwatch.StartNew();
             bool observed=false;
+            bool denied=false;
             do
             {
+                if(stopped!=null && stopped())return "cancelled";
                 IntPtr candidate=IntPtr.Zero;
                 int matches=0;
                 EnumWindows(delegate(IntPtr hwnd, IntPtr unused)
@@ -104,14 +106,16 @@ namespace ReflexCore.VisionLoop
                 if (candidate != IntPtr.Zero)
                 {
                     if(!observed && GetForegroundWindow()!=candidate){
-                        SetForegroundWindow(candidate);
-                        Thread.Sleep(120);
+                        if(stopped!=null && stopped())return "cancelled";
+                        denied=!SetForegroundWindow(candidate);
                     }
                     observed=true;
                     if (GetForegroundWindow()==candidate && Allowed(candidate,token)) return "ready";
                 }
                 Thread.Sleep(180);
             } while(clock.ElapsedMilliseconds < timeoutMs);
+            if(stopped!=null && stopped())return "cancelled";
+            if(denied)return "foreground_denied";
             return observed ? "foreground_unavailable" : "target_unavailable";
         }
         // Secondary independent OS evidence. Never use this alone to authorize
