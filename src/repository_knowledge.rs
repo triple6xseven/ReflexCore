@@ -289,7 +289,7 @@ impl Route {
     }
 }
 
-pub(super) fn lookup(
+pub(in super::super) fn lookup(
     common: &Path,
     head: &str,
     component: &str,
