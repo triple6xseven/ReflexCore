@@ -12,23 +12,40 @@ namespace ReflexCore.Bridge
     {
         readonly string root, settings;
         readonly QueueStore queue;
+        readonly Func<string> inspectBuild, inspectRuntime;
+        readonly Func<string,string,string,Dictionary<string,object>,string> readDeveloper;
+        readonly bool developerTools, separateRuntime;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=20};
         bool initialized, ready;
+        readonly Dictionary<string,Dictionary<string,string>> recoveryCache=new Dictionary<string,Dictionary<string,string>>();
+        readonly Queue<string> recoveryOrder=new Queue<string>();
 
-        McpServer(string project)
+        McpServer(string project,Func<string> inspect,bool developer,Func<string,string,string,Dictionary<string,object>,string> read,bool legacyRuntime,Func<string> runtimeBuild)
         {
             root=project;
+            separateRuntime=legacyRuntime;
+            inspectRuntime=runtimeBuild;
+            inspectBuild=inspect;
+            readDeveloper=read;
+            developerTools=developer;
             settings=Path.Combine(root,"data","settings");
             queue=new QueueStore(root);
         }
 
-        public static void Run(string project)
+        public static void Run(string project) { Run(project,null,false,null,false,null); }
+
+        public static void Run(string project,Func<string> inspect,bool developer,Func<string,string,string,Dictionary<string,object>,string> read,bool legacyRuntime,Func<string> runtimeBuild)
         {
-            var server=new McpServer(project);
+            var server=new McpServer(project,inspect,developer,read,legacyRuntime,runtimeBuild);
             var line=new StringBuilder();
             int next;
+            bool firstByte=true;
             while((next=Console.In.Read())!=-1)
             {
+                if(firstByte) {
+                    firstByte=false;
+                    if(next==0xfeff)continue;
+                }
                 if(next=='\n')
                 {
                     server.Handle(line.ToString());
@@ -98,7 +115,7 @@ namespace ReflexCore.Bridge
                     var version=StringArg(Object(Get(message,"params")),"protocolVersion");
                     initialized=true;
                     Reply(id,new {protocolVersion=version=="2024-11-05" || version=="2025-11-25"?version:"2025-06-18",
-                        capabilities=new {tools=new {}},serverInfo=new {name="reflexcore",version="0.2.0"}});
+                        capabilities=new {tools=new {}},serverInfo=new {name="reflexcore",version="0.3.0"}});
                     return;
                 }
                 if(method=="ping"){Reply(id,new {});return;}
@@ -133,13 +150,13 @@ namespace ReflexCore.Bridge
             foreach(var field in optional??new string[0])properties.Add(field,new {type="string"});
             var resultProperties=output.ToDictionary(key=>key,key=>new {type=
                 new[]{"projects","skills","compositions","bounded_replay_statistics","workflows","runs"}.Contains(key)?(object)"array":
-                key=="cancellation_requested"?"boolean":new[]{"handoff_feedback","run","baseline","candidate"}.Contains(key)?"object":key=="receipt"?new[]{"object","null"}:(object)"string"});
+                key=="cancellation_requested"?"boolean":new[]{"handoff_feedback","run","baseline","candidate","packet"}.Contains(key)?"object":key=="receipt"?new[]{"object","null"}:(object)"string"});
             return new {name,description,inputSchema=new {type="object",required=fields,additionalProperties=false,properties},
                 outputSchema=new {type="object",required=output,properties=resultProperties},
                 annotations=new {readOnlyHint=readOnly,destructiveHint=false,openWorldHint=false}};
         }
 
-        static object[] Tools()
+        object[] Tools()
         {
             return new[]{
                 Tool("list_skills","Inspect executable editor bindings, verification requirements and experimental movement skills.",new[]{"skills","compositions","bounded_replay_statistics","memory_state","memory_source","workflows","handoff_feedback"}),
@@ -155,13 +172,52 @@ namespace ReflexCore.Bridge
                 Tool("list_combat_runs","Discover measured offline combat trials. Results use engine evidence, with no visual detector in the loop.",new[]{"runs"}),
                 Tool("get_combat_run","Read the stage and evidence for a specific offline combat trial.",new[]{"run"},new[]{"run_id"}),
                 Tool("compare_combat_runs","Compare a completed baseline and candidate from the same controlled scenario and suite.",
-                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})};
+                    new[]{"baseline","candidate"},new[]{"baseline_run_id","candidate_run_id"})}.Concat(developerTools ? new[]{Tool("get_development_context","Resume a declared task or compare a known recovery revision.",new[]{"packet"},null,new[]{"component","session","known_revision","cwd","branch","preflight","historical_head","memory_topic","since_commit","memory_history"}),
+                    Tool("get_checkpoint","Inspect a local recovery checkpoint.",new[]{"packet"},null,new[]{"component","session","cwd","branch","preflight","historical_head"}),
+                    Tool("get_usage_status","Read the local usage snapshot. Pass refresh to query the signed-in account.",new[]{"packet"},null,new[]{"refresh"}),
+                    Tool("get_validation_evidence","Check the local development release against current build inputs.",new[]{"build","profile","worktree_recovery_test","runtime_build","runtime_composition"},null,new[]{"cwd","branch","historical_head"})} : new object[0]).ToArray();
         }
 
         object Call(string name,Dictionary<string,object> args)
         {
             switch(name)
             {
+                case "get_development_context":
+                case "get_checkpoint":
+                case "get_usage_status":
+                    if(!developerTools || readDeveloper==null || args.Keys.Any(k=>name=="get_usage_status" ? k!="refresh" : !new[]{"component","session","cwd","branch","preflight","historical_head"}.Contains(k) && (name!="get_development_context" || (k!="known_revision" && k!="memory_topic" && k!="since_commit" && k!="memory_history"))))
+                        throw new ArgumentException("Unsupported developer request.");
+                    var devScope=args.ContainsKey("component")?StringArg(args,"component"):"bridge";
+                    var session=args.ContainsKey("session")?StringArg(args,"session"):"auto";
+                    if((devScope!="mcp" && devScope!="bridge" && devScope!="universal") || !System.Text.RegularExpressions.Regex.IsMatch(session,@"\A[A-Za-z0-9-]{1,64}\z"))
+                        throw new ArgumentException("Invalid scope or session.");
+                    if(args.ContainsKey("refresh")) {
+                        if(StringArg(args,"refresh")!="yes")throw new ArgumentException("Use refresh=yes to query the account.");
+                        session="refresh";
+                    }
+                    var packet=readDeveloper(name,session,devScope,args);
+                    if(packet==null || Encoding.UTF8.GetByteCount(packet)>4096)throw new ArgumentException("Recovery packet unavailable.");
+                    var recovered=Object(json.DeserializeObject(packet));
+                    if(name=="get_development_context") {
+                        string revision;
+                        using(var sha=System.Security.Cryptography.SHA256.Create())
+                            revision=BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(json.Serialize(recovered)))).Replace("-","").ToLowerInvariant();
+                        return new {packet=AdaptiveRecovery(recovered,revision,args)};
+                    }
+                    return new {packet=recovered};
+                case "get_validation_evidence":
+                    if(!developerTools || args.Keys.Any(k=>!new[]{"cwd","branch","historical_head"}.Contains(k)))throw new ArgumentException("Unsupported tool or arguments.");
+                    Dictionary<string,object> validation;
+                    if(separateRuntime || args.Count!=0){
+                        var scoped=Object(json.DeserializeObject(readDeveloper(name,"auto","bridge",args)));
+                        validation=new Dictionary<string,object>{{"build",scoped["release_build"]},{"profile","release"},
+                            {"worktree_recovery_test",scoped["worktree_recovery_test"]},{"binding",scoped["binding"]}};
+                    }else{
+                        validation=BuildEvidence();
+                    }
+                    validation["runtime_build"]=separateRuntime?RuntimeBuildStatus():validation["build"];
+                    validation["runtime_composition"]=separateRuntime?"incompatible_queue":"same_installation";
+                    return validation;
                 case "list_skills": return ReadRegistry();
                 case "list_projects":
                     var presets=Presets();
@@ -169,6 +225,7 @@ namespace ReflexCore.Bridge
                         .Select(item=>new {project=item.Key,capability="verify_handoff",available=Directory.Exists(item.Value),
                             presets=PresetNames(presets,item.Key)}).ToArray()};
                 case "submit_composition":
+                    if(separateRuntime)throw new ArgumentException("Text composition requires a matching Studio queue and worker installation.");
                     if(args.Keys.Any(k=>!new[]{"project","goal","editor","destination","suffix","second_destination","second_suffix"}.Contains(k)))throw new ArgumentException("Unknown composition field.");
                     var baseDir=ProjectRoot(StringArg(args,"project"),Projects());
                     var input=new CompositionInput{version=1,goal=StringArg(args,"goal"),editor=StringArg(args,"editor"),suffix=StringArg(args,"suffix"),destination=Scoped(baseDir,StringArg(args,"destination"),true)};
@@ -332,7 +389,66 @@ namespace ReflexCore.Bridge
             return path;
         }
 
+        object AdaptiveRecovery(Dictionary<string,object> recovered,string revision,Dictionary<string,object> args)
+        {
+            var current=recovered.ToDictionary(entry=>entry.Key,entry=>json.Serialize(entry.Value));
+            Dictionary<string,string> previous=null;
+            if(args.ContainsKey("known_revision")) {
+                var known=StringArg(args,"known_revision");
+                if(!System.Text.RegularExpressions.Regex.IsMatch(known,@"\A[0-9a-f]{64}\z"))
+                    throw new ArgumentException("Invalid recovery revision.");
+                if(known==revision)return new {state="unchanged",context_revision=revision};
+                recoveryCache.TryGetValue(known,out previous);
+            }
+            if(!recoveryCache.ContainsKey(revision)) {
+                if(recoveryOrder.Count==8)recoveryCache.Remove(recoveryOrder.Dequeue());
+                recoveryCache.Add(revision,current);
+                recoveryOrder.Enqueue(revision);
+            }
+            recovered["context_revision"]=revision;
+            if(previous==null || !new[]{"scope","tree","session_key"}.All(key=>current.ContainsKey(key) && previous.ContainsKey(key) && current[key]==previous[key]))
+                return recovered;
+            var changes=recovered.Where(item=>item.Key!="context_revision" && (!previous.ContainsKey(item.Key) || previous[item.Key]!=current[item.Key])).ToDictionary(item=>item.Key,item=>item.Value);
+            var removed=previous.Keys.Where(key=>!current.ContainsKey(key)).OrderBy(key=>key,StringComparer.Ordinal).ToArray();
+            var delta=new {state="changed",context_revision=revision,changes,removed};
+            return json.Serialize(delta).Length<json.Serialize(recovered).Length ? (object)delta : recovered;
+        }
+        Dictionary<string,object> BuildEvidence()
+        {
+            var evidence=new Dictionary<string,object>{{"build","unknown"},{"profile","release"},{"worktree_recovery_test","unknown"}};
+            if(inspectBuild==null)return evidence;
+            try {
+                var record=Object(json.DeserializeObject(inspectBuild()));
+                var build=Get(record,"build") as string;
+                var test=Get(record,"worktree_recovery_test") as string;
+                if(build=="matching" || build=="stale")evidence["build"]=build;
+                if(test=="stale" || (build=="matching" && test=="verified"))evidence["worktree_recovery_test"]=test;
+            } catch { }
+            return evidence;
+        }
+        string RuntimeBuildStatus()
+        {
+            if(inspectRuntime==null)return "unknown";
+            try {
+                var result=Object(json.DeserializeObject(inspectRuntime()));
+                var state=Get(result,"build") as string;
+                return state=="matching" || state=="stale" ? state : "unknown";
+            } catch { return "unknown"; }
+        }
         object ReadRegistry()
+        {
+
+            var checkout=Path.Combine(root,".git");
+            if(!File.Exists(checkout) && !Directory.Exists(checkout))return ReadRegistryCore();
+            var exe=Path.Combine(root,"target","release","reflexcore.exe");
+            if(!File.Exists(exe))throw new ArgumentException("Build unknown. Run tools/Measure-DevBuild.ps1 -Action Build.");
+            using(var pin=new FileStream(exe,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+                var state=separateRuntime?RuntimeBuildStatus():(string)BuildEvidence()["build"];
+                if(state!="matching")throw new ArgumentException("Build "+state+". Run tools/Measure-DevBuild.ps1 -Action Build.");
+                return ReadRegistryCore();
+            }
+        }
+        object ReadRegistryCore()
         {
             var memoryRoot=root;
             var config=new FileInfo(Path.Combine(settings,"mcp-memory-root.txt"));

@@ -9,6 +9,25 @@ jobs:
       - uses: actions/checkout@v4
       - run: cargo test --locked
       - run: cargo build --release --locked
+      - name: Qualify worktree-scoped development recovery
+        shell: powershell
+        run: ./tasks/Test-DevContext.ps1 -Executable ./target/release/reflexcore.exe
+      - name: Check registry build provenance over MCP
+        shell: powershell
+        run: |
+          try {
+            ./tasks/Test-DevRegistry.ps1
+            ./tasks/Test-DevBuildIsolation.ps1
+            ./tasks/Test-DevResume.ps1
+            ./tasks/Test-HookIngress.ps1
+            ./tasks/Test-ManagedEvents.ps1
+            ./tasks/Test-DevGuard.ps1
+            ./tasks/Test-EngineeringMemory.ps1
+            ./tasks/Test-RepositoryKnowledge.ps1
+          } catch {
+            Write-Host ("::error::{0} (line {1})" -f $_.Exception.Message,$_.InvocationInfo.ScriptLineNumber)
+            throw
+          }
       - name: Check fixture and report correlation
         shell: powershell
         run: |

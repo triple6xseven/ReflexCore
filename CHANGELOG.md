@@ -349,3 +349,7 @@
 The prior Windows source identified itself as VisionLoop 0.7.0 Preview3 FIX4. Its Rust package manifest still reported 0.1.0. See docs/BENCHMARKS.md for the measured baseline.
 
 - Consume the owned GoldSrc actor's pending spawn view on first combat input and record lethal fixture damage even when the round closes. Add an offline pixel-only Ollama scene observer with independent YOLOX gating and scene scoring.
+
+## Developer infrastructure preview
+
+- Add scoped worktree checkpoints, release provenance inspection and an opt-in silent Codex hook adapter.

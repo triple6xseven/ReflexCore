@@ -1,4 +1,6 @@
 #[cfg(windows)]
+mod dev_context;
+#[cfg(windows)]
 mod observer;
 #[cfg(windows)]
 mod window_diff;
@@ -104,6 +106,8 @@ fn main() -> Result<()> {
         .map(String::as_str)
         .unwrap_or("help");
 
+    #[cfg(windows)]
+    if command == "dev-context" { return dev_context::run(&args[1..]); }
     #[cfg(windows)]
     if command == "handoff" { return handoff::run(&args[1..]); }
     #[cfg(windows)]
