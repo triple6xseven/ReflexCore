@@ -53,7 +53,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn print_help() {
     #[cfg(windows)]
-    println!("learning registry | learning models | learning experiment | learning validate <checkpoint-id>");
+    println!("learning discover (fixture descriptor on stdin) | learning registry | learning models | learning experiment | learning validate <checkpoint-id>");
     #[cfg(windows)]
     println!("learning bind <skill-id> <version> <winforms|notepad> <foreground|background>");
     println!(

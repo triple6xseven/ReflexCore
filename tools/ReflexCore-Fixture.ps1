@@ -26,7 +26,8 @@ public sealed class ReflexNoActivateFixture : Form
 } else {
     $form = New-Object System.Windows.Forms.Form
 }
-$form.Text = 'ReflexCore Test Window'
+$discovery = $env:REFLEXCORE_FIXTURE_DISCOVERY -ceq '1'
+$form.Text = if($discovery){'ReflexCore Document Preview Fixture'}else{'ReflexCore Test Window'}
 $form.Name = 'RcFixture'
 $form.Width = 520
 $form.Height = 240
@@ -70,6 +71,10 @@ $script:RcOutputBox.Left = 105
 $script:RcOutputBox.Top = 122
 $script:RcOutputBox.Width = 350
 $script:RcOutputBox.ReadOnly = $true
+if($discovery){
+    $script:RcOutputBox.Text = 'ReflexCore discovery fixture v1'
+    $apply.Enabled = $false
+}
 
 # Explicit script-scoped references survive the WinForms Click event scope.
 $apply.Add_Click({

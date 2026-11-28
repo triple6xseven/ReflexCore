@@ -419,8 +419,40 @@ fn demo(execute: bool, count: usize) -> Result<()> {
 }
 
 fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixtureProcess, String)> {
+    start_fixture_profile(save_to, background, false)
+}
+
+const DISCOVERY_TITLE: &str = "ReflexCore Document Preview Fixture";
+
+pub(crate) fn observe_discovery_fixture() -> Result<serde_json::Value> {
+    let _lock = FlowLock::acquire()?;
+    let (fixture, hwnd) = start_fixture_profile(None, true, true)?;
+    let args = [
+        format!("--hwnd={hwnd}"),
+        "--name=ReflexCore Output".into(),
+        "--action=assert-value".into(),
+        "--value=ReflexCore discovery fixture v1".into(),
+        "--timeout-ms=1500".into(),
+    ];
+    let pid = fixture.child.id();
+    crate::observer::require_owned_window(DISCOVERY_TITLE, &hwnd, pid)?;
+    let run = task_integrity::run_id();
+    let reply = crate::uia_actions::dispatch(&args, &run, 1, Some(pid), false, None)?;
+    let metrics = serde_json::json!({
+        "uia_cpu_us": reply["phases"]["child_cpu_us"],
+        "uia_and_parent_sampled_private_bytes": reply["phases"]["concurrent_private_bytes"],
+    });
+    if !fixture_value_matches(reply)? {
+        return Err(Fault::VerificationFailed.into());
+    }
+    crate::observer::require_owned_window(DISCOVERY_TITLE, &hwnd, pid)?;
+    Ok(metrics)
+}
+
+fn start_fixture_profile(save_to: Option<&Path>, background: bool, discovery: bool) -> Result<(FixtureProcess, String)> {
     task_integrity::check_cancel()?;
-    if fixture_window(None).is_some() {
+    let title = if discovery { DISCOVERY_TITLE } else { "ReflexCore Test Window" };
+    if crate::observer::find_window_handle(title, None).is_some() {
         return Err("A ReflexCore Test Window already exists; close it before demo".into());
     }
     let path = Path::new("tools/ReflexCore-Fixture.ps1");
@@ -434,7 +466,11 @@ fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixturePro
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .env_remove("REFLEXCORE_FIXTURE_SAVE_PATH")
-        .env_remove("REFLEXCORE_FIXTURE_BACKGROUND");
+        .env_remove("REFLEXCORE_FIXTURE_BACKGROUND")
+        .env_remove("REFLEXCORE_FIXTURE_DISCOVERY");
+    if discovery {
+        command.env("REFLEXCORE_FIXTURE_DISCOVERY", "1");
+    }
     if background {
         use std::os::windows::process::CommandExt;
         use windows::Win32::System::Threading::CREATE_NO_WINDOW;
@@ -457,7 +493,7 @@ fn start_fixture(save_to: Option<&Path>, background: bool) -> Result<(FixturePro
     let started = Instant::now();
     let hwnd = loop {
         task_integrity::check_cancel()?;
-        if let Some(hwnd) = fixture_window(Some(fixture.child.id())) { break hwnd; }
+        if let Some(hwnd) = crate::observer::find_window_handle(title, Some(fixture.child.id())) { break hwnd; }
         if fixture.child.try_wait()?.is_some() {
             return Err("Windows Forms test fixture exited before opening".into());
         }

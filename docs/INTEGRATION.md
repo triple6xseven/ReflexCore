@@ -59,3 +59,9 @@ Use main for future development after the promotion checks. The integration bran
 - Recover active work and exact CI from the observer. If an installed workflow is unavailable, consult [MCP compatibility](MCP.md) and the [roadmap](ROADMAP.md).
 
 The direct deterministic Notepad adapter verified an owned Unicode file with zero model calls. A separate queue run refused safely. A diagnostic of the real tray launch recorded AllowSetForegroundWindow returning false for the worker PID. Windows requires the grantor to have foreground authority. Queued Notepad therefore remains conditional on the approved editor becoming the verified foreground target. No activation rights or input checks were relaxed. See [Windows foreground permission](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-allowsetforegroundwindow).
+
+## Bounded Phase D discovery candidate
+
+Use the release executable with `learning discover` and pipe the contents of `examples/discover-document-preview.json` to standard input. The native runtime validates the descriptor, checks its declared capabilities and retains the independent verifier identity. It opens only the owned hidden preview fixture and reads its Output value. The result has candidate status and pending effect verification. It has no executable registration or queue authority. Windows PowerShell streams with and without a UTF-8 BOM use the same 4,096-byte input budget.
+
+Windows run 46163044852 passed on the isolated fix at `0178173`. The integrated Windows workflow repeats the nine unattended rejection cases, including BOM validation and bounding. Run `tasks/Test-SkillDiscovery.ps1 -Interactive` on an unlocked desktop to qualify the owned preview binding and foreground preservation.

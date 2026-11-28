@@ -408,6 +408,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["verify-notepad", run, scope] => skill_registry::saved_text::verify_notepad(run, scope),
         ["bind", id, version, app, mode] => skill_registry::saved_text::describe_binding(id, version, app, mode),
+        ["discover"] => skill_registry::discovery::run(),
         ["registry"] => {
             let reliability = crate::agent::memory::lab_reliability()?;
             println!("{}", serde_json::to_string_pretty(&serde_json::json!({
@@ -427,7 +428,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         ["experiment"] => experiment(false),
         ["validate", id] => validate_saved(id),
         ["experiment", "--persist"] if Mode::configured()? == Mode::ExperimentalNeural => experiment(true),
-        _ => Err("Usage: learning registry | learning models | learning experiment [--persist with REFLEX_LEARNING_MODE=neural] | learning validate <checkpoint-id>".into()),
+        _ => Err("Usage: learning discover | learning registry | learning models | learning experiment [--persist with REFLEX_LEARNING_MODE=neural] | learning validate <checkpoint-id>".into()),
     }
 }
 
