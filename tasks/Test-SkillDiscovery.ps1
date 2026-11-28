@@ -26,7 +26,11 @@ function Invoke-Discovery([string]$InputJson,[bool]$Accepted,[string]$Reason){
     $launch.RedirectStandardError=$true
     $clock=[Diagnostics.Stopwatch]::StartNew()
     $foreground=if($Accepted){[DiscoveryFocus]::GetForegroundWindow()}
-    $proc=[Diagnostics.Process]::Start($launch)
+    $savedEncoding=[Console]::InputEncoding
+    try {
+        [Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
+        $proc=[Diagnostics.Process]::Start($launch)
+    } finally {[Console]::InputEncoding=$savedEncoding}
     try{
         $null=$proc.Handle
         $stdout=$proc.StandardOutput.ReadToEndAsync()
@@ -71,15 +75,17 @@ function Invoke-Discovery([string]$InputJson,[bool]$Accepted,[string]$Reason){
 try{
     $ambiguous=$descriptor.Replace('"applications": ["reflexcore.document-preview-fixture.v1"]','"applications": ["reflexcore.document-preview-fixture.v1", "another"]')
     Invoke-Discovery $ambiguous $false 'one recognized'
+    Invoke-Discovery (([string][char]0xFEFF)+$ambiguous) $false 'one recognized'
+    Invoke-Discovery (([string][char]0xFEFF)+(' '*4094)) $false 'exceeds 4096'
     Invoke-Discovery ($descriptor.Replace('document-preview-fixture','unrecognized-fixture')) $false 'one recognized'
     Invoke-Discovery ($descriptor.Replace('"reopen_disk"','"probe_motion"')) $false 'Capability declaration'
     Invoke-Discovery ($descriptor.Replace(', "reopen_disk"','')) $false 'Capability declaration'
     Invoke-Discovery ($descriptor.Replace('bounded_ordinal_disk_readback_v1','unsupported_verifier')) $false 'independent registered verifier'
     Invoke-Discovery ($descriptor -replace ',\s*"verifier": "\w+"','') $false 'missing field'
     Invoke-Discovery (' '*4097) $false 'exceeds 4096'
-    if($Interactive){$rows=@(1..$Runs|ForEach-Object {Invoke-Discovery $descriptor $true ''});ConvertTo-Json -InputObject $rows -Compress}
+    if($Interactive){$rows=@(1..$Runs|ForEach-Object {Invoke-Discovery (([string][char]0xFEFF)+$descriptor) $true ''});ConvertTo-Json -InputObject $rows -Compress}
     if(Get-ChildItem -LiteralPath $root -Force|Where-Object Name -ne 'tools'){throw 'Discovery left persistent state in the fixture root'}
-    'PASS: seven rejected inputs. Discovery did not persist queue or registry state.'
+    'PASS: nine rejected inputs. Discovery did not persist queue or registry state.'
 }finally{
     $owned=[IO.Path]::GetFullPath($root)
     if([IO.Path]::GetDirectoryName($owned) -eq [IO.Path]::GetTempPath().TrimEnd('\') -and

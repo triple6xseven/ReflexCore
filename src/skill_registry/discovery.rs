@@ -56,7 +56,9 @@ pub(crate) fn run() -> crate::Result<()> {
     if bytes.len() as u64 > LIMIT {
         return Err("Discovery descriptor exceeds 4096 bytes".into());
     }
-    let descriptor = serde_json::from_slice(&bytes)?;
+    // Windows PowerShell can prefix piped UTF-8 with a byte-order mark.
+    let json = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    let descriptor = serde_json::from_slice(json)?;
     let skill = validate(&descriptor)?;
     let binding = saved_text::bind(skill.id, skill.version, saved_text::Adapter::Winforms, true)?;
     let observed = crate::flow::observe_discovery_fixture()?;
