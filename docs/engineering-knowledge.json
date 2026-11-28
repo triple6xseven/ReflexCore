@@ -92,6 +92,25 @@
         "queue",
         "tools/ReflexCore-Mcp.cs"
       ]
+    },
+    {
+      "component": "bridge",
+      "topic": "overlay-startup",
+      "shard": "bridge-01",
+      "keys": [
+        "startup",
+        "tools/Start-ReflexCore-TrayHidden.vbs",
+        "companion3d/companion.gd"
+      ]
+    },
+    {
+      "component": "bridge",
+      "topic": "build-provenance",
+      "shard": "bridge-01",
+      "keys": [
+        "provenance",
+        "tools/Measure-DevBuild.ps1"
+      ]
     }
   ]
 }

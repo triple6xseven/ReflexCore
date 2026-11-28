@@ -64,6 +64,39 @@
       "topic": "integration-checkpoint",
       "created": "2026-11-28",
       "validated": "2026-11-28"
+    },
+    {
+      "id": "overlay-port-01",
+      "kind": "decision",
+      "statement": "Promote the overlay surface, physical right and middle input routing and hidden tray launcher as one source port.",
+      "rationale": "A stable renderer surface requires separate hit testing. The startup launcher is independent of gameplay and the active runtime queue.",
+      "reference": "tools/Start-ReflexCore-TrayHidden.vbs",
+      "commit": "190ef858d93cfaa308b823f315e94391488cacca",
+      "dependencies": [
+        "tools/ReflexCore-Companion.cs",
+        "tools/ReflexCore-CompanionHost.cs",
+        "tools/Start-ReflexCore-TrayHidden.vbs"
+      ],
+      "component": "bridge",
+      "topic": "overlay-startup",
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "provenance-collation-01",
+      "kind": "defect",
+      "statement": "New source stamps use ordinal path order across Windows PowerShell and PowerShell 7.",
+      "rationale": "Culture-sensitive sorting put punctuation in different positions and rejected an unchanged release executable. Legacy stamps keep their original comparison method.",
+      "reference": "tools/Measure-DevBuild.ps1",
+      "commit": "29548e9bcc186f72f8f9e1fe6b5da4f2be4e4da4",
+      "dependencies": [
+        "tools/Measure-DevBuild.ps1",
+        "tasks/Test-DevBuildIsolation.ps1"
+      ],
+      "component": "bridge",
+      "topic": "build-provenance",
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
     }
   ]
 }

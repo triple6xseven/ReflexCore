@@ -29,4 +29,4 @@ manifests against explicitly trusted adapters.
 
 Phase C closed at `2b92bff`. [Windows CI 46078707512](https://github.com/triple6xseven/ReflexCore/actions/runs/46078707512) passed on the same revision as the independent orchestration and terminal-commit qualification. The [integration map](INTEGRATION.md) defines the development baseline and the installed runtime boundary.
 
-**Next implementation step after integration acceptance:** inspect the existing read-only discovery candidate at `ba26cee` on `feat/universal-skill-runtime`. Reproduce the failed invalid-descriptor CI step in a clean checkout, then qualify the bounded descriptor, owned binding, typed ports and verifier on the integrated base. Admission requires independent effect validation and operator review. Phases E and F remain planned.
+**Next implementation step:** qualify read-only discovery on the integrated base. The encoding regression from candidate `ba26cee` is addressed by `0178173`, with negative tests for both UTF-8 input forms. Admission requires independent effect validation and operator review. Phases E and F remain planned.

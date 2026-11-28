@@ -12,7 +12,7 @@ The ReflexCore MCP server uses stdio. It reuses the local skill catalog, SQLite 
 codex mcp add reflexcore -- powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\path\to\ReflexCore\tools\ReflexCore-Mcp.ps1"
 ```
 
-The server and Studio must use the same ReflexCore installation. The tray must be running to process the queue. Turning MCP off blocks subsequent tool calls, including on an existing connection. Use Studio to stop a pending or running task after switching it off.
+Queue actions use the runtime installation shared with Studio. A separate development launcher can provide read-only recovery against an approved worktree. Composition submission requires the qualified Studio, runtime and worker combination. The tray must be running to process the queue. Turning MCP off blocks subsequent tool calls, including on an existing connection. Use Studio to stop a pending or running task after switching it off.
 
 ## Use
 

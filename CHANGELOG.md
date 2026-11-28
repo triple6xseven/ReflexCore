@@ -1,3 +1,9 @@
+## Unreleased - main stabilization
+
+- Preserve the installed companion overlay and hidden tray startup in the integrated source.
+- Document the verified Phase C baseline, foreground Notepad qualification boundary, and isolated Phase D discovery candidate.
+- Validate local documentation links, plugin skill files, and durable knowledge routes in Windows CI.
+
 ## Unreleased — 0.8 integration
 
 - Combine the qualified Phase C runtime with worktree-bound recovery. Partition Git-backed knowledge and add scoped lookup by dependency, skill or tag. Preserve the approved runtime queue across developer integration upgrades.

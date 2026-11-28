@@ -34,3 +34,14 @@ Snapshot against the Phase C baseline `2b92bff`. Counts are unique non-equivalen
 - `main` — `2b3fefd`, base `2b3fefd`, 0/0, 0/136. Show the Studio task queue second in the gallery. Included by ancestry in the Phase C base.
 - `origin/main` — `9ff7177`, base `9ff7177`, 0/0, 0/25. Document the local lobby F9 shortcut. Included by ancestry in the Phase C base.
 - `test/p0-studio` — `81050a7`, base `81050a7`, 0/0, 0/72. Validate P0 task integrity with the current Studio branch. Included by ancestry in the Phase C base.
+
+## Main stabilization dispositions
+
+The inventory above is the original Phase C snapshot. Recheck only the entries with unique work before promoting the integration baseline.
+
+- `819ac84` and `344c9bf`: port the overlay hit routing, Classic drag, non-clipping renderer surface and hidden tray launcher in `190ef85`. The five files had no intervening integration changes. Preserve the lobby branch for its gameplay policies, training and companion animation experiments.
+- `c0c939f`: retain the early split planner experiment. Current Flow supervises isolated UIA actions and checks cancellation against a run-bound receipt. The earlier patch uses a shared action report and cannot replace that path.
+- `36cfc7a` / `242d5c0`: retain offline practice spawn and cancellation evidence. Keep the current integration queue and runtime.
+- `a9f2beb`: the current queue benchmark already references System.Web.Extensions. The P0 implementation entered via `integration/p0-studio`.
+- `55c48b0`: the scoped SQLite implementation and exact supersession regression already exist in the bridge. Retain the historical branch as evidence.
+- `ba26cee`: the discovery sibling remains the only Phase D candidate. The historical Windows run failed its descriptor test. A BOM-prefixed UTF-8 input reproduced a pre-validation parse failure locally. `0178173` accepts one optional UTF-8 BOM within the existing byte budget and exercises both forms. Require combined Windows CI before promoting this candidate.

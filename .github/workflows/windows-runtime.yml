@@ -7,6 +7,9 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - name: Check repository consistency
+        shell: powershell
+        run: ./tasks/Test-RepositoryConsistency.ps1
       - run: cargo test --locked
       - run: cargo build --release --locked
       - name: Qualify worktree-scoped development recovery

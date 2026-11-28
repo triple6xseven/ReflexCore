@@ -257,3 +257,9 @@ On GTX 1650 Ti in the same ZXC cloud preview capped at 60 FPS, scale 100% held 6
 ## Window magnet and monitor contact
 
 Companion & Widgets / Movement / Window magnet enables attraction to exposed window edges, controls the reach from 50% to 200%, and restores the standard 100% with Reset window magnet. Gentle mouse releases near an eligible ledge blend into the seat. Throws keep their physical trajectory. Ledge clearance is based on the seated body above and below the support. Monitor collisions use the visible-body bounds, while the transparent render margin remains available for animation and effects.
+
+## Overlay controls and Windows sign-in
+
+With **Left-click through** enabled, left clicks reach the application underneath. Right-click either overlay to open its settings. Hold the middle mouse button to drag, with the Classic position unlocked.
+
+For Windows sign-in, point the existing tray startup entry at `tools/Start-ReflexCore-TrayHidden.vbs` using Windows Script Host. The tray restores the saved overlay visibility. The renderer and user models remain private local files.

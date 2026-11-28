@@ -47,3 +47,15 @@ Foreground Notepad returned process_failed twice. An isolated adapter diagnostic
 A fresh Codex client exposed a host-dependent failure in Windows PowerShell module lookup. An inherited module path prevented the observer delegate from resolving Get-FileHash. The launcher now imports the system utility module from its own PSHOME. The worktree recovery regression exercises an isolated module search path. Installed stdio recovery after the fix returned the intended branch, pending CI identity and active integration policy; the bound preflight reply measured 2,687 UTF-8 JSON bytes.
 
 Checking the same clean binary from Windows PowerShell 5.1 and PowerShell 7 exposed a second integration defect. Culture-sensitive path sorting produced different source fingerprints. New stamps use ordinal path ordering; existing v1 stamps retain their original comparison rules. The fixture includes punctuation-sensitive paths and checks the peer shell when installed.
+
+## Main stabilization checkpoint
+
+Use main for future development after the promotion checks. The integration branch holds candidate revisions until qualification. The downloadable Windows preview at `c972406` has its own release documentation.
+
+- Preserve the verified Phase C source baseline and repair the known foreground and discovery boundaries independently.
+- Port the installed overlay and hidden startup files from `819ac84`. The overlay and startup controls are documented in [Companion & Widgets](REFLEXCOMPANION.md).
+- Qualify discovery separately and keep acquisition dependent on independent effect evidence and operator review.
+- Validate local runtime and startup migration independently from source promotion. Check the runtime's Studio, worker, queue and provenance together.
+- Recover active work and exact CI from the observer. If an installed workflow is unavailable, consult [MCP compatibility](MCP.md) and the [roadmap](ROADMAP.md).
+
+The direct deterministic Notepad adapter verified an owned Unicode file with zero model calls. A separate queue run refused safely. A diagnostic of the real tray launch recorded AllowSetForegroundWindow returning false for the worker PID. Windows requires the grantor to have foreground authority. Queued Notepad therefore remains conditional on the approved editor becoming the verified foreground target. No activation rights or input checks were relaxed. See [Windows foreground permission](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-allowsetforegroundwindow).
