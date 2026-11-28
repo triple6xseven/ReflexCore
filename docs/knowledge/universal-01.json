@@ -63,6 +63,23 @@
       ],
       "created": "2026-11-28",
       "validated": "2026-11-28"
+    },
+    {
+      "id": "verified-copy-contract-02",
+      "kind": "contract",
+      "statement": "The two derived publications each require an owned predecessor snapshot and an independent verified output before the chain advances.",
+      "rationale": "Recovery after publication must preserve the file and return an unknown effect until terminal evidence is independently established. A second mutation can duplicate the effect.",
+      "reference": "docs/UNIVERSAL-SKILL-RUNTIME.md",
+      "commit": "2b92bff6e4fc1f48c3f66edfe9c3609fc685ee1f",
+      "dependencies": [
+        "src/skill_registry/composition.rs",
+        "src/skill_registry/saved_text.rs"
+      ],
+      "supersedes": "verified-copy-contract-01",
+      "component": "universal",
+      "topic": "verified-artifact",
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
     }
   ]
 }

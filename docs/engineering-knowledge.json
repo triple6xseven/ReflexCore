@@ -79,6 +79,19 @@
         "src/skill_registry/composition.rs",
         "src/skill_registry/saved_text.rs"
       ]
+    },
+    {
+      "component": "bridge",
+      "topic": "integration-checkpoint",
+      "shard": "bridge-01",
+      "keys": [
+        "continuation",
+        "docs/INTEGRATION.md",
+        "docs/ROADMAP.md",
+        "milestone",
+        "queue",
+        "tools/ReflexCore-Mcp.cs"
+      ]
     }
   ]
 }

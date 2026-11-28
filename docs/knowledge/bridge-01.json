@@ -48,6 +48,22 @@
       ],
       "created": "2026-11-28",
       "validated": "2026-11-28"
+    },
+    {
+      "id": "integration-policy-01",
+      "kind": "decision",
+      "statement": "Use the Phase C and Intelligence Bridge integration checkout for consolidation. Keep the installed runtime queue and approved projects separate.",
+      "rationale": "The installed preview lacks the composition worker. A matching developer observer alone cannot prove queue compatibility. The isolated discovery commit still has failed CI.",
+      "reference": "docs/INTEGRATION.md",
+      "commit": "c8ff1d46eee0c53e813870816199c48317054e88",
+      "dependencies": [
+        "docs/ROADMAP.md",
+        "tools/ReflexCore-Mcp.cs"
+      ],
+      "component": "bridge",
+      "topic": "integration-checkpoint",
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
     }
   ]
 }
