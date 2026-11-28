@@ -187,6 +187,15 @@ pub(crate) fn find_window_handle(title: &str, pid: Option<u32>) -> Option<String
         .map(|window| window.hwnd)
 }
 
+pub(crate) fn require_owned_window(title: &str, hwnd: &str, pid: u32) -> Result<()> {
+    let snapshot = scan_windows()?;
+    let mut matches = snapshot.windows.iter().filter(|window| window.title == title);
+    match (matches.next(), matches.next()) {
+        (Some(window), None) if window.pid == pid && window.hwnd == hwnd => Ok(()),
+        _ => Err("Fixture window is absent, foreign, or ambiguous".into()),
+    }
+}
+
 pub(crate) fn foreground_window() -> Hwnd { unsafe { GetForegroundWindow() } }
 
 pub(crate) fn window_process(hwnd: Hwnd) -> u32 {

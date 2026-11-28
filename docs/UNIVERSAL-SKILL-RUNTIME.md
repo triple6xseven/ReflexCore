@@ -297,8 +297,22 @@ The six-step Notepad composition succeeded once through Studio's supervised queu
 
 The live CLI/queue comparison and the independent end-to-end manual-versus-graph baseline are documented separately in BENCHMARKS.md. The latter verified 30/30 attempts per arm under the same authority and durability checks. A second kill test stopped the supervisor after it had replaced the running manifest with the staged verified receipt, just before the atomic history move. Recovery preserved both publications, discarded uncommitted verification, and emitted one interrupted receipt. The fault injection is compiled only in the owned test fixture.
 
-Interactive Phase C criteria are qualified. Check the final published Windows CI result before closing the release checkpoint.
+Phase C is closed at 2b92bff6e4fc1f48c3f66edfe9c3609fc685ee1f. Windows CI run 46078707512 passed on attempt 1. The interactive qualification and the paired end-to-end measurements are recorded above and in BENCHMARKS.md.
 
 The installed Intelligence Bridge MCP observes its configured developer worktree. This branch has its own declared checkpoint in a separate Git administrative directory, read using the pinned native observer. The existing MCP component fingerprint omits this branch's test and composition files. Treat a matching fingerprint as scoped and consult the modified acceptance sources when resuming. These integration limitations are deferred to bridge maintenance.
 
 Once Phase C closes, begin 0.8.3-D with one read-only discovery command for a disposable unfamiliar application. Report only bounded candidate operations with application binding, typed ports, required capabilities and proposed verifier. Acceptance must reject an unknown binding, undeclared capability and missing independent verifier before the candidate is eligible for admission. Keep discovery outside the execution queue.
+
+## Phase D read-only candidate discovery
+
+From the repository root on an interactive Windows desktop, run:
+
+```powershell
+Get-Content -Raw ./examples/discover-document-preview.json | ./target/release/reflexcore.exe learning discover
+```
+
+The command reads at most 4097 bytes from stdin and rejects descriptors above 4096 bytes. Exactly one known fixture identity and the registered saved-text operation are required. The declared capability set must match the registry, and the named verifier must match the independent disk readback verifier. The descriptor carries no executable, window selector, script path or destination.
+
+Discovery launches the owned Document Preview profile without activation. Apply is disabled. It checks the unique title, process ownership and window identity before and after one bounded UIA value assertion. The assertion confirms the fixture binding and does not verify a save effect. The output identifies the typed inputs, evidence output, capabilities and verifier. Its status is candidate and effect verification is pending. The existing supervisor owns the fixture job. The discovery path issues no keyboard, pointer, save, or queue operation and requests no model.
+
+The first acquisition step should consume a candidate only in a separate owned validation fixture. Revalidate the candidate's binding and contract, plant a known synthetic expected value and exercise the existing independent disk-readback verifier against matching and deliberately mismatched artifacts. Produce a versioned validation receipt linked to the candidate and fixture run. Keep admission behind explicit operator review. A candidate or positive binding observation alone conveys no execution authority.

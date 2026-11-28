@@ -573,3 +573,11 @@ Thirty alternating pairs ran on the Ryzen 5 4600H Windows 11 workstation with 7.
 - The median wall-clock difference was 7.5 ms. The measurements do not establish a general speed advantage. The largest manual memory observation was an outlier. Worker measurements use sampled process-tree membership and can miss short-lived processes. Harness CPU includes the CIM sampler. At 30 runs, nearest-rank p99 is the maximum. The earlier direct-versus-queue comparison remains a separate experiment.
 
 Build with cargo build --release --locked --features composition-benchmark. Reproduce using Windows PowerShell 5.1 and tasks/Test-Handoff.ps1 -CompareManualComposition -Sessions 30 -MetricsFile with a fresh local output path. The test requires the arm marker in each receipt and verifies both outputs externally. Executable SHA-256 was 637525db623062d8130b3052ef2d6af1178bd3b07fd3033e0d0fc59c9c8e57f7.
+
+## Phase D discovery on Windows
+
+The owned Document Preview fixture qualified 5/5 candidates on the Ryzen 5 4600H Windows 11 workstation. Seven invalid inputs were rejected before fixture startup, including ambiguous application declarations, unknown application, capability mismatch, missing or unknown verifier, and oversized input. Interactive runs independently asserted the candidate envelope, checked foreground at 15 ms waits, and left no persistent queue or registry state in the isolated fixture root.
+
+From process start through exit, first run latency was 1124 ms. The next four runs had nearest-rank warm p50/max of 777/781 ms. Across all five runs, CLI CPU p50/max was 46.875/62.5 ms and UIA worker CPU p50/max was 31.25/62.5 ms. Peak sampled CLI private memory was 1.41 MiB, and the maximum concurrent CLI plus UIA sample was 3.88 MiB. PowerShell fixture startup is included in wall time. The separate fixture process is outside the reported CPU and memory measurements. Every response was 741 bytes including the line ending. No model calls were made.
+
+Reproduce with cargo build --release --locked and tasks/Test-SkillDiscovery.ps1 -Interactive -Runs 5. Run the same script without -Interactive for the unattended negative suite. The measured release executable SHA-256 was 4e93a23bd7019939953ac081ea43ea31102e06a0a8c493a132e1fb121442f047. Five runs qualify the fixture, with no general latency or resource claims about other applications.

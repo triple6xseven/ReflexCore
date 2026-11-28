@@ -1,0 +1,7 @@
+{
+  "schema": "reflexcore.discovery.descriptor.v1",
+  "applications": ["reflexcore.document-preview-fixture.v1"],
+  "operation": "artifact.verify_saved_text",
+  "capabilities": ["owned_artifact", "reopen_disk"],
+  "verifier": "bounded_ordinal_disk_readback_v1"
+}

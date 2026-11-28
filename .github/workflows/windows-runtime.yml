@@ -28,6 +28,9 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $result.binding.contract_version -ne 1 -or !$result.binding.background) { throw 'Invalid WinForms binding' }
           $result = & $exe learning bind $id 1 notepad foreground | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0 -or $result.binding.adapter -ne 'notepad' -or $result.binding.background) { throw 'Invalid Notepad binding' }
+      - name: Reject invalid discovery descriptors without opening a window
+        shell: powershell
+        run: ./tasks/Test-SkillDiscovery.ps1
       - name: Compile and check Studio
         # The visible fixture and its in-flight fault tests need an unlocked desktop.
         shell: powershell

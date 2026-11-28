@@ -27,6 +27,6 @@ manifests against explicitly trusted adapters.
 
 ## Phase C qualification and the next implementation
 
-Studio and MCP approvals, immutable attempts, the Notepad consent boundary, and the runtime's readback evidence have passed interactive qualification. Both supervisor crash intervals and the independent editor-to-readback benchmark are documented in UNIVERSAL-SKILL-RUNTIME.md and BENCHMARKS.md. Final release acceptance uses the exact published Windows CI result.
+Studio and MCP approvals, immutable attempts, the Notepad consent boundary, and the runtime's readback evidence have passed interactive qualification. Both supervisor crash intervals and the independent editor-to-readback benchmark are documented in UNIVERSAL-SKILL-RUNTIME.md and BENCHMARKS.md. Phase C closed at 2b92bff after Windows CI run 46078707512 passed.
 
-The first Phase D executable checkpoint is read-only candidate discovery. Add a CLI entry that consumes a bounded descriptor from an owned unfamiliar-application fixture. Emit a candidate with its verified application binding, typed inputs and outputs, required capabilities and verifier identity. A fixture with an ambiguous application, an undeclared capability or an absent verifier must be rejected. The command must neither register a candidate nor enqueue work. Admission and execution remain later steps.
+Phase D starts with `learning discover`, a read-only command that validates a bounded descriptor against the existing registry and observes the owned Document Preview fixture. It emits an unadmitted candidate. Next, require a run-bound fixture validation receipt from the existing independent verifier for matching and mismatched artifacts, before an operator can review admission.
