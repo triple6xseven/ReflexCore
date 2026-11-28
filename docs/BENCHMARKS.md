@@ -573,3 +573,14 @@ Thirty alternating pairs ran on the Ryzen 5 4600H Windows 11 workstation with 7.
 - The median wall-clock difference was 7.5 ms. The measurements do not establish a general speed advantage. The largest manual memory observation was an outlier. Worker measurements use sampled process-tree membership and can miss short-lived processes. Harness CPU includes the CIM sampler. At 30 runs, nearest-rank p99 is the maximum. The earlier direct-versus-queue comparison remains a separate experiment.
 
 Build with cargo build --release --locked --features composition-benchmark. Reproduce using Windows PowerShell 5.1 and tasks/Test-Handoff.ps1 -CompareManualComposition -Sessions 30 -MetricsFile with a fresh local output path. The test requires the arm marker in each receipt and verifies both outputs externally. Executable SHA-256 was 637525db623062d8130b3052ef2d6af1178bd3b07fd3033e0d0fc59c9c8e57f7.
+
+## Integration knowledge lookup (0.3.5)
+
+Fresh local Windows clone at `3038f22`, Ryzen 5 4600H, Windows 11, 7.37 GiB visible RAM. Each query launched a new release observer. Wall time includes process startup, Git, SQLite and output capture. No model calls. The operator queue and GPU were idle for this workload.
+
+- First unrelated explicit query: 536 ms, 209 stdout bytes, no SQLite index created. With no query, the plugin schedules no maintenance work.
+- First matching skill query: 1049 ms including index creation, 860 stdout bytes, 20,480-byte SQLite file. Four warm queries took 896, 890, 894 and 879 ms (median 892 ms). All returned the active verified-artifact contract.
+- Warm observer CPU ranged from 46.875 to 140.625 ms. Maximum private memory sampled every 15 ms across cold and warm requests was 1,155,072 bytes for the observer. Child Git processes and host memory are excluded. Wall time includes sampler overhead. Four samples are insufficient for a tail-latency claim.
+- Git directory plus three JSON shards totalled 9,443 working-file bytes. A historical Phase C query returned 786 bytes. Rebuilding after cache loss, dependency invalidation and foreign-component refusal are exercised by tasks/Test-RepositoryKnowledge.ps1.
+
+To reproduce, build the release observer, make a fresh named-branch clone, then run that executable from the clone root with `find auto universal unrelated`, `find auto universal artifact.verify_saved_text` five times, and `find auto universal phase-c-qualification`. Compare like-for-like hardware and checkout revision. No repository history scan, private transcript or external inference is required.

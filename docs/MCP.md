@@ -61,3 +61,7 @@ Developer checkpoints and the optional build provenance check are documented in 
 In a Git development checkout, build with tools/Measure-DevBuild.ps1 -Action Build before calling list_skills. The optional -DeveloperTools launcher switch adds get_validation_evidence to the same server; the Studio enable switch applies to both.
 
 The launcher accepts -RuntimeRoot for an existing runtime installation. Runtime tools resolve settings, projects and queue there. Developer tools resolve checkpoints and provenance in the launcher worktree. The runtime registry keeps its installed catalog behavior.
+
+## Integration development requests
+
+Plugin 0.3.5 uses the existing get_development_context schema. Provide the active cwd, branch and component. Use preflight=yes at a development boundary, memory_topic for exact historical recall, or memory_query for scoped discovery. An example is component=universal and memory_query=artifact.verify_saved_text. The response includes the source revision and validity. Runtime list_skills describes the installed runtime; a different developer checkout can have additional qualified skills. See [the integration map](INTEGRATION.md).

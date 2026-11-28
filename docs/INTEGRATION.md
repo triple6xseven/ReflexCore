@@ -35,3 +35,11 @@ On Windows run `cargo test --locked`, `cargo build --release --locked`, and `dot
 ## Continuation
 
 Recover the active objective, operation status and CI by exact SHA from the approved integration worktree. Consult the roadmap when no declaration is available. The Phase D experiment is on a separate branch. Its failed CI step must be reconciled before consideration for integration. Production skill acquisition, compatibility learning, generalized world modelling and an external skill SDK remain unqualified.
+
+## Local acceptance record
+
+At consolidation there were 27 remote heads, 31 pre-existing local branches and 17 original registered worktrees. Four trees had existing changes. Recovery refs and private backups were created before integration. Local main was at 2b3fefd and origin/main at 9ff7177. The single published Windows release was v0.7.1-alpha.2-windows.1. No dependency or asset licence changed.
+
+The combined checkout passed a locked Rust release build, 132 Rust tests (two ignored), Studio compilation and UI smoke, queue recovery and cancellation, supervisor loss during the terminal move, MCP background composition with two independently reopened outputs, developer provenance, worktree/branch and memory isolation, schema-1 rebuild and partitioned lookup. Packaging the ordinary handoff fixture exposed an unconditional developer guard dependency; the bridge now loads the guard only for developer tools. The matched-runtime fixture checks actual MCP submission and changed approval rejection. The installed split runtime continues to refuse unsupported composition.
+
+Foreground Notepad returned process_failed twice. An isolated adapter diagnostic identified foreground_unavailable. The refusal preserved the destination; a live foreground success on this combination remains outstanding. Historical Phase C and current checkout qualification are distinct. No game or companion policy changed. A relative Markdown link check covered 36 files (local file targets only).
