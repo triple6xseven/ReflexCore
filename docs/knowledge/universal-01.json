@@ -80,6 +80,39 @@
       "topic": "verified-artifact",
       "created": "2026-11-28",
       "validated": "2026-11-28"
+    },
+    {
+      "id": "discovery-utf8-01",
+      "kind": "contract",
+      "statement": "Read-only discovery accepts UTF-8 with one optional byte-order mark within the 4096-byte total descriptor limit.",
+      "rationale": "Windows PowerShell can prefix a native stdin stream with a BOM. Parsing must reach application, capability and verifier validation for the same logical descriptor in either encoding.",
+      "reference": "src/skill_registry/discovery.rs",
+      "commit": "f55f0f2214ab8ce36f962fd8ec97626c45aedd7c",
+      "dependencies": [
+        "src/skill_registry/discovery.rs",
+        "tasks/Test-SkillDiscovery.ps1"
+      ],
+      "component": "universal",
+      "topic": "discovery-encoding",
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "notepad-grant-01",
+      "kind": "constraint",
+      "statement": "Queued Notepad requires a verified foreground editor. A Windows refusal to grant activation leaves the effect unverified.",
+      "rationale": "The direct Unicode save verified, while the queue supervisor could not grant foreground permission to its worker. Editor identity and consent remain prerequisite checks.",
+      "reference": "docs/INTEGRATION.md",
+      "commit": "5ba990864257c72a79e5a623c05ede537e05b10b",
+      "dependencies": [
+        "tools/ReflexCore-Tray.cs",
+        "tools/ReflexCore-VisionHost.cs",
+        "tools/ReflexCore-VisionLoop.ps1"
+      ],
+      "component": "universal",
+      "topic": "notepad-foreground",
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
     }
   ]
 }

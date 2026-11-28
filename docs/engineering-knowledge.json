@@ -111,6 +111,26 @@
         "provenance",
         "tools/Measure-DevBuild.ps1"
       ]
+    },
+    {
+      "component": "universal",
+      "topic": "discovery-encoding",
+      "shard": "universal-01",
+      "keys": [
+        "descriptor",
+        "src/skill_registry/discovery.rs",
+        "tasks/Test-SkillDiscovery.ps1"
+      ]
+    },
+    {
+      "component": "universal",
+      "topic": "notepad-foreground",
+      "shard": "universal-01",
+      "keys": [
+        "foreground",
+        "notepad",
+        "tools/ReflexCore-VisionHost.cs"
+      ]
     }
   ]
 }
