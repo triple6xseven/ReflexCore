@@ -183,6 +183,16 @@
         "cs16",
         "games/cs16-practice/reflexcore_lobby_actor.inc"
       ]
+    },
+    {
+      "component": "universal",
+      "topic": "composition-encoding",
+      "shard": "universal-01",
+      "keys": [
+        "notepad",
+        "unicode",
+        "src/skill_registry/composition.rs"
+      ]
     }
   ]
 }

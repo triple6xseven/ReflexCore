@@ -298,3 +298,7 @@ The six-step Notepad composition succeeded once through Studio's supervised queu
 The live CLI/queue comparison and the independent end-to-end manual-versus-graph baseline are documented separately in BENCHMARKS.md. The latter verified 30/30 attempts per arm under the same authority and durability checks. A second kill test stopped the supervisor after it had replaced the running manifest with the staged verified receipt, just before the atomic history move. Recovery preserved both publications, discarded uncommitted verification, and emitted one interrupted receipt. The fault injection is compiled only in the owned test fixture.
 
 Phase C closed at `2b92bff` with successful Windows run 46078707512. The roadmap records the current continuation. Individual checkpoint sections above describe their original revision. See [the integration map](INTEGRATION.md) for current installation compatibility.
+
+### Queued Notepad Unicode regression
+
+The composition verifier consumes the exact Unicode fixture produced by the editor. A source encoding regression had changed the expected text and caused a valid edit and save to fail independent verification. The fix preserves strict ordinal equality and the existing Windows foreground policy. Use the queued Notepad and MCP composition fixtures described in [integration](INTEGRATION.md) to check the source and each derived file.
