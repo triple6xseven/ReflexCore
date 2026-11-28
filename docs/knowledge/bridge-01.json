@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "observer-pin-01",
+      "component": "bridge",
+      "topic": "observer-pin",
+      "kind": "decision",
+      "statement": "Install a hash-pinned native recovery observer outside the runtime build directory.",
+      "rationale": "A failed or interrupted runtime build can remove target/release/reflexcore.exe while recovery is still needed.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "4902fda6538d86c18adc57fdb80aff24eb6749dd",
+      "dependencies": [
+        "tools/Invoke-DevObserver.ps1",
+        "src/bin/reflex-observer.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "observer-pin-02",
+      "component": "bridge",
+      "topic": "observer-pin",
+      "kind": "decision",
+      "statement": "Check the installed observer against the launcher implementation before selecting worktree-local evidence.",
+      "rationale": "A shared launcher must not confuse a linked worktree checkpoint with its own branch. The runtime and its build stamp remain independent.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "e88b2f3c787f29149bd660a8754aaadbbcada2d7",
+      "dependencies": [
+        "tools/Invoke-DevObserver.ps1",
+        "src/bin/reflex-observer.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28",
+      "supersedes": "observer-pin-01"
+    },
+    {
+      "id": "build-from-target-01",
+      "component": "bridge",
+      "topic": "observer-alternatives",
+      "kind": "alternative",
+      "statement": "Recovery originally invoked the active runtime executable as its observer.",
+      "rationale": "The separate observer was introduced so failure or stale content in the active runtime build would not block recovering a checkpoint.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "4902fda6538d86c18adc57fdb80aff24eb6749dd",
+      "dependencies": [
+        "tools/Invoke-DevObserver.ps1"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    }
+  ]
+}

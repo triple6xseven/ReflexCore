@@ -52,6 +52,29 @@ try{
     Require ((GitOk @('-C',$local,'rev-parse','refs/remotes/origin/milestone')) -ceq $tracking) 'Fetch changed a tracking ref'
     Require ([IO.File]::ReadAllText((Join-Path $local 'docs/CODEX-INTEGRATION.md')) -ceq 'Uncommitted operator draft.') 'Fetch overwrote dirty file'
     [pscustomobject]@{result='pass';cold_ms=$cold;warm_ms=$warm;bytes=[Text.Encoding]::UTF8.GetByteCount(($packet|ConvertTo-Json -Depth 9 -Compress));index_bytes=(Get-Item -LiteralPath $index).Length}|ConvertTo-Json -Compress
+# A fresh process must route a bounded query to the committed shard in this clone.
+    $shards=Join-Path $local 'docs/knowledge'
+    [void][IO.Directory]::CreateDirectory($shards)
+    $catalog=Join-Path $local 'docs/engineering-knowledge.json'
+    $part=Join-Path $shards 'bridge-01.json'
+    Copy-Item -LiteralPath $catalog -Destination $part
+    $directory=@{schema=2;routes=@(@{component='bridge';topic='policy';shard='bridge-01';keys=@('artifact.verify_saved_text','docs/CODEX-INTEGRATION.md','recovery')})}
+    [IO.File]::WriteAllText($catalog,($directory|ConvertTo-Json -Depth 6))
+    GitOk @('-C',$local,'add','docs/knowledge','docs/engineering-knowledge.json')|Out-Null
+    GitOk @('-C',$local,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','route by capability')|Out-Null
+    Push-Location $local
+    try {
+        foreach($term in 'artifact.verify_saved_text','docs/CODEX-INTEGRATION.md','recovery','policy','bridge') {
+            $sample=& $exe find auto bridge $term|ConvertFrom-Json
+            Require (!$LASTEXITCODE -and $sample.knowledge.Count -eq 1 -and $sample.knowledge[0].status -ceq 'stale') 'Scoped search lost the dirty dependency'
+        }
+        foreach($scope in 'universal','mcp'){
+            $sample=& $exe find auto $scope recovery|ConvertFrom-Json
+            Require (!$LASTEXITCODE -and !$sample.knowledge.Count) 'A different component supplied knowledge'
+        }
+        $sample=& $exe find auto bridge unrelated|ConvertFrom-Json
+        Require (!$LASTEXITCODE -and !$sample.knowledge.Count) 'Unrelated query exposed records'
+    } finally {Pop-Location}
 }finally{
     $owned=[IO.Path]::GetFullPath($fixture)
     if([IO.Path]::GetDirectoryName($owned) -eq [IO.Path]::GetTempPath().TrimEnd('\') -and [IO.Path]::GetFileName($owned) -match '^reflex-durable-[a-f0-9]{32}$'){Remove-Item -LiteralPath $owned -Recurse -Force}

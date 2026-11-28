@@ -9,7 +9,7 @@ if($separateRuntime){
 [Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 Add-Type -Path @((Join-Path $PSScriptRoot 'ReflexCore-Queue.cs'),(Join-Path $PSScriptRoot 'ReflexCore-Mcp.cs'),(Join-Path $PSScriptRoot 'ReflexCore-McpLab.cs')) -ReferencedAssemblies 'System.Core.dll','System.Web.Extensions.dll'
-. (Join-Path $PSScriptRoot 'ReflexCore-DevGuard.ps1')
+if($DeveloperTools){. (Join-Path $PSScriptRoot 'ReflexCore-DevGuard.ps1')}
 $check = [Func[string]]{
     $record = & (Join-Path $root 'tools/Measure-DevBuild.ps1') -Action Check
     return $record
@@ -37,7 +37,11 @@ $reader = [Func[string,string,string,System.Collections.Generic.Dictionary[strin
         $targetPin=Join-Path $target.private 'reflex-observer/active-v2'
         if([IO.File]::ReadAllText($launcherPin) -cne [IO.File]::ReadAllText($targetPin)){throw 'Installed observer differs from the launcher observer'}
         $observerArguments=@('resume',$session,$scope)
-        if($request.ContainsKey('memory_topic')){
+        if($request.ContainsKey('memory_query')){
+            $query=$request['memory_query']
+            if($query -isnot [string] -or $query -cnotmatch '\A[A-Za-z0-9._/ -]{1,128}\z' -or $request.ContainsKey('memory_topic') -or $request.ContainsKey('memory_history') -or $request.ContainsKey('since_commit')){throw 'Invalid knowledge query'}
+            $observerArguments=@('find','auto',$scope,$query)
+        }elseif($request.ContainsKey('memory_topic')){
             $topic=$request['memory_topic']
             if($topic -isnot [string] -or $topic -cnotmatch '^[A-Za-z0-9-]{1,64}$'){throw 'Invalid engineering memory topic'}
             $operation='recall'
@@ -58,7 +62,7 @@ $reader = [Func[string,string,string,System.Collections.Generic.Dictionary[strin
         if($packet.tree -and $packet.tree -cne $expectedTree){throw 'Observer returned a foreign worktree identity'}
         $scopeInfo=@{tree=$expectedTree;head=$target.head;branch=$target.branch;historical=$target.historical}
         $packet | Add-Member -NotePropertyName binding -NotePropertyValue $scopeInfo
-        if(!$request.ContainsKey('memory_topic') -and $name -in 'get_development_context','get_validation_evidence'){
+        if(!$request.ContainsKey('memory_topic') -and !$request.ContainsKey('memory_query') -and $name -in 'get_development_context','get_validation_evidence'){
             $evidence=$null
             try { $evidence=& (Join-Path $root 'tools/Measure-DevBuild.ps1') -Action Check -Worktree $target.root | ConvertFrom-Json } catch {}
             if(!$evidence){$evidence=@{build='unknown';worktree_recovery_test='unknown'}}

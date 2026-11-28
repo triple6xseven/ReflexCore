@@ -1,6 +1,6 @@
 //! Scoped engineering decisions with explicit evidence and on-demand validation.
 #[path = "repository_knowledge.rs"]
-mod repository_knowledge;
+pub(super) mod repository_knowledge;
 
 use super::{git, Inputs, Result};
 use rusqlite::{params, Connection, OpenFlags};
@@ -195,11 +195,12 @@ pub(super) fn run(
     } else {
         Value::Null
     };
-    let knowledge = repository_knowledge::recall(
+    let knowledge = repository_knowledge::lookup(
         db_path.parent().ok_or("Missing Git common directory")?,
         &commit,
         component,
         topic,
+        false,
     )?;
     if !knowledge.is_empty() {
         records.truncate(2);

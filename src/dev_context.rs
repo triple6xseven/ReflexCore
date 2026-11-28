@@ -14,13 +14,19 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const COMMON: &[&str] = &["AGENTS.md", "Cargo.toml", "Cargo.lock", "docs/ROADMAP.md"];
+const COMMON: &[&str] = &[
+    "AGENTS.md",
+    "Cargo.toml",
+    "Cargo.lock",
+    "docs/ROADMAP.md",
+    "docs/engineering-knowledge.json",
+];
 const BRIDGE: &[&str] = &[
     "src/main.rs",
     "src/dev_context.rs",
     "src/engineering_memory.rs",
     "src/repository_knowledge.rs",
-    "docs/engineering-knowledge.json",
+    "docs/knowledge/bridge-01.json",
     "src/bin/reflex-observer.rs",
     "src/hook_arrival.rs",
     "tools/Invoke-DevObserver.ps1",
@@ -29,6 +35,7 @@ const BRIDGE: &[&str] = &[
     "docs/CODEX-INTEGRATION.md",
 ];
 const MCP: &[&str] = &[
+    "docs/knowledge/mcp-01.json",
     "tools/ReflexCore-Mcp.cs",
     "tools/ReflexCore-Mcp.ps1",
     "tools/ReflexCore-McpLab.cs",
@@ -38,7 +45,7 @@ const MCP: &[&str] = &[
 ];
 
 const UNIVERSAL: &[&str] = &[
-    "docs/engineering-knowledge.json",
+    "docs/knowledge/universal-01.json",
     "src/agent.rs",
     "src/flow.rs",
     "src/skill_registry.rs",
@@ -151,6 +158,40 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         "universal" => UNIVERSAL,
         _ => return Err("Unknown component".into()),
     };
+    if action == "find" {
+        let [query] = rest else {
+            return Err("Expected one knowledge query".into());
+        };
+        if fs::canonicalize(".")? != git_path("--show-toplevel")? {
+            return Err("Run from the worktree root".into());
+        }
+        let dir = git_path("--absolute-git-dir")?;
+        let tree = format!("{:x}", Sha256::digest(dir.as_os_str().as_encoded_bytes()));
+        let common = String::from_utf8(git(&[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ])?)?;
+        let head = String::from_utf8(git(&["rev-parse", "HEAD"])?)?;
+        let branch = String::from_utf8(git(&["symbolic-ref", "--short", "HEAD"])?)?;
+        let knowledge = engineering_memory::repository_knowledge::lookup(
+            Path::new(common.trim()),
+            head.trim(),
+            component,
+            query,
+            true,
+        )?;
+        if git(&["rev-parse", "HEAD"])? != head.as_bytes()
+            || git(&["symbolic-ref", "--short", "HEAD"])? != branch.as_bytes()
+        {
+            return Err("Worktree changed during knowledge retrieval".into());
+        }
+        println!(
+            "{}",
+            json!({"schema":1,"tree":tree,"scope":component,"branch":branch.trim(),"head":head.trim(),"knowledge":knowledge})
+        );
+        return Ok(());
+    }
     if matches!(action.as_str(), "remember" | "recall" | "recall-history") {
         if !engineering_memory::valid_topic(session) || (action != "remember" && rest.len() > 1) {
             return Err("Invalid engineering memory topic or arguments".into());

@@ -155,24 +155,13 @@ impl Record {
     }
 }
 
-pub(super) fn recall(
+fn read_topic(
+    blob: &str,
     common: &Path,
     head: &str,
     component: &str,
     topic: &str,
 ) -> Result<Vec<Value>> {
-    let pointer = format!("{head}:{CATALOG}");
-    let Ok(blob) = git(&["rev-parse", "--verify", &pointer]) else {
-        return Ok(Vec::new());
-    };
-    let blob = String::from_utf8(blob)?;
-    let blob = blob.trim();
-    let size = String::from_utf8(git(&["cat-file", "-s", blob])?)?
-        .trim()
-        .parse::<usize>()?;
-    if !oid(blob) || size > 65_536 {
-        return Err("Engineering catalog exceeds its budget".into());
-    }
     let mut db = Connection::open(common.join("reflex-knowledge-index-v1.sqlite"))?;
     db.busy_timeout(std::time::Duration::from_secs(2))?;
     db.execute_batch(SCHEMA)?;
@@ -227,7 +216,7 @@ pub(super) fn recall(
         )?;
         tx.commit()?;
     }
-    let mut query=db.prepare("SELECT record FROM knowledge WHERE blob=?1 AND component=?2 AND topic=?3 ORDER BY id DESC LIMIT 2")?;
+    let mut query=db.prepare("SELECT record FROM knowledge WHERE blob=?1 AND component=?2 AND topic=?3 ORDER BY rowid DESC LIMIT 2")?;
     let mut rows = query.query(params![blob, component, topic])?;
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
@@ -238,10 +227,149 @@ pub(super) fn recall(
         let newer:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM knowledge
             WHERE blob=?1 AND component=?2 AND topic=?3 AND json_extract(record,'$.supersedes')=?4)",
             params![blob,component,topic,record.id],|r|r.get(0))?;
+        if record.component != component || record.topic != topic {
+            return Err("Indexed scope mismatch".into());
+        }
         let status = record.status(head, newer);
         result.push(json!({"id":record.id,"schema":1,"kind":record.kind,"statement":record.statement,
             "rationale":record.rationale,"source":record.reference,"commit":record.commit,
             "dependencies":record.dependencies,"created":record.created,"validated":record.validated,"status":status}));
+    }
+    Ok(result)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Directory {
+    schema: u8,
+    routes: Vec<Route>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Route {
+    component: String,
+    topic: String,
+    shard: String,
+    keys: Vec<String>,
+}
+
+fn blob_at(head: &str, file: &str) -> Result<String> {
+    let blob = String::from_utf8(git(&["rev-parse", "--verify", &format!("{head}:{file}")])?)?;
+    let blob = blob.trim();
+    if !oid(blob)
+        || String::from_utf8(git(&["cat-file", "-s", blob])?)?
+            .trim()
+            .parse::<usize>()?
+            > 65536
+    {
+        return Err("Invalid knowledge blob size or identity".into());
+    }
+    Ok(blob.to_owned())
+}
+
+impl Route {
+    fn rank(&self, query: &str) -> u8 {
+        if self.topic == query {
+            return 3;
+        }
+        if self.component == query || self.keys.iter().any(|s| s.eq_ignore_ascii_case(query)) {
+            return 2;
+        }
+        if query.len() >= 3
+            && std::iter::once(&self.topic).chain(&self.keys).any(|key| {
+                key.split(|c: char| !c.is_ascii_alphanumeric())
+                    .any(|word| word.eq_ignore_ascii_case(query))
+            })
+        {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+pub(super) fn lookup(
+    common: &Path,
+    head: &str,
+    component: &str,
+    query: &str,
+    search: bool,
+) -> Result<Vec<Value>> {
+    if !plain(query, 128)
+        || !query
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-_./ ".contains(&c))
+    {
+        return Err("Invalid knowledge query".into());
+    }
+    // Older worktrees may have no durable catalogue or a single schema-1 catalogue.
+    if git(&["ls-tree", head, "--", CATALOG])?.is_empty() {
+        return Ok(Vec::new());
+    }
+    let root = blob_at(head, CATALOG)?;
+    let bytes = git(&["cat-file", "blob", &root])?;
+    let header: Value = serde_json::from_slice(&bytes)?;
+    if header["schema"] == 1 {
+        return read_topic(&root, common, head, component, query);
+    }
+    let directory: Directory = serde_json::from_slice(&bytes)?;
+    if directory.schema != 2 || directory.routes.len() > 512 {
+        return Err("Invalid catalogue directory".into());
+    }
+    let mut candidates = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for route in &directory.routes {
+        if !super::valid_topic(&route.shard)
+            || !super::valid_topic(&route.topic)
+            || !matches!(route.component.as_str(), "bridge" | "universal" | "mcp")
+            || route.keys.len() > 24
+            || route.keys.iter().any(|s| !plain(s, 128))
+            || !seen.insert((&route.component, &route.topic))
+        {
+            return Err("Invalid knowledge route".into());
+        }
+        if route.component != component {
+            continue;
+        }
+        let rank = route.rank(query);
+        if rank > 0 && (search || route.topic == query) {
+            candidates.push((std::cmp::Reverse(rank), &route.topic, &route.shard));
+        }
+    }
+    candidates.sort_unstable();
+    let mut result = Vec::new();
+    for (_, topic, shard) in candidates.into_iter().take(2) {
+        let file = format!("docs/knowledge/{shard}.json");
+        let blob = blob_at(head, &file)?;
+        let mut records = read_topic(&blob, common, head, component, topic)?;
+        if search {
+            records.truncate(1);
+        }
+        // Evidence is selected from the committed directory. Signal unpublished catalogue edits.
+        if !records.is_empty() {
+            for extra in [vec!["--cached"], vec![]] {
+                let status = Command::new("git")
+                    .args(["--literal-pathspecs", "diff", "--quiet"])
+                    .args(extra)
+                    .args([head, "--", CATALOG, &file])
+                    .status()?;
+                if !status.success() {
+                    for record in &mut records {
+                        if record["status"] == "active" {
+                            record["status"] = if status.code() == Some(1) {
+                                "stale"
+                            } else {
+                                "uncertain"
+                            }
+                            .into();
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        result.extend(records);
     }
     Ok(result)
 }

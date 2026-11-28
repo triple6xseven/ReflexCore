@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "verified-copy-contract-01",
+      "component": "universal",
+      "topic": "verified-artifact",
+      "kind": "contract",
+      "statement": "A subsequent transform consumes a verified predecessor snapshot and checks its own publication.",
+      "rationale": "A historical receipt cannot substitute for the live artifact. Staging and independent readback bind the evidence to the resulting bytes.",
+      "reference": "docs/COGNITIVE-RUNTIME.md",
+      "commit": "54e9b80c4bb878177e44c91c5520796c79c03ace",
+      "dependencies": [
+        "src/skill_registry/composition.rs",
+        "src/skill_registry/saved_text.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "composition-files-01",
+      "component": "universal",
+      "topic": "composition-timing",
+      "kind": "performance",
+      "statement": "The 30-pair file-only study gave manual p50/p95 of 12.375/16.891 ms and graph p50/p95 of 12.556/26.306 ms.",
+      "rationale": "Both arms independently verified every output. Editor and queue costs were outside this historical measurement.",
+      "reference": "docs/BENCHMARKS.md",
+      "commit": "54e9b80c4bb878177e44c91c5520796c79c03ace",
+      "dependencies": [
+        "src/skill_registry/composition.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "phase-c-queue-01",
+      "component": "universal",
+      "topic": "phase-c-queue",
+      "kind": "milestone",
+      "statement": "Studio and MCP exposed approved four- and six-step editor compositions.",
+      "rationale": "The queued request, exclusive attempt, and independently verified terminal receipt establish separate execution boundaries.",
+      "reference": "docs/UNIVERSAL-SKILL-RUNTIME.md",
+      "commit": "54e9b80c4bb878177e44c91c5520796c79c03ace",
+      "dependencies": [
+        "tools/ReflexCore-Queue.cs",
+        "src/skill_registry/composition.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "phase-c-close",
+      "component": "universal",
+      "topic": "phase-c-qualification",
+      "kind": "milestone",
+      "statement": "Phase C verified the six-step editor composition and recovery at both terminal commit intervals.",
+      "rationale": "The direct and interpreted orchestration independently reopened the source and two derived outputs. Windows CI 46078707512 passed on this evidence revision.",
+      "reference": "docs/UNIVERSAL-SKILL-RUNTIME.md",
+      "commit": "2b92bff6e4fc1f48c3f66edfe9c3609fc685ee1f",
+      "dependencies": [
+        "src/skill_registry/composition.rs",
+        "tasks/Test-Handoff.ps1"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    }
+  ]
+}

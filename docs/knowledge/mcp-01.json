@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "scope-fix-01",
+      "component": "mcp",
+      "topic": "revision-guard",
+      "kind": "defect",
+      "statement": "Developer recovery was fixed to validate the intended branch and active linked worktree.",
+      "rationale": "A current executable stamp alone could not establish which worktree supplied the checkpoint, sources, or test evidence.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "e88b2f3c787f29149bd660a8754aaadbbcada2d7",
+      "dependencies": [
+        "tools/ReflexCore-Mcp.ps1",
+        "tools/ReflexCore-DevGuard.ps1"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    }
+  ]
+}
