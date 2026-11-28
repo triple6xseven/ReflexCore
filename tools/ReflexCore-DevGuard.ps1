@@ -58,45 +58,84 @@ function Resolve-DevTarget([string]$Launcher,$Request) {
     [pscustomobject]@{root=$root;cwd=$cwd;private=(Get-DevDirectory $metadata[1]);common=$common;head=$metadata[3];branch=$wanted;historical=$historical}
 }
 
+function Invoke-DevRemoteGit([string]$Root,[string]$Arguments,[int]$TimeoutMs) {
+    $start=New-Object Diagnostics.ProcessStartInfo
+    $start.FileName=(Get-Command git.exe).Source
+    $start.Arguments=$Arguments
+    $start.WorkingDirectory=$Root
+    $start.UseShellExecute=$false
+    $start.CreateNoWindow=$true
+    $start.RedirectStandardOutput=$true
+    $start.RedirectStandardError=$true
+    $start.EnvironmentVariables['GIT_TERMINAL_PROMPT']='0'
+    $proc=[Diagnostics.Process]::Start($start)
+    try{
+        $out=$proc.StandardOutput.ReadToEndAsync()
+        $err=$proc.StandardError.ReadToEndAsync()
+        if(!$proc.WaitForExit($TimeoutMs)){
+            $proc.Kill()
+            return @{exit=-1;text=''}
+        }
+        if(!$out.Wait(500)){return @{exit=-1;text=''}}
+        @{exit=$proc.ExitCode;text=$out.Result.Trim()}
+    }finally{$proc.Dispose()}
+}
+
+function Get-DevAncestry([string]$Root,[string]$Branch,[string]$Head,[string]$Sha,[string]$FetchUrl) {
+    $ErrorActionPreference='Continue' # Native Git failures are classified by exit code.
+    $result=@{revision=$Sha;status='unknown';fetched=$false}
+    if($Sha -ceq $Head){$result.status='current';return $result}
+    if(!$Sha){return $result}
+    & git -C $Root cat-file -e "$Sha^{commit}" 2>$null
+    if($LASTEXITCODE -and $FetchUrl){
+        $fetch=Invoke-DevRemoteGit $Root "fetch --no-tags --no-write-fetch-head --no-auto-maintenance --refmap= $FetchUrl refs/heads/$Branch" 8000
+        if($fetch.exit){$result.status='offline';return $result}
+        $result.fetched=$true
+    }
+    $counts=& git -C $Root rev-list --left-right --count "$Head...$Sha" 2>$null
+    if($LASTEXITCODE -or $counts -notmatch '^(\d+)\s+(\d+)$'){return $result}
+    $result.ahead=[long]$Matches[1]
+    $result.behind=[long]$Matches[2]
+    $result.status=if(!$result.ahead){'behind'}elseif(!$result.behind){'ahead'}else{'diverged'}
+    if($result.behind){
+        $result.introduced=@(& git -C $Root log -6 --format=%H "$Head..$Sha" 2>$null)
+        $base=& git -C $Root merge-base $Head $Sha 2>$null
+        if(!$LASTEXITCODE){
+            $groups=[ordered]@{
+                execution=@('src/flow.rs','src/agent.rs','src/skill_registry','tasks/compose-text.ps1')
+                queue=@('tools/ReflexCore-Queue.cs','tools/ReflexCore-Tray.cs','tools/ReflexCore-QueuedWorker.ps1')
+                developer_bridge=@('src/dev_context.rs','src/engineering_memory.rs','src/repository_knowledge.rs','tools/ReflexCore-DevGuard.ps1','tools/ReflexCore-Mcp.ps1','tools/ReflexCore-Mcp.cs','plugins/reflexcore')
+                contracts=@('Cargo.toml','Cargo.lock','AGENTS.md','docs')
+            }
+            $result.affected_components=@(foreach($group in $groups.Keys){
+                $paths=$groups[$group]
+                & git -C $Root diff --quiet $base $Sha -- @paths 2>$null
+                if($LASTEXITCODE -eq 1){$group}
+            })
+        }
+    }
+    $result
+}
+
 function Get-DevRemote([string]$Root,[string]$Branch,[string]$Head,[bool]$Refresh) {
+    $ErrorActionPreference='Continue'
     $sha=$null
-    $status='unknown'
+    $url=$null
     if($Refresh){
         $origin=Get-DevGit $Root @('remote','get-url','origin')
         if($origin -cnotmatch '^https://github\.com/triple6xseven/ReflexCore(?:\.git)?$'){return @{revision=$null;status='unknown'}}
-        $start=New-Object Diagnostics.ProcessStartInfo
-        $start.FileName=(Get-Command git.exe).Source
-        $start.Arguments="ls-remote --exit-code https://github.com/triple6xseven/ReflexCore.git refs/heads/$Branch"
-        $start.WorkingDirectory=$Root
-        $start.UseShellExecute=$false
-        $start.CreateNoWindow=$true
-        $start.RedirectStandardOutput=$true
-        $start.RedirectStandardError=$true
-        $start.EnvironmentVariables['GIT_TERMINAL_PROMPT']='0'
-        $proc=[Diagnostics.Process]::Start($start)
-        try{
-            $out=$proc.StandardOutput.ReadToEndAsync()
-            $err=$proc.StandardError.ReadToEndAsync()
-            if(!$proc.WaitForExit(6000)){
-                $proc.Kill()
-                return @{revision=$null;status='offline'}
-            }
-            if($proc.ExitCode -eq 2){return @{revision=$null;status='unknown'}}
-            if($proc.ExitCode){return @{revision=$null;status='offline'}}
-            if($out.GetAwaiter().GetResult().Trim() -cmatch '^([a-f0-9]{40})\s+refs/heads/[A-Za-z0-9._/-]+$'){$sha=$Matches[1]}
-        } finally {$proc.Dispose()}
+        $url='https://github.com/triple6xseven/ReflexCore.git'
+        $probe=Invoke-DevRemoteGit $Root "ls-remote --exit-code $url refs/heads/$Branch" 6000
+        if($probe.exit -eq 2){return @{revision=$null;status='unknown'}}
+        if($probe.exit){return @{revision=$null;status='offline'}}
+        if($probe.text -cmatch '^([a-f0-9]{40})\s+refs/heads/[A-Za-z0-9._/-]+$'){$sha=$Matches[1]}
     }else{
         $candidate=& git -C $Root rev-parse --verify "refs/remotes/origin/$Branch" 2>$null
         if(!$LASTEXITCODE -and $candidate -cmatch '^[a-f0-9]{40}$'){$sha=$candidate}
     }
-    if($sha -ceq $Head){$status='current'}
-    elseif($sha){
-        $counts=& git -C $Root rev-list --left-right --count "$Head...${sha}" 2>$null
-        if(!$LASTEXITCODE -and $counts -match '^(\d+)\s+(\d+)$'){
-            $status=if($Matches[1] -eq '0'){'behind'}elseif($Matches[2] -eq '0'){'ahead'}else{'diverged'}
-        }
-    }
-    @{revision=$sha;status=$status;source=$(if($Refresh){'remote'}else{'tracking_ref'})}
+    $result=Get-DevAncestry $Root $Branch $Head $sha $url
+    $result.source=if($Refresh){'remote'}else{'tracking_ref'}
+    $result
 }
 
 function Get-DevPreflight($Target,[string]$Launcher,[string]$Runtime) {

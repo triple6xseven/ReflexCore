@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "observer-pin-01",
+      "component": "bridge",
+      "topic": "observer-pin",
+      "kind": "decision",
+      "statement": "Install a hash-pinned native recovery observer outside the runtime build directory.",
+      "rationale": "A failed or interrupted runtime build can remove target/release/reflexcore.exe while recovery is still needed.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "4902fda6538d86c18adc57fdb80aff24eb6749dd",
+      "dependencies": [
+        "tools/Invoke-DevObserver.ps1",
+        "src/bin/reflex-observer.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "observer-pin-02",
+      "component": "bridge",
+      "topic": "observer-pin",
+      "kind": "decision",
+      "statement": "Check the installed observer against the launcher implementation before selecting worktree-local evidence.",
+      "rationale": "A shared launcher must not confuse a linked worktree checkpoint with its own branch. The runtime and its build stamp remain independent.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "e88b2f3c787f29149bd660a8754aaadbbcada2d7",
+      "dependencies": [
+        "tools/Invoke-DevObserver.ps1",
+        "src/bin/reflex-observer.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28",
+      "supersedes": "observer-pin-01"
+    },
+    {
+      "id": "build-from-target-01",
+      "component": "bridge",
+      "topic": "observer-alternatives",
+      "kind": "alternative",
+      "statement": "Recovery originally invoked the active runtime executable as its observer.",
+      "rationale": "The separate observer was introduced so failure or stale content in the active runtime build would not block recovering a checkpoint.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "4902fda6538d86c18adc57fdb80aff24eb6749dd",
+      "dependencies": [
+        "tools/Invoke-DevObserver.ps1"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "scope-fix-01",
+      "component": "mcp",
+      "topic": "revision-guard",
+      "kind": "defect",
+      "statement": "Developer recovery was fixed to validate the intended branch and active linked worktree.",
+      "rationale": "A current executable stamp alone could not establish which worktree supplied the checkpoint, sources, or test evidence.",
+      "reference": "docs/CODEX-INTEGRATION.md",
+      "commit": "e88b2f3c787f29149bd660a8754aaadbbcada2d7",
+      "dependencies": [
+        "tools/ReflexCore-Mcp.ps1",
+        "tools/ReflexCore-DevGuard.ps1"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "verified-copy-contract-01",
+      "component": "universal",
+      "topic": "verified-artifact",
+      "kind": "contract",
+      "statement": "A subsequent transform consumes a verified predecessor snapshot and checks its own publication.",
+      "rationale": "A historical receipt cannot substitute for the live artifact. Staging and independent readback bind the evidence to the resulting bytes.",
+      "reference": "docs/COGNITIVE-RUNTIME.md",
+      "commit": "54e9b80c4bb878177e44c91c5520796c79c03ace",
+      "dependencies": [
+        "src/skill_registry/composition.rs",
+        "src/skill_registry/saved_text.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "composition-files-01",
+      "component": "universal",
+      "topic": "composition-timing",
+      "kind": "performance",
+      "statement": "The 30-pair file-only study gave manual p50/p95 of 12.375/16.891 ms and graph p50/p95 of 12.556/26.306 ms.",
+      "rationale": "Both arms independently verified every output. Editor and queue costs were outside this historical measurement.",
+      "reference": "docs/BENCHMARKS.md",
+      "commit": "54e9b80c4bb878177e44c91c5520796c79c03ace",
+      "dependencies": [
+        "src/skill_registry/composition.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    },
+    {
+      "id": "phase-c-queue-01",
+      "component": "universal",
+      "topic": "phase-c-queue",
+      "kind": "milestone",
+      "statement": "Studio and MCP exposed approved four- and six-step editor compositions.",
+      "rationale": "The queued request, exclusive attempt, and independently verified terminal receipt establish separate execution boundaries.",
+      "reference": "docs/UNIVERSAL-SKILL-RUNTIME.md",
+      "commit": "54e9b80c4bb878177e44c91c5520796c79c03ace",
+      "dependencies": [
+        "tools/ReflexCore-Queue.cs",
+        "src/skill_registry/composition.rs"
+      ],
+      "created": "2026-11-28",
+      "validated": "2026-11-28"
+    }
+  ]
+}

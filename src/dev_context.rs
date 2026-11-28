@@ -19,6 +19,8 @@ const BRIDGE: &[&str] = &[
     "src/main.rs",
     "src/dev_context.rs",
     "src/engineering_memory.rs",
+    "src/repository_knowledge.rs",
+    "docs/engineering-knowledge.json",
     "src/bin/reflex-observer.rs",
     "src/hook_arrival.rs",
     "tools/Invoke-DevObserver.ps1",
@@ -36,6 +38,7 @@ const MCP: &[&str] = &[
 ];
 
 const UNIVERSAL: &[&str] = &[
+    "docs/engineering-knowledge.json",
     "src/agent.rs",
     "src/flow.rs",
     "src/skill_registry.rs",

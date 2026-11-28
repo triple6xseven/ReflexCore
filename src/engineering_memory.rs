@@ -1,4 +1,7 @@
 //! Scoped engineering decisions with explicit evidence and on-demand validation.
+#[path = "repository_knowledge.rs"]
+mod repository_knowledge;
+
 use super::{git, Inputs, Result};
 use rusqlite::{params, Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -192,7 +195,16 @@ pub(super) fn run(
     } else {
         Value::Null
     };
+    let knowledge = repository_knowledge::recall(
+        db_path.parent().ok_or("Missing Git common directory")?,
+        &commit,
+        component,
+        topic,
+    )?;
+    if !knowledge.is_empty() {
+        records.truncate(2);
+    }
     Ok(
-        json!({"schema":1,"tree":tree,"scope":component,"branch":branch,"topic":topic,"records":records,"changes":changes}),
+        json!({"schema":1,"tree":tree,"scope":component,"branch":branch,"topic":topic,"records":records,"knowledge":knowledge,"changes":changes}),
     )
 }
